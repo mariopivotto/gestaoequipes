@@ -1882,41 +1882,8 @@ const ProgramacaoSemanalComponent = () => {
             tarefas: tarefas || []
         });
         setIsGerenciarTarefaModalOpen(true);
-    };
-
-    const renderCabecalhoDias = () => {
-        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana) return null;
-        const dias = [];
-        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
-        const hojeFormatado = new Date().toISOString().split('T')[0]; 
-
-        for (let i = 0; i < DIAS_SEMANA.length; i++) {
-            const dataDia = new Date(dataInicio);
-            dataDia.setUTCDate(dataInicio.getUTCDate() + i);
-            const diaFormatadoAtual = dataDia.toISOString().split('T')[0];
-            const isHoje = diaFormatadoAtual === hojeFormatado;
-
-            dias.push(
-                <th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>
-                    {dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA[i]}
-                </th>
-            );
-        }
-        return dias;
-    };
-
-    const renderCelulasTarefas = (funcionarioId) => {
-        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dias) {
-             return Array(DIAS_SEMANA.length).fill(null).map((_, index) => (
-                <td key={`placeholder-${funcionarioId}-${index}`} className="border p-2 min-h-[80px] h-20"></td>
-            ));
-        }
-        
-        const celulas = [];
-        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
-        const hojeFormatado = new Date().toISOString().split('T')[0]; 
-
-        for (let i = 0; i < DIAS_SEMANA.length; i++) {
+    };    const renderCabecalhoDias = () => {\n        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {\n            console.warn("[renderCabecalhoDias] dataInicioSemana inválida ou não é Timestamp:", dadosProgramacao?.dataInicioSemana);\n            return Array(DIAS_SEMANA.length).fill(null).map((_, i) => <th key={`header-dia-err-${i}`} className="px-3 py-2 border text-xs font-medium text-white bg-red-600">Data Inválida</th>);\n        }\n        const dias = [];\n        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();\n        const hojeFormatado = new Date().toISOString().split('T')[0]; \n\n        for (let i = 0; i < DIAS_SEMANA.length; i++) {\n            const dataDia = new Date(dataInicio);\n            dataDia.setUTCDate(dataInicio.getUTCDate() + i);\n            const diaFormatadoAtual = dataDia.toISOString().split('T')[0];\n            const isHoje = diaFormatadoAtual === hojeFormatado;\n\n            dias.push(\n                <th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>
+                    {dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA[i]}\n                </th>\n            );\n        }\n        return dias;\n    };erCelulasTarefas = (funcionarioI        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !dadosProgramacao.dias) {\n            console.warn("[renderCelulasTarefas] dataInicioSemana inválida ou não é Timestamp, ou dias ausentes:", dadosProgramacao);\n            return Array(DIAS_SEMANA.length).fill(null).map((_, index) => (\n                <td key={`placeholder-err-${funcionarioId}-${index}`} className="border p-2 min-h-[80px] h-20 bg-red-100 text-red-700 text-xs">Erro: Data inválida</td>\n            ));\n        }\n        \n        const celulas = [];\n        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();\n        const hojeFormatado = new Date().toISOString().split(\'T\')[0];       for (let i = 0; i < DIAS_SEMANA.length; i++) {
             const dataDiaAtual = new Date(dataInicio); 
             dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); 
             const diaFormatado = dataDiaAtual.toISOString().split('T')[0]; 
