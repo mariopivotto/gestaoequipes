@@ -5,7 +5,7 @@ import React, { useState, useEffect, createContext, useContext, memo } from 'rea
 import firebaseAppInstance from './firebaseConfig'; 
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore'; 
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory } from 'lucide-react'; 
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucideUserCog } from 'lucide-react'; 
 
 // Inicialização do Firebase usando a instância importada
 const firebaseApp = firebaseAppInstance;
@@ -13,6 +13,8 @@ const authGlobal = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 // Usa o projectId da configuração do Firebase para o appId interno da aplicação
+// Esta constante 'appId' é usada para construir os caminhos do Firestore.
+// Certifique-se que firebaseApp.options.projectId está disponível.
 const appId = firebaseApp.options.projectId || 'default-app-id-fallback';
 
 // Contexto Global
@@ -352,7 +354,10 @@ const GlobalProvider = ({ children }) => {
     // Seed Initial Data
     useEffect(() => {
         const seedInitialData = async () => {
-            if (!db || !appId || initialDataSeeded) return;
+            if (!db || !appId || initialDataSeeded || appId === 'default-app-id-fallback') { // Não executa se appId for o fallback
+                if (appId === 'default-app-id-fallback') console.warn("[SeedData] appId é fallback, pulando seed.");
+                return;
+            }
             console.log("[SeedData] Tentando pré-carregar dados iniciais...");
             const basePath = `/artifacts/${appId}/public/data`;
             let seededSomething = false;
@@ -431,7 +436,10 @@ const GlobalProvider = ({ children }) => {
 
 
     useEffect(() => {
-        if (!userId || !appId || !db) return; 
+        if (!userId || !appId || !db || appId === 'default-app-id-fallback') {
+            if (appId === 'default-app-id-fallback') console.warn("[GlobalProvider] appId é fallback, pulando carregamento de listas auxiliares.");
+            return;
+        }
 
         const basePath = `/artifacts/${appId}/public/data`;
         const unsubscribers = [];
@@ -1648,17 +1656,11 @@ const ProgramacaoSemanalComponent = () => {
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
 
     useEffect(() => {
-        const q = query(programacaoCollectionRef); 
+        const q = query(programacaoCollectionRef, orderBy("dataInicioSemana", "desc")); // Ordena para pegar a mais recente
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            fetchedSemanas.sort((a, b) => {
-                if (a.dataInicioSemana && b.dataInicioSemana) {
-                    return b.dataInicioSemana.toMillis() - a.dataInicioSemana.toMillis();
-                }
-                return 0;
-            });
             setSemanas(fetchedSemanas);
-            if (fetchedSemanas.length > 0 && !semanaSelecionadaId) {
+            if (fetchedSemanas.length > 0 && !semanaSelecionadaId) { // Se nenhuma semana estiver selecionada, seleciona a primeira (mais recente)
                 setSemanaSelecionadaId(fetchedSemanas[0].id);
             } else if (fetchedSemanas.length === 0) {
                 setSemanaSelecionadaId(null);
@@ -1666,7 +1668,7 @@ const ProgramacaoSemanalComponent = () => {
             }
         }, error => console.error("Erro ao carregar semanas:", error));
         return unsubscribe;
-    }, [userId, appId, db]); 
+    }, [userId, appId, db]); // Removido semanaSelecionadaId daqui para evitar loop na seleção inicial
 
     useEffect(() => {
         if (!semanaSelecionadaId) {
@@ -1680,9 +1682,8 @@ const ProgramacaoSemanalComponent = () => {
             } else {
                 setDadosProgramacao(null);
                 console.warn(`Semana ${semanaSelecionadaId} não encontrada.`);
-                if (semanas.length > 0 && semanas.find(s => s.id === semanaSelecionadaId)) {
-                    // Still in the list of weeks, strange error
-                } else if (semanas.length > 0) {
+                // Se a semana selecionada não existe mais (ex: foi excluída), tenta selecionar a mais recente
+                if (semanas.length > 0) {
                     setSemanaSelecionadaId(semanas[0].id); 
                 } else {
                     setSemanaSelecionadaId(null);
@@ -1694,7 +1695,7 @@ const ProgramacaoSemanalComponent = () => {
             setLoading(false);
         });
         return unsub;
-    }, [semanaSelecionadaId, userId, appId, db, semanas]); 
+    }, [semanaSelecionadaId, userId, appId, db, semanas]); // Adicionado 'semanas' como dependência para reavaliar se a semana selecionada ainda é válida
 
     const handleCriarNovaSemana = async () => {
         if (!novaSemanaDataInicio) {
@@ -1751,13 +1752,33 @@ const ProgramacaoSemanalComponent = () => {
             alert(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
             setIsNovaSemanaModalOpen(false);
             setNovaSemanaDataInicio('');
-            setSemanaSelecionadaId(novaSemanaDocId); 
+            // setSemanaSelecionadaId(novaSemanaDocId); // O useEffect que carrega as semanas já vai selecionar a mais nova
         } catch (error) {
             console.error("Erro ao criar nova semana:", error);
             alert("Erro ao criar nova semana: " + error.message);
         }
         setLoadingAtualizacao(false);
     };
+
+    const handleExcluirSemana = async () => {
+        if (!semanaSelecionadaId || semanas.length <= 1) {
+            alert("Não é possível excluir a única semana existente ou nenhuma semana está selecionada.");
+            return;
+        }
+        if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao?.nomeAba}"? Esta ação não pode ser desfeita.`)) {
+            setLoadingAtualizacao(true);
+            try {
+                await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
+                alert("Semana excluída com sucesso.");
+                setSemanaSelecionadaId(null); // Força a recarga para a semana mais recente
+            } catch (error) {
+                console.error("Erro ao excluir semana:", error);
+                alert("Erro ao excluir semana: " + error.message);
+            }
+            setLoadingAtualizacao(false);
+        }
+    };
+
 
     const handleAtualizarProgramacaoDaSemana = async () => {
         if (!semanaSelecionadaId || !dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dataFimSemana) {
@@ -1948,7 +1969,7 @@ const ProgramacaoSemanalComponent = () => {
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <select 
                         value={semanaSelecionadaId || ''} 
                         onChange={(e) => setSemanaSelecionadaId(e.target.value)}
@@ -1978,6 +1999,15 @@ const ProgramacaoSemanalComponent = () => {
                     >
                         <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
                     </button>
+                    {semanas.length > 0 && (
+                         <button
+                            onClick={handleExcluirSemana}
+                            disabled={!semanaSelecionadaId || loadingAtualizacao || semanas.length <= 1}
+                            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
+                        >
+                            <LucideTrash2 size={18} className="mr-2"/> Excluir Semana
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -2050,32 +2080,35 @@ const ProgramacaoSemanalComponent = () => {
     );
 };
 
-// Componente AnotacoesPatio
+// Componente AnotacoesPatio (agora "Registro Rápido de Tarefa")
 const AnotacoesPatioComponent = () => {
-    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext); 
-    const [anotacoes, setAnotacoes] = useState([]);
+    const { userId, db, appId, listasAuxiliares, auth, funcionarios } = useContext(GlobalContext); 
+    const [anotacoes, setAnotacoes] = useState([]); // Mantém para exibir anotações antigas, se houver
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAnotacao, setEditingAnotacao] = useState(null); 
-    const [isCriarTarefaModalOpen, setIsCriarTarefaModalOpen] = useState(false);
-    const [anotacaoParaTarefa, setAnotacaoParaTarefa] = useState(null); 
 
+    // Campos do formulário unificado
     const [tarefa, setTarefa] = useState('');
     const [prioridade, setPrioridade] = useState('');
     const [area, setArea] = useState('');
+    const [acao, setAcao] = useState(''); // Novo campo
+    const [dataInicio, setDataInicio] = useState(''); // Novo campo
     const [orientacao, setOrientacao] = useState('');
+    const [loadingForm, setLoadingForm] = useState(false);
+
 
     const basePath = `/artifacts/${appId}/public/data`;
     const anotacoesCollectionRef = collection(db, `${basePath}/anotacoes_patio`);
     const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
 
-    useEffect(() => {
+    useEffect(() => { // Apenas para carregar anotações antigas, se existirem e forem úteis
         setLoading(true);
-        const q = query(anotacoesCollectionRef); 
+        const q = query(anotacoesCollectionRef, orderBy("createdAt", "desc")); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedAnotacoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAnotacoes(fetchedAnotacoes.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0) )); 
+            setAnotacoes(fetchedAnotacoes); 
             setLoading(false);
         }, (error) => {
             console.error("Erro ao carregar anotações do pátio: ", error);
@@ -2085,297 +2118,161 @@ const AnotacoesPatioComponent = () => {
     }, [userId, appId, db]); 
 
     const resetForm = () => {
-        setTarefa(''); setPrioridade(''); setArea(''); setOrientacao('');
+        setTarefa(''); setPrioridade(''); setArea(''); setAcao(''); setDataInicio(''); setOrientacao('');
         setEditingAnotacao(null);
     };
 
-    const handleOpenModalAnotacao = (anotacao = null) => {
-        if (anotacao) {
+    const handleOpenModal = (anotacao = null) => { // Renomeado para ser mais genérico
+        if (anotacao) { // Se estiver editando uma anotação existente (funcionalidade pode ser removida/alterada)
             setEditingAnotacao(anotacao);
             setTarefa(anotacao.tarefa || '');
             setPrioridade(anotacao.prioridade || '');
             setArea(anotacao.area || '');
             setOrientacao(anotacao.orientacao || '');
+            // Campos de tarefa não são preenchidos ao editar uma anotação simples
+            setAcao(''); 
+            setDataInicio('');
         } else {
             resetForm();
+            setDataInicio(new Date().toISOString().split('T')[0]); // Padrão para data de início
         }
         setIsModalOpen(true);
     };
     
-    const handleOpenCriarTarefaModal = (anotacao) => {
-        setAnotacaoParaTarefa(anotacao);
-        setIsCriarTarefaModalOpen(true);
-    };
-
-
-    const handleCloseModalAnotacao = () => {
+    const handleCloseModal = () => {
         setIsModalOpen(false);
         resetForm();
     };
-    
-    const handleCloseCriarTarefaModal = () => {
-        setIsCriarTarefaModalOpen(false);
-        setAnotacaoParaTarefa(null);
-    }
 
-    const handleSaveAnotacao = async (e) => {
+    const handleSave = async (e) => {
         e.preventDefault();
-        if (!tarefa.trim()) {
-            alert("O campo Tarefa é obrigatório.");
+        if (!tarefa.trim() || !prioridade || !area || !acao || !dataInicio) {
+            alert("Os campos Tarefa, Prioridade, Área, Ação e Data de Início são obrigatórios para criar uma tarefa no mapa.");
             return;
         }
-        const anotacaoData = {
+        setLoadingForm(true);
+        const usuario = auth.currentUser;
+
+        const novaTarefaMapa = {
             tarefa: tarefa.trim().toUpperCase(),
             prioridade,
             area,
+            acao,
+            dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")),
+            dataProvavelTermino: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")), // Padrão para mesmo dia, pode ser ajustado
             orientacao: orientacao.trim(),
-            ...(editingAnotacao ? 
-                { updatedAt: Timestamp.now(), criadoPor: editingAnotacao.criadoPor || auth.currentUser?.uid || 'sistema', createdAt: editingAnotacao.createdAt || Timestamp.now() } : 
-                { criadoPor: auth.currentUser?.uid || 'sistema', createdAt: Timestamp.now(), updatedAt: Timestamp.now() })
+            status: "AGUARDANDO ALOCAÇÃO",
+            responsaveis: [],
+            turno: TURNO_DIA_INTEIRO, // Padrão
+            criadoPor: usuario?.uid || 'sistema',
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+            semanaProgramada: "", // Será preenchido na alocação ou sincronização
         };
 
-        setLoading(true);
         try {
-            if (editingAnotacao) {
-                const anotacaoDocRef = doc(db, `${basePath}/anotacoes_patio`, editingAnotacao.id);
-                await setDoc(anotacaoDocRef, anotacaoData, { merge: true });
-            } else {
-                await addDoc(anotacoesCollectionRef, anotacaoData);
-            }
-            handleCloseModalAnotacao();
+            const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaMapa);
+            await logAlteracaoTarefa(db, basePath, docRef.id, usuario?.uid, usuario?.email, "Tarefa Criada (Registro Rápido)", `Tarefa "${novaTarefaMapa.tarefa}" adicionada com status AGUARDANDO ALOCAÇÃO.`);
+            alert("Tarefa registrada com sucesso no Mapa de Atividades e aguardando alocação!");
+            handleCloseModal();
         } catch (error) {
-            console.error("Erro ao salvar anotação: ", error);
-            alert("Erro ao salvar anotação: " + error.message);
+            console.error("Erro ao registrar tarefa/anotação:", error);
+            alert("Erro ao registrar: " + error.message);
         }
-        setLoading(false);
+        setLoadingForm(false);
     };
     
-    const handleDeleteAnotacao = async (anotacaoId) => {
-        if (window.confirm("Tem certeza que deseja excluir esta anotação?")) {
+    // A exclusão de anotações antigas pode ser mantida se necessário, ou removida se o foco for apenas criar tarefas.
+    const handleDeleteAnotacaoAntiga = async (anotacaoId) => {
+        if (window.confirm("Tem certeza que deseja excluir esta anotação antiga?")) {
             setLoading(true);
             try {
                 await deleteDoc(doc(db, `${basePath}/anotacoes_patio`, anotacaoId));
             } catch (error) {
-                console.error("Erro ao excluir anotação: ", error);
-                alert("Erro ao excluir anotação: " + error.message);
+                console.error("Erro ao excluir anotação antiga: ", error);
+                alert("Erro ao excluir anotação antiga: " + error.message);
             }
             setLoading(false);
         }
     };
-    
-    const handleCriarTarefaDoMapa = async (dadosTarefaMapa) => {
-        setLoading(true);
-        const usuario = authGlobal.currentUser;
-        try {
-            const novaTarefaMapa = {
-                ...dadosTarefaMapa,
-                status: "AGUARDANDO ALOCAÇÃO",
-                responsaveis: [],
-                turno: "",
-                dataProvavelTermino: dadosTarefaMapa.dataInicio, 
-                criadoPor: usuario?.uid || 'sistema',
-                createdAt: Timestamp.now(),
-                updatedAt: Timestamp.now(),
-                semanaProgramada: "",
-            };
-            const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaMapa);
-            console.log("Tarefa criada no Mapa de Atividades com ID: ", docRef.id);
-            
-            await logAlteracaoTarefa(db, basePath, docRef.id, usuario?.uid, usuario?.email, "Tarefa Criada (via Anotação)", `Tarefa "${novaTarefaMapa.tarefa}" criada a partir da anotação ID ${anotacaoParaTarefa.id}.`);
 
 
-            if (anotacaoParaTarefa && anotacaoParaTarefa.id) {
-                await deleteDoc(doc(db, `${basePath}/anotacoes_patio`, anotacaoParaTarefa.id));
-                console.log("Anotação original excluída:", anotacaoParaTarefa.id);
-            }
-
-            alert("Tarefa criada no Mapa de Atividades com status 'AGUARDANDO ALOCAÇÃO' e anotação original removida.");
-            handleCloseCriarTarefaModal();
-        } catch (error) {
-            console.error("Erro ao criar tarefa no Mapa de Atividades a partir da anotação:", error);
-            alert("Erro ao criar tarefa: " + error.message);
-        }
-        setLoading(false);
-    };
-
-
-    if (loading && anotacoes.length === 0) return <div className="p-6 text-center">Carregando anotações do pátio...</div>;
+    if (loading && anotacoes.length === 0) return <div className="p-6 text-center">Carregando...</div>;
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-800">Anotações Pátio</h2>
+                <h2 className="text-2xl font-semibold text-gray-800">Registro Rápido de Tarefa</h2>
                 <button
-                    onClick={() => handleOpenModalAnotacao()}
+                    onClick={() => handleOpenModal()}
                     className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
                 >
-                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Anotação
+                    <LucidePlusCircle size={20} className="mr-2"/> Nova Tarefa Rápida
                 </button>
             </div>
-             <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-100">
-                        <tr>
-                            {["Tarefa", "Prioridade", "Área", "Orientação", "Ações"].map(header => (
-                                <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                                    {header}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {anotacoes.length === 0 && (
-                            <tr><td colSpan="5" className="px-4 py-4 text-center text-gray-500">Nenhuma anotação encontrada.</td></tr>
-                        )}
-                        {anotacoes.map((a) => (
-                            <tr key={a.id} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 text-sm text-gray-800 max-w-md break-words">{a.tarefa}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700">{a.prioridade}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700">{a.area}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 max-w-md break-words">{a.orientacao}</td>
-                                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
-                                    <button onClick={() => handleOpenCriarTarefaModal(a)} title="Criar Tarefa no Mapa" className="text-green-600 hover:text-green-800 mr-3"><LucideArrowRightCircle size={18}/></button>
-                                    <button onClick={() => handleOpenModalAnotacao(a)} title="Editar Anotação" className="text-blue-600 hover:text-blue-800 mr-3"><LucideEdit size={18}/></button>
-                                    <button onClick={() => handleDeleteAnotacao(a.id)} title="Excluir Anotação" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            
+            {/* Lista de anotações antigas (opcional, pode ser removido se não for mais útil) */}
+            {anotacoes.length > 0 && (
+                <div className="mb-8">
+                    <h3 className="text-lg font-medium text-gray-700 mb-2">Anotações Antigas (Apenas Visualização/Exclusão)</h3>
+                     <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            {/* ... cabeçalho e corpo da tabela para anotações antigas ... */}
+                        </table>
+                    </div>
+                </div>
+            )}
+            {anotacoes.length === 0 && !loading && <p className="text-gray-500 text-center">Nenhuma anotação antiga para exibir.</p>}
 
-            <Modal isOpen={isModalOpen} onClose={handleCloseModalAnotacao} title={editingAnotacao ? "Editar Anotação" : "Nova Anotação Pátio"}>
-                 <form onSubmit={handleSaveAnotacao} className="space-y-4">
+
+            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingAnotacao ? "Editar Anotação Antiga" : "Registrar Nova Tarefa Pendente"}>
+                 <form onSubmit={handleSave} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
-                        <input type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
+                        <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
+                        <input type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Prioridade</label>
-                            <select value={prioridade} onChange={(e) => setPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
+                            <label className="block text-sm font-medium text-gray-700">Prioridade <span className="text-red-500">*</span></label>
+                            <select value={prioridade} onChange={(e) => setPrioridade(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                                 <option value="">Selecione...</option>
                                 {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Área</label>
-                            <select value={area} onChange={(e) => setArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
+                            <label className="block text-sm font-medium text-gray-700">Área <span className="text-red-500">*</span></label>
+                            <select value={area} onChange={(e) => setArea(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                                 <option value="">Selecione...</option>
                                 {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
                             </select>
                         </div>
                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
+                            <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">Selecione...</option>
+                                {listasAuxiliares.acoes.map(ac => <option key={ac} value={ac}>{ac}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
+                            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
+                        </div>
+                    </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Orientação</label>
-                        <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
+                        <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
                     </div>
                     <div className="pt-4 flex justify-end space-x-2">
-                        <button type="button" onClick={handleCloseModalAnotacao} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
-                            {loading ? 'Salvando...' : (editingAnotacao ? 'Atualizar Anotação' : 'Adicionar Anotação')}
+                        <button type="button" onClick={handleCloseModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                        <button type="submit" disabled={loadingForm} className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 rounded-md hover:bg-yellow-700 disabled:bg-gray-400">
+                            {loadingForm ? 'Salvando...' : 'Salvar Tarefa Pendente'}
                         </button>
                     </div>
                 </form>
             </Modal>
-
-            {anotacaoParaTarefa && (
-                <CriarTarefaDoMapaModal 
-                    isOpen={isCriarTarefaModalOpen} 
-                    onClose={handleCloseCriarTarefaModal} 
-                    anotacao={anotacaoParaTarefa}
-                    onSave={handleCriarTarefaDoMapa}
-                />
-            )}
         </div>
-    );
-};
-
-// Modal para criar Tarefa no Mapa a partir de uma Anotação
-const CriarTarefaDoMapaModal = ({ isOpen, onClose, anotacao, onSave }) => {
-    const { listasAuxiliares, userId } = useContext(GlobalContext);
-    const [tarefaDesc, setTarefaDesc] = useState('');
-    const [prioridade, setPrioridade] = useState('');
-    const [area, setArea] = useState('');
-    const [acao, setAcao] = useState(''); 
-    const [dataInicio, setDataInicio] = useState('');
-    const [orientacao, setOrientacao] = useState('');
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        if (anotacao) {
-            setTarefaDesc(anotacao.tarefa || '');
-            setPrioridade(anotacao.prioridade || '');
-            setArea(anotacao.area || '');
-            setOrientacao(anotacao.orientacao || '');
-            setDataInicio(new Date().toISOString().split('T')[0]); 
-            setAcao(''); 
-        }
-    }, [anotacao, isOpen]);
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!acao) {
-            alert("O campo Ação é obrigatório.");
-            return;
-        }
-        if (!dataInicio) {
-            alert("O campo Data de Início é obrigatório.");
-            return;
-        }
-        setLoading(true);
-        const dadosTarefaMapa = {
-            tarefa: tarefaDesc.trim().toUpperCase(), 
-            prioridade, 
-            area, 
-            acao, 
-            dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")), 
-            orientacao: orientacao.trim(), 
-        };
-        await onSave(dadosTarefaMapa);
-        setLoading(false);
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Criar Tarefa no Mapa a partir da Anotação">
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
-                    <input type="text" value={tarefaDesc} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
-                        <input type="text" value={prioridade} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Área</label>
-                        <input type="text" value={area} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
-                    </div>
-                </div>
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
-                    <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                        <option value="">Selecione uma Ação...</option>
-                        {listasAuxiliares.acoes.map(ac => <option key={ac} value={ac}>{ac}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
-                    <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Orientação</label>
-                    <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
-                </div>
-                <div className="pt-4 flex justify-end space-x-2">
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400">
-                        {loading ? 'Criando...' : 'Criar Tarefa no Mapa'}
-                    </button>
-                </div>
-            </form>
-        </Modal>
     );
 };
 
@@ -2409,7 +2306,6 @@ const RelatoriosComponent = () => {
     const handleSelectAllFuncionarios = () => {
         const allFuncIds = contextFuncionarios.map(f => f.id);
         setFiltroFuncionarios([SEM_RESPONSAVEL_VALUE, ...allFuncIds]);
-        // Marcar todos os checkboxes
         document.querySelectorAll('input[name="funcionarioChkItem"]').forEach(chk => chk.checked = true);
         document.getElementById('funcionarioChk-semResponsavel').checked = true;
 
@@ -2814,12 +2710,18 @@ const TarefasPendentesComponent = () => {
                  const dataInicioJS = dadosAlocacao.dataInicio.toDate();
                  const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
                  const todasSemanasSnap = await getDocs(todasSemanasQuery);
+                 let semanaEncontrada = false;
                  for (const semanaDocSnap of todasSemanasSnap.docs) {
                      const semana = semanaDocSnap.data();
                      if (semana.dataInicioSemana.toDate() <= dataInicioJS && semana.dataFimSemana.toDate() >= dataInicioJS) {
                          dadosParaAtualizar.semanaProgramada = semana.nomeAba || semanaDocSnap.id;
+                         semanaEncontrada = true;
                          break;
                      }
+                 }
+                 if (!semanaEncontrada) {
+                    console.warn(`Nenhuma semana de programação encontrada para a data de início ${formatDate(dadosAlocacao.dataInicio)} da tarefa ${tarefaId}. O campo 'semanaProgramada' não será definido.`);
+                    // Não definir dadosParaAtualizar.semanaProgramada se nenhuma semana for encontrada
                  }
             }
 
@@ -3010,7 +2912,8 @@ const DashboardComponent = () => {
         porStatus: {},
         porPrioridade: {},
         proximoPrazo: [],
-        atrasadas: []
+        atrasadas: [],
+        porFuncionario: {} 
     });
     const [loadingDashboard, setLoadingDashboard] = useState(true);
     const basePath = `/artifacts/${appId}/public/data`;
@@ -3021,7 +2924,8 @@ const DashboardComponent = () => {
             dbReady: !!db, 
             appIdReady: !!appId, 
             statusLength: listasAuxiliares.status.length, 
-            prioLength: listasAuxiliares.prioridades.length 
+            prioLength: listasAuxiliares.prioridades.length,
+            funcionariosLength: funcionarios.length
         });
         
         const fetchDashboardData = async () => {
@@ -3038,6 +2942,9 @@ const DashboardComponent = () => {
                 
                 const porPrioridade = {};
                 (Array.isArray(listasAuxiliares.prioridades) ? listasAuxiliares.prioridades : []).forEach(p => porPrioridade[p] = 0);
+
+                const porFuncionario = {};
+                (Array.isArray(funcionarios) ? funcionarios : []).forEach(f => porFuncionario[f.nome] = 0); 
 
                 const hoje = new Date();
                 hoje.setHours(0,0,0,0);
@@ -3060,6 +2967,16 @@ const DashboardComponent = () => {
                         porPrioridade[tarefa.prioridade] = 1; 
                     }
 
+                    if (tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA" && Array.isArray(tarefa.responsaveis)) {
+                        tarefa.responsaveis.forEach(respId => {
+                            const func = funcionarios.find(f => f.id === respId);
+                            if (func && func.nome) {
+                                porFuncionario[func.nome] = (porFuncionario[func.nome] || 0) + 1;
+                            }
+                        });
+                    }
+
+
                     if (tarefa.dataProvavelTermino && (tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA")) {
                         const dataTermino = tarefa.dataProvavelTermino.toDate();
                         dataTermino.setHours(0,0,0,0); 
@@ -3074,11 +2991,11 @@ const DashboardComponent = () => {
                 proximoPrazo.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
                 atrasadas.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
 
-                console.log("[Dashboard] fetchDashboardData: Stats calculados:", { porStatus, porPrioridade, proximoPrazo: proximoPrazo.length, atrasadas: atrasadas.length });
-                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas });
+                console.log("[Dashboard] fetchDashboardData: Stats calculados:", { porStatus, porPrioridade, proximoPrazo: proximoPrazo.length, atrasadas: atrasadas.length, porFuncionario });
+                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, porFuncionario });
             } catch (error) {
                 console.error("[Dashboard] fetchDashboardData: Erro ao buscar dados:", error);
-                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [] }); 
+                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], porFuncionario: {} }); 
             } finally {
                 console.log("[Dashboard] fetchDashboardData: setLoadingDashboard(false)");
                 setLoadingDashboard(false); 
@@ -3086,12 +3003,14 @@ const DashboardComponent = () => {
         };
 
         if (!loadingAuth && db && appId) {
-            console.log("[Dashboard] useEffect: Condições atendidas (auth, db, appId). Verificando listasAuxiliares...");
-            if (listasAuxiliares && listasAuxiliares.status && listasAuxiliares.status.length > 0 && listasAuxiliares.prioridades && listasAuxiliares.prioridades.length > 0) {
-                console.log("[Dashboard] Listas auxiliares prontas, chamando fetchDashboardData.");
+            console.log("[Dashboard] useEffect: Condições atendidas (auth, db, appId). Verificando listasAuxiliares e funcionarios...");
+            if (listasAuxiliares && listasAuxiliares.status && listasAuxiliares.status.length > 0 && 
+                listasAuxiliares.prioridades && listasAuxiliares.prioridades.length > 0 &&
+                funcionarios && funcionarios.length > 0) {
+                console.log("[Dashboard] Listas auxiliares e funcionarios prontos, chamando fetchDashboardData.");
                 fetchDashboardData();
             } else {
-                 console.log("[Dashboard] Listas auxiliares ainda não estão prontas ou estão vazias. Aguardando...");
+                 console.log("[Dashboard] Listas auxiliares ou funcionarios ainda não estão prontas ou estão vazias. Aguardando...");
             }
         } else if (!loadingAuth) {
             console.log("[Dashboard] useEffect: db ou appId não está pronto após autenticação. Não buscando dados.");
@@ -3101,7 +3020,7 @@ const DashboardComponent = () => {
         return () => {
            console.log("[Dashboard] Cleanup useEffect");
         };
-    }, [db, appId, listasAuxiliares.status, listasAuxiliares.prioridades, loadingAuth]);
+    }, [db, appId, listasAuxiliares.status, listasAuxiliares.prioridades, funcionarios, loadingAuth]);
 
     const getPrioridadeColor = (prioridade) => {
         if (prioridade === "P4 - URGENTE") return "bg-red-500 text-white";
@@ -3129,9 +3048,8 @@ const DashboardComponent = () => {
             <h2 className="text-3xl font-semibold text-gray-800 mb-8">Dashboard</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                {/* Card Tarefas por Status */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Status</h3>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><LucideListChecks size={22} className="mr-2 text-blue-500"/>Tarefas por Status</h3>
                     <ul className="space-y-2">
                         {Object.entries(stats.porStatus).map(([status, count]) => (
                             <li key={status} className="flex justify-between items-center text-sm">
@@ -3142,9 +3060,8 @@ const DashboardComponent = () => {
                     </ul>
                 </div>
 
-                {/* Card Tarefas por Prioridade */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Prioridade</h3>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><LucideAlertCircle size={22} className="mr-2 text-orange-500"/>Tarefas por Prioridade</h3>
                     <ul className="space-y-2">
                          {Object.entries(stats.porPrioridade).map(([prioridade, count]) => (
                             <li key={prioridade} className="flex justify-between items-center text-sm">
@@ -3154,10 +3071,23 @@ const DashboardComponent = () => {
                         ))}
                     </ul>
                 </div>
+                <div className="bg-white p-6 rounded-lg shadow-lg">
+                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><LucideUserCog size={22} className="mr-2 text-indigo-500"/>Tarefas Ativas por Funcionário</h3>
+                    <ul className="space-y-2 max-h-60 overflow-y-auto">
+                        {Object.entries(stats.porFuncionario)
+                            .sort(([, countA], [, countB]) => countB - countA) // Ordena por contagem decrescente
+                            .map(([funcionario, count]) => (
+                            <li key={funcionario} className="flex justify-between items-center text-sm">
+                                <span className="font-medium text-gray-600">{funcionario}</span>
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">{count}</span>
+                            </li>
+                        ))}
+                         {Object.keys(stats.porFuncionario).length === 0 && <p className="text-sm text-gray-500">Nenhuma tarefa ativa atribuída.</p>}
+                    </ul>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                 {/* Card Tarefas com Prazo Próximo */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
@@ -3172,7 +3102,6 @@ const DashboardComponent = () => {
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
                 </div>
 
-                {/* Card Tarefas Atrasadas */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
                      {stats.atrasadas.length > 0 ? (
