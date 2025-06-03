@@ -1,11 +1,10 @@
-// src/main.jsx
 import React, { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import './index.css'; // ESSA LINHA É FUNDAMENTAL
-import WrappedApp from './App.jsx'; // Assumindo que seu App.jsx exporta WrappedApp
+import './index.css';
+import App from './App.jsx';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <WrappedApp />
+    <App />
   </StrictMode>,
 );
