@@ -1,16 +1,21 @@
 import React, { useState, useEffect, createContext, useContext, memo } from 'react';
 // Importa a instância do app Firebase já inicializada a partir de firebaseConfig.js
+// CERTIFIQUE-SE de que o arquivo 'firebaseConfig.js' existe na pasta 'src/',
+// no mesmo nível que este arquivo App.jsx.
 import firebaseAppInstance from './firebaseConfig'; 
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore'; 
 import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucideUserCog } from 'lucide-react'; 
 
 // Inicialização do Firebase usando a instância importada
-const firebaseApp = firebaseAppInstance; // firebaseAppInstance DEVE ser a instância do app Firebase
+// Se firebaseAppInstance for undefined aqui, significa que './firebaseConfig' não foi resolvido.
+const firebaseApp = firebaseAppInstance; 
 const authGlobal = getAuth(firebaseApp); 
 const db = getFirestore(firebaseApp);
 
 // Usa o projectId da configuração do Firebase para o appId interno da aplicação
+// Esta constante 'appId' é usada para construir os caminhos do Firestore.
+// Certifique-se que firebaseApp.options.projectId está disponível.
 const appId = (firebaseApp && firebaseApp.options && firebaseApp.options.projectId) 
               ? firebaseApp.options.projectId 
               : 'default-app-id-fallback'; // Fallback se projectId não estiver disponível
@@ -1671,29 +1676,39 @@ const ProgramacaoSemanalComponent = () => {
     useEffect(() => {
         if (!semanaSelecionadaId) {
             setDadosProgramacao(null);
+            setLoading(false); 
             return;
         }
         setLoading(true);
-        const unsub = onSnapshot(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId), (docSnap) => {
-            if (docSnap.exists()) {
-                setDadosProgramacao({ id: docSnap.id, ...docSnap.data() });
-            } else {
-                setDadosProgramacao(null);
-                console.warn(`Semana ${semanaSelecionadaId} não encontrada.`);
-                // Se a semana selecionada não existe mais (ex: foi excluída), tenta selecionar a mais recente
-                if (semanas.length > 0) {
-                    setSemanaSelecionadaId(semanas[0].id); 
+        const unsub = onSnapshot(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId), 
+            (docSnap) => {
+                if (docSnap.exists()) {
+                    setDadosProgramacao({ id: docSnap.id, ...docSnap.data() });
                 } else {
-                    setSemanaSelecionadaId(null);
+                    setDadosProgramacao(null);
+                    console.warn(`Semana ${semanaSelecionadaId} não encontrada. Tentando selecionar a mais recente, se houver.`);
+                    if (semanas.length > 0) {
+                        const latestWeekId = semanas.sort((a, b) => b.dataInicioSemana.toMillis() - a.dataInicioSemana.toMillis())[0].id;
+                        if (semanaSelecionadaId !== latestWeekId) { 
+                            setSemanaSelecionadaId(latestWeekId);
+                        } else {
+                             setLoading(false); 
+                        }
+                    } else {
+                        setSemanaSelecionadaId(null); 
+                         setLoading(false); 
+                    }
                 }
+                setLoading(false);
+            }, 
+            (error) => {
+                console.error("Erro ao carregar dados da programação:", error);
+                setDadosProgramacao(null);
+                setLoading(false);
             }
-            setLoading(false);
-        }, error => {
-            console.error("Erro ao carregar dados da programação:", error);
-            setLoading(false);
-        });
+        );
         return unsub;
-    }, [semanaSelecionadaId, userId, appId, db, semanas]); // Adicionado 'semanas' como dependência para reavaliar se a semana selecionada ainda é válida
+    }, [semanaSelecionadaId, userId, appId, db, semanas]); 
 
     const handleCriarNovaSemana = async () => {
         if (!novaSemanaDataInicio) {
@@ -1750,7 +1765,6 @@ const ProgramacaoSemanalComponent = () => {
             alert(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
             setIsNovaSemanaModalOpen(false);
             setNovaSemanaDataInicio('');
-            // setSemanaSelecionadaId(novaSemanaDocId); // O useEffect que carrega as semanas já vai selecionar a mais nova
         } catch (error) {
             console.error("Erro ao criar nova semana:", error);
             alert("Erro ao criar nova semana: " + error.message);
@@ -1768,7 +1782,7 @@ const ProgramacaoSemanalComponent = () => {
             try {
                 await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
                 alert("Semana excluída com sucesso.");
-                setSemanaSelecionadaId(null); // Força a recarga para a semana mais recente
+                setSemanaSelecionadaId(null); 
             } catch (error) {
                 console.error("Erro ao excluir semana:", error);
                 alert("Erro ao excluir semana: " + error.message);
@@ -1882,8 +1896,41 @@ const ProgramacaoSemanalComponent = () => {
             tarefas: tarefas || []
         });
         setIsGerenciarTarefaModalOpen(true);
-    };    const renderCabecalhoDias = () => {\n        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {\n            console.warn("[renderCabecalhoDias] dataInicioSemana inválida ou não é Timestamp:", dadosProgramacao?.dataInicioSemana);\n            return Array(DIAS_SEMANA.length).fill(null).map((_, i) => <th key={`header-dia-err-${i}`} className="px-3 py-2 border text-xs font-medium text-white bg-red-600">Data Inválida</th>);\n        }\n        const dias = [];\n        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();\n        const hojeFormatado = new Date().toISOString().split('T')[0]; \n\n        for (let i = 0; i < DIAS_SEMANA.length; i++) {\n            const dataDia = new Date(dataInicio);\n            dataDia.setUTCDate(dataInicio.getUTCDate() + i);\n            const diaFormatadoAtual = dataDia.toISOString().split('T')[0];\n            const isHoje = diaFormatadoAtual === hojeFormatado;\n\n            dias.push(\n                <th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>
-                    {dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA[i]}\n                </th>\n            );\n        }\n        return dias;\n    };erCelulasTarefas = (funcionarioI        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !dadosProgramacao.dias) {\n            console.warn("[renderCelulasTarefas] dataInicioSemana inválida ou não é Timestamp, ou dias ausentes:", dadosProgramacao);\n            return Array(DIAS_SEMANA.length).fill(null).map((_, index) => (\n                <td key={`placeholder-err-${funcionarioId}-${index}`} className="border p-2 min-h-[80px] h-20 bg-red-100 text-red-700 text-xs">Erro: Data inválida</td>\n            ));\n        }\n        \n        const celulas = [];\n        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();\n        const hojeFormatado = new Date().toISOString().split(\'T\')[0];       for (let i = 0; i < DIAS_SEMANA.length; i++) {
+    };
+
+    const renderCabecalhoDias = () => {
+        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana) return null;
+        const dias = [];
+        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
+        const hojeFormatado = new Date().toISOString().split('T')[0]; 
+
+        for (let i = 0; i < DIAS_SEMANA.length; i++) {
+            const dataDia = new Date(dataInicio);
+            dataDia.setUTCDate(dataInicio.getUTCDate() + i);
+            const diaFormatadoAtual = dataDia.toISOString().split('T')[0];
+            const isHoje = diaFormatadoAtual === hojeFormatado;
+
+            dias.push(
+                <th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>
+                    {dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA[i]}
+                </th>
+            );
+        }
+        return dias;
+    };
+
+    const renderCelulasTarefas = (funcionarioId) => {
+        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dias) {
+             return Array(DIAS_SEMANA.length).fill(null).map((_, index) => (
+                <td key={`placeholder-${funcionarioId}-${index}`} className="border p-2 min-h-[80px] h-20"></td>
+            ));
+        }
+        
+        const celulas = [];
+        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
+        const hojeFormatado = new Date().toISOString().split('T')[0]; 
+
+        for (let i = 0; i < DIAS_SEMANA.length; i++) {
             const dataDiaAtual = new Date(dataInicio); 
             dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); 
             const diaFormatado = dataDiaAtual.toISOString().split('T')[0]; 
@@ -2686,7 +2733,6 @@ const TarefasPendentesComponent = () => {
                  }
                  if (!semanaEncontrada) {
                     console.warn(`Nenhuma semana de programação encontrada para a data de início ${formatDate(dadosAlocacao.dataInicio)} da tarefa ${tarefaId}. O campo 'semanaProgramada' não será definido.`);
-                    // Não definir dadosParaAtualizar.semanaProgramada se nenhuma semana for encontrada
                  }
             }
 
@@ -2967,7 +3013,7 @@ const DashboardComponent = () => {
             }
         };
 
-        if (!loadingAuth && db && appId) {
+        if (!loadingAuth && db && appId && appId !== 'default-app-id-fallback' && appId !== 'default-app-id-fallback-no-app') {
             console.log("[Dashboard] useEffect: Condições atendidas (auth, db, appId). Verificando listasAuxiliares e funcionarios...");
             if (listasAuxiliares && listasAuxiliares.status && listasAuxiliares.status.length > 0 && 
                 listasAuxiliares.prioridades && listasAuxiliares.prioridades.length > 0 &&
@@ -2978,7 +3024,7 @@ const DashboardComponent = () => {
                  console.log("[Dashboard] Listas auxiliares ou funcionarios ainda não estão prontas ou estão vazias. Aguardando...");
             }
         } else if (!loadingAuth) {
-            console.log("[Dashboard] useEffect: db ou appId não está pronto após autenticação. Não buscando dados.");
+            console.log("[Dashboard] useEffect: db ou appId não está pronto após autenticação, ou appId é fallback. Não buscando dados.");
             setLoadingDashboard(false); 
         }
         
