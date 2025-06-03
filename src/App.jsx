@@ -1,21 +1,19 @@
 import React, { useState, useEffect, createContext, useContext, memo } from 'react';
-// Importe a instância do app Firebase já inicializada
-// Garanta que o arquivo 'firebaseConfig.js' está na pasta 'src',
-// junto com este arquivo App.jsx.
+// Importa a instância do app Firebase já inicializada a partir de firebaseConfig.js
 import firebaseAppInstance from './firebaseConfig'; 
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore'; 
 import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucideUserCog } from 'lucide-react'; 
 
 // Inicialização do Firebase usando a instância importada
-const firebaseApp = firebaseAppInstance;
+const firebaseApp = firebaseAppInstance; // firebaseAppInstance DEVE ser a instância do app Firebase
 const authGlobal = getAuth(firebaseApp); 
 const db = getFirestore(firebaseApp);
 
 // Usa o projectId da configuração do Firebase para o appId interno da aplicação
-// Esta constante 'appId' é usada para construir os caminhos do Firestore.
-// Certifique-se que firebaseApp.options.projectId está disponível.
-const appId = firebaseApp.options.projectId || 'default-app-id-fallback';
+const appId = (firebaseApp && firebaseApp.options && firebaseApp.options.projectId) 
+              ? firebaseApp.options.projectId 
+              : 'default-app-id-fallback'; // Fallback se projectId não estiver disponível
 
 // Contexto Global
 const GlobalContext = createContext();
@@ -354,8 +352,8 @@ const GlobalProvider = ({ children }) => {
     // Seed Initial Data
     useEffect(() => {
         const seedInitialData = async () => {
-            if (!db || !appId || initialDataSeeded || appId === 'default-app-id-fallback') { // Não executa se appId for o fallback
-                if (appId === 'default-app-id-fallback') console.warn("[SeedData] appId é fallback, pulando seed.");
+            if (!db || !appId || initialDataSeeded || appId === 'default-app-id-fallback' || appId === 'default-app-id-fallback-no-app') { 
+                if (appId === 'default-app-id-fallback' || appId === 'default-app-id-fallback-no-app') console.warn("[SeedData] appId é fallback, pulando seed.");
                 return;
             }
             console.log("[SeedData] Tentando pré-carregar dados iniciais...");
@@ -436,8 +434,8 @@ const GlobalProvider = ({ children }) => {
 
 
     useEffect(() => {
-        if (!userId || !appId || !db || appId === 'default-app-id-fallback') {
-            if (appId === 'default-app-id-fallback') console.warn("[GlobalProvider] appId é fallback, pulando carregamento de listas auxiliares.");
+        if (!userId || !appId || !db || appId === 'default-app-id-fallback' || appId === 'default-app-id-fallback-no-app') {
+            if (appId === 'default-app-id-fallback' || appId === 'default-app-id-fallback-no-app') console.warn("[GlobalProvider] appId é fallback, pulando carregamento de listas auxiliares.");
             return;
         }
 
