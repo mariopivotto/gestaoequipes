@@ -1,11 +1,11 @@
-Import React, { useState, useEffect, createContext, useContext, memo } from 'react';More actions
+import React, { useState, useEffect, createContext, useContext, memo } from 'react';Add commentMore actions
 // Importe a instância do app Firebase já inicializada
 // Garanta que o arquivo 'firebaseConfig.js' está na pasta 'src',
 // junto com este arquivo App.jsx.
 import firebaseAppInstance from './firebaseConfig'; 
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore'; 
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucideUserCog } from 'lucide-react'; 
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory } from 'lucide-react'; 
 
 // Inicialização do Firebase usando a instância importada
 const firebaseApp = firebaseAppInstance;
@@ -13,12 +13,19 @@ const authGlobal = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 // Usa o projectId da configuração do Firebase para o appId interno da aplicação
-// Esta constante 'appId' é usada para construir os caminhos do Firestore.
-// Certifique-se que firebaseApp.options.projectId está disponível.
 const appId = firebaseApp.options.projectId || 'default-app-id-fallback';
 
 // Contexto Global
 const GlobalContext = createContext();
+
+
+
+
+
+
+
+
+
 
 // Constantes do script original
 const DIAS_SEMANA = ["SEGUNDA-FEIRA", "TERÇA-FEIRA", "QUARTA-FEIRA", "QUINTA-FEIRA", "SEXTA-FEIRA", "SÁBADO"];
@@ -127,7 +134,7 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
 
     let textoBaseTarefa = tarefaData.tarefa || "Tarefa sem descrição";
     if (tarefaData.prioridade) textoBaseTarefa += ` - ${tarefaData.prioridade}`;
-
+    
     let turnoParaTexto = "";
     if (tarefaData.turno && tarefaData.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
         turnoParaTexto = `[${tarefaData.turno.toUpperCase()}] `;
@@ -144,7 +151,7 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
 
     const dataInicioLoop = tarefaData.dataInicio.toDate();
     const dataFimLoop = tarefaData.dataProvavelTermino.toDate();
-
+    
     const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
     const todasSemanasSnap = await getDocs(todasSemanasQuery);
     const batch = writeBatch(db);
@@ -183,11 +190,11 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
             } else {
                 continue; 
             }
-
+            
             const inicioSemanaUTC = new Date(Date.UTC(inicioSemana.getUTCFullYear(), inicioSemana.getUTCMonth(), inicioSemana.getUTCDate()));
             const fimSemanaUTCloop = new Date(Date.UTC(fimSemana.getUTCFullYear(), fimSemana.getUTCMonth(), fimSemana.getUTCDate()));
             fimSemanaUTCloop.setUTCHours(23,59,59,999);
-
+            
             if (dataAtual.getTime() >= inicioSemanaUTC.getTime() && dataAtual.getTime() <= fimSemanaUTCloop.getTime()) {
                 if (!semanaDataModificada.dias[diaFormatado]) semanaDataModificada.dias[diaFormatado] = {};
 
@@ -274,7 +281,7 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
                     for (const respId of responsaveisPrincipais) {
                         const tarefasNaCelula = semanaData.dias?.[diaFormatado]?.[respId] || [];
                         const instanciaTarefaNaCelula = tarefasNaCelula.find(t => t.mapaTaskId === mapaTaskId);
-
+                        
                         if (instanciaTarefaNaCelula) {
                             algumaInstanciaProgramadaRelevanteEncontrada = true;
                             encontrouInstanciaParaEsteDia = true;
@@ -354,10 +361,7 @@ const GlobalProvider = ({ children }) => {
     // Seed Initial Data
     useEffect(() => {
         const seedInitialData = async () => {
-            if (!db || !appId || initialDataSeeded || appId === 'default-app-id-fallback') { // Não executa se appId for o fallback
-                if (appId === 'default-app-id-fallback') console.warn("[SeedData] appId é fallback, pulando seed.");
-                return;
-            }
+            if (!db || !appId || initialDataSeeded) return;
             console.log("[SeedData] Tentando pré-carregar dados iniciais...");
             const basePath = `/artifacts/${appId}/public/data`;
             let seededSomething = false;
@@ -409,7 +413,7 @@ const GlobalProvider = ({ children }) => {
                 } else {
                     console.log(`[SeedData] Coleção funcionários já possui itens. Pulando seed.`);
                 }
-
+                
                 if(seededSomething) {
                     console.log("[SeedData] Preparando para commitar dados iniciais...");
                     await batchSeed.commit(); 
@@ -436,10 +440,7 @@ const GlobalProvider = ({ children }) => {
 
 
     useEffect(() => {
-        if (!userId || !appId || !db || appId === 'default-app-id-fallback') {
-            if (appId === 'default-app-id-fallback') console.warn("[GlobalProvider] appId é fallback, pulando carregamento de listas auxiliares.");
-            return;
-        }
+        if (!userId || !appId || !db) return; 
 
         const basePath = `/artifacts/${appId}/public/data`;
         const unsubscribers = [];
@@ -645,7 +646,7 @@ const ListaAuxiliarManager = ({ nomeLista, nomeSingular, collectionPathSegment }
             }
         }
     };
-
+    
     if (loading) return <p>Carregando {nomeLista}...</p>;
 
     return (
@@ -729,7 +730,7 @@ const FuncionariosManager = () => {
         }
         setLoading(false);
     };
-
+    
     const handleUpdateFuncionario = async () => {
         if (!editingFuncionario || !editingFuncionario.nome.trim()) return;
         setLoading(true);
@@ -777,7 +778,7 @@ const FuncionariosManager = () => {
                     await batchLimpezaProgramacao.commit();
                     console.log(`Tarefas do funcionário ${nomeExibicao} removidas da programação semanal.`);
                 }
-
+                
                 const funcDocRef = doc(db, `${basePath}/funcionarios`, funcionarioId);
                 await deleteDoc(funcDocRef);
 
@@ -799,7 +800,7 @@ const FuncionariosManager = () => {
             setLoading(false);
         }
     };
-
+    
     return (
         <div className="mb-8 p-4 border rounded-md shadow-sm bg-white">
             <h3 className="text-lg font-semibold mb-3 text-gray-700">Gerenciar Funcionários/Responsáveis</h3>
@@ -908,7 +909,7 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
             setLoading(false);
             return;
         }
-
+        
         const novaTarefa = {
             tarefa: tarefa.trim().toUpperCase(),
             prioridade, area, acao,
@@ -935,7 +936,7 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
         setLoading(false);
         onClose();
     };
-
+    
     const handleResponsavelChange = (e) => {
         const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
         setResponsaveis(selectedOptions);
@@ -1131,7 +1132,7 @@ const MapaAtividadesComponent = () => {
         if (filtroArea !== TODAS_AS_AREAS_VALUE) {
             tarefasProcessadas = tarefasProcessadas.filter(t => t.area === filtroArea);
         }
-
+        
         if (termoBusca.trim() !== "") {
             tarefasProcessadas = tarefasProcessadas.filter(t => 
                 t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())
@@ -1147,10 +1148,10 @@ const MapaAtividadesComponent = () => {
                 const fimTarefa = t.dataProvavelTermino ? t.dataProvavelTermino.toDate().getTime() : null;
 
                 if (!inicioTarefa) return false; 
-
+                
                 const comecaAntesOuDuranteFiltro = inicioTarefa <= (fimFiltro || Infinity);
                 const terminaDepoisOuDuranteFiltro = fimTarefa ? fimTarefa >= (inicioFiltro || 0) : true; 
-
+                
                 if (!fimTarefa || inicioTarefa === fimTarefa) {
                     return inicioTarefa >= (inicioFiltro || 0) && inicioTarefa <= (fimFiltro || Infinity);
                 }
@@ -1158,7 +1159,7 @@ const MapaAtividadesComponent = () => {
                 return comecaAntesOuDuranteFiltro && terminaDepoisOuDuranteFiltro;
             });
         }
-
+        
         setTarefasExibidas(tarefasProcessadas);
     }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroDataInicio, filtroDataFim, termoBusca]);
 
@@ -1172,7 +1173,7 @@ const MapaAtividadesComponent = () => {
         setIsModalOpen(false);
         setEditingTarefa(null);
     };
-
+    
     const handleOpenHistoricoModal = (tarefaId) => {
         setSelectedTarefaIdParaHistorico(tarefaId);
         setIsHistoricoModalOpen(true);
@@ -1200,13 +1201,13 @@ const MapaAtividadesComponent = () => {
                     if (dadosAntigos.prioridade !== tarefaData.prioridade) detalhesMudanca.push(`Prioridade: ${dadosAntigos.prioridade || 'N/A'} -> ${tarefaData.prioridade || 'N/A'}`);
                     if (dadosAntigos.area !== tarefaData.area) detalhesMudanca.push(`Área: ${dadosAntigos.area || 'N/A'} -> ${tarefaData.area || 'N/A'}`);
                     if (dadosAntigos.acao !== tarefaData.acao) detalhesMudanca.push(`Ação: ${dadosAntigos.acao || 'N/A'} -> ${tarefaData.acao || 'N/A'}`);
-
+                    
                     const respAntigosNomes = (dadosAntigos.responsaveis || []).map(id => contextFuncionarios.find(f => f.id === id)?.nome || id).join(', ') || 'Nenhum';
                     const respNovosNomes = (tarefaData.responsaveis || []).map(id => contextFuncionarios.find(f => f.id === id)?.nome || id).join(', ') || 'Nenhum';
                     if (JSON.stringify(dadosAntigos.responsaveis || []) !== JSON.stringify(tarefaData.responsaveis || [])) detalhesMudanca.push(`Responsáveis: ${respAntigosNomes} -> ${respNovosNomes}`);
-
+                    
                     if (dadosAntigos.turno !== tarefaData.turno) detalhesMudanca.push(`Turno: ${dadosAntigos.turno || 'N/A'} -> ${tarefaData.turno || 'N/A'}`);
-
+                    
                     const dataInicioAntigaStr = dadosAntigos.dataInicio ? formatDate(dadosAntigos.dataInicio) : 'N/A';
                     const dataInicioNovaStr = tarefaData.dataInicio ? formatDate(tarefaData.dataInicio) : 'N/A';
                     if (dataInicioAntigaStr !== dataInicioNovaStr) detalhesMudanca.push(`Data Início: ${dataInicioAntigaStr} -> ${dataInicioNovaStr}`);
@@ -1214,10 +1215,10 @@ const MapaAtividadesComponent = () => {
                     const dataTerminoAntigaStr = dadosAntigos.dataProvavelTermino ? formatDate(dadosAntigos.dataProvavelTermino) : 'N/A';
                     const dataTerminoNovaStr = tarefaData.dataProvavelTermino ? formatDate(tarefaData.dataProvavelTermino) : 'N/A';
                     if (dataTerminoAntigaStr !== dataTerminoNovaStr) detalhesMudanca.push(`Data Término: ${dataTerminoAntigaStr} -> ${dataTerminoNovaStr}`);
-
+                    
                     if (dadosAntigos.orientacao !== tarefaData.orientacao) detalhesMudanca.push(`Orientação alterada.`);
                 }
-
+                
                 await setDoc(tarefaDocRef, tarefaData, { merge: true }); 
                 idDaTarefaSalva = tarefaIdParaSalvar;
                 if (detalhesMudanca.length > 0) {
@@ -1229,7 +1230,7 @@ const MapaAtividadesComponent = () => {
                 idDaTarefaSalva = docRef.id; 
                 await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" adicionada.`);
             }
-
+            
             if (idDaTarefaSalva) { 
                 const tarefaSalvaNoMapaRef = doc(db, `${basePath}/tarefas_mapa`, idDaTarefaSalva);
                 const tarefaSalvaSnap = await getDoc(tarefaSalvaNoMapaRef);
@@ -1259,7 +1260,7 @@ const MapaAtividadesComponent = () => {
             try {
                 const usuario = authGlobal.currentUser;
                 await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Excluída", `Tarefa "${nomeTarefaExcluida}" foi removida.`);
-
+                
                 await removerTarefaDaProgramacao(tarefaId, db, basePath);
                 const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
                 await deleteDoc(tarefaDocRef);
@@ -1270,7 +1271,7 @@ const MapaAtividadesComponent = () => {
             }
         }
     };
-
+    
     const getResponsavelNomes = (responsavelIds) => {
         if (!responsavelIds || responsavelIds.length === 0) return '---';
         return responsavelIds.map(id => {
@@ -1278,7 +1279,7 @@ const MapaAtividadesComponent = () => {
             return func ? func.nome : id; 
         }).join(', ');
     };
-
+    
     const getStatusColor = (status) => {
         if (status === "CANCELADA") return "bg-red-200";
         if (status === "CONCLUÍDA") return "bg-green-300";
@@ -1287,7 +1288,7 @@ const MapaAtividadesComponent = () => {
         if (status === "PREVISTA") return "bg-yellow-200";
         return "bg-gray-100";
     };
-
+    
     const limparFiltros = () => {
         setFiltroResponsavel("TODOS");
         setFiltroStatus(TODOS_OS_STATUS_VALUE);
@@ -1475,7 +1476,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
         tarefa.statusLocal = tarefa.statusLocal === 'CONCLUÍDA' ? 'PENDENTE' : 'CONCLUÍDA';
         setTarefasEditaveis(novasTarefas);
     };
-
+    
     const handleMarcarTodasComo = (novoStatusLocal) => {
         const novasTarefas = tarefasEditaveis.map(tarefa => ({
             ...tarefa,
@@ -1487,7 +1488,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
     const handleTurnoChange = (indexTarefa, novoTurno) => {
         const novasTarefas = [...tarefasEditaveis];
         const tarefa = novasTarefas[indexTarefa];
-
+        
         let textoBase = tarefa.textoVisivel;
         const regexTurno = /^\[(MANHÃ|TARDE)\]\s*/;
         textoBase = textoBase.replace(regexTurno, '');
@@ -1508,7 +1509,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
             setTarefasEditaveis(novasTarefas);
         }
     };
-
+    
     const handleSalvarAlteracoes = async () => {
         setLoading(true);
         const basePath = `/artifacts/${appId}/public/data`;
@@ -1522,7 +1523,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                 throw new Error("Documento da semana não encontrado.");
             }
             const semanaData = semanaDocSnap.data();
-
+            
             if (semanaData.dias && semanaData.dias[diaFormatado]) {
                 semanaData.dias[diaFormatado][responsavelId] = tarefasEditaveis;
             } else {
@@ -1656,17 +1657,17 @@ const ProgramacaoSemanalComponent = () => {
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
 
     useEffect(() => {
-        const q = query(programacaoCollectionRef, orderBy("dataInicioSemana", "desc")); // Ordena para pegar a mais recente
+        const q = query(programacaoCollectionRef); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-
-
-
-
-
+            fetchedSemanas.sort((a, b) => {
+                if (a.dataInicioSemana && b.dataInicioSemana) {
+                    return b.dataInicioSemana.toMillis() - a.dataInicioSemana.toMillis();
+                }
+                return 0;
+            });
             setSemanas(fetchedSemanas);
-            if (fetchedSemanas.length > 0 && !semanaSelecionadaId) { // Se nenhuma semana estiver selecionada, seleciona a primeira (mais recente)
+            if (fetchedSemanas.length > 0 && !semanaSelecionadaId) {
                 setSemanaSelecionadaId(fetchedSemanas[0].id);
             } else if (fetchedSemanas.length === 0) {
                 setSemanaSelecionadaId(null);
@@ -1674,7 +1675,7 @@ const ProgramacaoSemanalComponent = () => {
             }
         }, error => console.error("Erro ao carregar semanas:", error));
         return unsubscribe;
-    }, [userId, appId, db]); // Removido semanaSelecionadaId daqui para evitar loop na seleção inicial
+    }, [userId, appId, db]); 
 
     useEffect(() => {
         if (!semanaSelecionadaId) {
@@ -1688,9 +1689,9 @@ const ProgramacaoSemanalComponent = () => {
             } else {
                 setDadosProgramacao(null);
                 console.warn(`Semana ${semanaSelecionadaId} não encontrada.`);
-                // Se a semana selecionada não existe mais (ex: foi excluída), tenta selecionar a mais recente
-                if (semanas.length > 0) {
-
+                if (semanas.length > 0 && semanas.find(s => s.id === semanaSelecionadaId)) {
+                    // Still in the list of weeks, strange error
+                } else if (semanas.length > 0) {
                     setSemanaSelecionadaId(semanas[0].id); 
                 } else {
                     setSemanaSelecionadaId(null);
@@ -1702,14 +1703,14 @@ const ProgramacaoSemanalComponent = () => {
             setLoading(false);
         });
         return unsub;
-    }, [semanaSelecionadaId, userId, appId, db, semanas]); // Adicionado 'semanas' como dependência para reavaliar se a semana selecionada ainda é válida
+    }, [semanaSelecionadaId, userId, appId, db, semanas]); 
 
     const handleCriarNovaSemana = async () => {
         if (!novaSemanaDataInicio) {
             alert("Por favor, selecione uma data de início para a nova semana.");
             return;
         }
-
+        
         const [year, month, day] = novaSemanaDataInicio.split('-').map(Number);
         const dataInicioUTC = new Date(Date.UTC(year, month - 1, day)); 
 
@@ -1732,7 +1733,7 @@ const ProgramacaoSemanalComponent = () => {
             });
             const proximoNumeroSemana = maiorNumeroSemana + 1;
             const nomeNovaAba = `Programação S${proximoNumeroSemana.toString().padStart(2, '0')}`;
-
+            
             const novaSemanaDocId = `semana_${dataInicioUTC.toISOString().split('T')[0].replace(/-/g, '_')}`; 
 
             const novaSemanaData = {
@@ -1743,7 +1744,7 @@ const ProgramacaoSemanalComponent = () => {
                 criadoEm: Timestamp.now(),
                 criadoPor: authGlobal.currentUser?.uid || 'sistema'
             };
-
+            
             for (let i = 0; i < 6; i++) { 
                 const diaAtualLoop = new Date(dataInicioUTC);
                 diaAtualLoop.setUTCDate(dataInicioUTC.getUTCDate() + i);
@@ -1755,37 +1756,17 @@ const ProgramacaoSemanalComponent = () => {
             }
 
             await setDoc(doc(db, `${basePath}/programacao_semanal`, novaSemanaDocId), novaSemanaData);
-
+            
             alert(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
             setIsNovaSemanaModalOpen(false);
             setNovaSemanaDataInicio('');
-            // setSemanaSelecionadaId(novaSemanaDocId); // O useEffect que carrega as semanas já vai selecionar a mais nova
+            setSemanaSelecionadaId(novaSemanaDocId); 
         } catch (error) {
             console.error("Erro ao criar nova semana:", error);
             alert("Erro ao criar nova semana: " + error.message);
         }
         setLoadingAtualizacao(false);
     };
-
-    const handleExcluirSemana = async () => {
-        if (!semanaSelecionadaId || semanas.length <= 1) {
-            alert("Não é possível excluir a única semana existente ou nenhuma semana está selecionada.");
-            return;
-        }
-        if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao?.nomeAba}"? Esta ação não pode ser desfeita.`)) {
-            setLoadingAtualizacao(true);
-            try {
-                await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
-                alert("Semana excluída com sucesso.");
-                setSemanaSelecionadaId(null); // Força a recarga para a semana mais recente
-            } catch (error) {
-                console.error("Erro ao excluir semana:", error);
-                alert("Erro ao excluir semana: " + error.message);
-            }
-            setLoadingAtualizacao(false);
-        }
-    };
-
 
     const handleAtualizarProgramacaoDaSemana = async () => {
         if (!semanaSelecionadaId || !dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dataFimSemana) {
@@ -1794,12 +1775,12 @@ const ProgramacaoSemanalComponent = () => {
         }
         setLoadingAtualizacao(true);
         console.log(`[BotaoAtualizar] Iniciando para semana ID: ${semanaSelecionadaId}`);
-
+    
         try {
             const novosDiasDaSemana = {};
             const dataInicioSemana = dadosProgramacao.dataInicioSemana.toDate(); 
             const dataFimSemana = dadosProgramacao.dataFimSemana.toDate(); 
-
+    
             let diaCorrenteNaSemana = new Date(Date.UTC(dataInicioSemana.getUTCFullYear(), dataInicioSemana.getUTCMonth(), dataInicioSemana.getUTCDate()));
             const dataFimSemanaUTC = new Date(Date.UTC(dataFimSemana.getUTCFullYear(), dataFimSemana.getUTCMonth(), dataFimSemana.getUTCDate()));
             dataFimSemanaUTC.setUTCHours(23,59,59,999);
@@ -1812,25 +1793,25 @@ const ProgramacaoSemanalComponent = () => {
                 });
                 diaCorrenteNaSemana.setUTCDate(diaCorrenteNaSemana.getUTCDate() + 1);
             }
-
+    
             const tarefasMapaQuery = query(
                 collection(db, `${basePath}/tarefas_mapa`),
                 where("status", "in", ["PROGRAMADA", "CONCLUÍDA"])
             );
             const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
-
+    
             tarefasMapaSnap.forEach(docTarefaMapa => {
                 const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
-
+    
                 if (!tarefaMapa.dataInicio || !(tarefaMapa.dataInicio instanceof Timestamp) ||
                     !tarefaMapa.dataProvavelTermino || !(tarefaMapa.dataProvavelTermino instanceof Timestamp) ||
                     !tarefaMapa.responsaveis || tarefaMapa.responsaveis.length === 0) {
                     return; 
                 }
-
+    
                 let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa sem descrição";
                 if (tarefaMapa.prioridade) textoBaseTarefa += ` - ${tarefaMapa.prioridade}`;
-
+                
                 let turnoParaTexto = "";
                 if (tarefaMapa.turno && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
                     turnoParaTexto = `[${tarefaMapa.turno.toUpperCase()}] `;
@@ -1843,19 +1824,19 @@ const ProgramacaoSemanalComponent = () => {
                     statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
                     turno: tarefaMapa.turno || TURNO_DIA_INTEIRO 
                 };
-
+    
                 const dataInicioTarefa = tarefaMapa.dataInicio.toDate();
                 const dataFimTarefa = tarefaMapa.dataProvavelTermino.toDate();
-
+                
                 let dataAtualTarefa = new Date(Date.UTC(dataInicioTarefa.getUTCFullYear(), dataInicioTarefa.getUTCMonth(), dataInicioTarefa.getUTCDate()));
                 const dataFimTarefaUTC = new Date(Date.UTC(dataFimTarefa.getUTCFullYear(), dataFimTarefa.getUTCMonth(), dataFimTarefa.getUTCDate()));
                 dataFimTarefaUTC.setUTCHours(23,59,59,999);
-
+    
                 while (dataAtualTarefa.getTime() <= dataFimTarefaUTC.getTime()) {
                     const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
-
+                    
                     const dataInicioSemanaUTC = new Date(Date.UTC(dataInicioSemana.getUTCFullYear(), dataInicioSemana.getUTCMonth(), dataInicioSemana.getUTCDate()));
-
+                    
                     if (dataAtualTarefa.getTime() >= dataInicioSemanaUTC.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) {
                         if (novosDiasDaSemana[diaFormatadoTarefa]) { 
                              tarefaMapa.responsaveis.forEach(respId => {
@@ -1870,12 +1851,12 @@ const ProgramacaoSemanalComponent = () => {
                     dataAtualTarefa.setUTCDate(dataAtualTarefa.getUTCDate() + 1);
                 }
             });
-
+            
             const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
             await updateDoc(semanaDocRef, { dias: novosDiasDaSemana });
             console.log(`[BotaoAtualizar] Programação da semana ${semanaSelecionadaId} atualizada com sucesso.`);
             alert("Programação da semana atualizada com base no Mapa de Atividades!");
-
+    
         } catch (error) {
             console.error("[BotaoAtualizar] Erro ao atualizar programação da semana:", error);
             alert("Erro ao atualizar programação: " + error.message);
@@ -1920,7 +1901,7 @@ const ProgramacaoSemanalComponent = () => {
                 <td key={`placeholder-${funcionarioId}-${index}`} className="border p-2 min-h-[80px] h-20"></td>
             ));
         }
-
+        
         const celulas = [];
         const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
         const hojeFormatado = new Date().toISOString().split('T')[0]; 
@@ -1932,7 +1913,7 @@ const ProgramacaoSemanalComponent = () => {
             const isHoje = diaFormatado === hojeFormatado;
 
             const tarefasDoDiaParaFuncionario = dadosProgramacao.dias[diaFormatado]?.[funcionarioId] || [];
-
+            
             celulas.push(
                 <td 
                     key={`${funcionarioId}-${diaFormatado}`} 
@@ -1952,7 +1933,7 @@ const ProgramacaoSemanalComponent = () => {
                             } else {
                                 corFundoTarefa = tarefaInst.statusLocal === 'CONCLUÍDA' ? 'bg-green-500' : 'bg-blue-500';
                             }
-
+                            
                             return (
                                 <div 
                                     key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`} 
@@ -1976,7 +1957,7 @@ const ProgramacaoSemanalComponent = () => {
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                     <select 
                         value={semanaSelecionadaId || ''} 
                         onChange={(e) => setSemanaSelecionadaId(e.target.value)}
@@ -2006,22 +1987,13 @@ const ProgramacaoSemanalComponent = () => {
                     >
                         <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
                     </button>
-                    {semanas.length > 0 && (
-                         <button
-                            onClick={handleExcluirSemana}
-                            disabled={!semanaSelecionadaId || loadingAtualizacao || semanas.length <= 1}
-                            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                        >
-                            <LucideTrash2 size={18} className="mr-2"/> Excluir Semana
-                        </button>
-                    )}
                 </div>
             </div>
 
             {loading && <p className="text-center py-4">Carregando programação...</p>}
             {!loading && !dadosProgramacao && semanaSelecionadaId && <p className="text-center py-4 text-red-500">Não foi possível carregar os dados da semana selecionada ou a semana não existe.</p>}
             {!loading && !semanaSelecionadaId && semanas.length === 0 && <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda. Clique em "Criar Nova Semana".</p>}
-
+            
             {!loading && dadosProgramacao && (
                  <div className="bg-white shadow-md rounded-lg overflow-x-auto">
                     <table className="min-w-full border-collapse border border-gray-300 table-fixed">
@@ -2087,35 +2059,32 @@ const ProgramacaoSemanalComponent = () => {
     );
 };
 
-// Componente AnotacoesPatio (agora "Registro Rápido de Tarefa")
+// Componente AnotacoesPatio
 const AnotacoesPatioComponent = () => {
-    const { userId, db, appId, listasAuxiliares, auth, funcionarios } = useContext(GlobalContext); 
-    const [anotacoes, setAnotacoes] = useState([]); // Mantém para exibir anotações antigas, se houver
+    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext); 
+    const [anotacoes, setAnotacoes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAnotacao, setEditingAnotacao] = useState(null); 
+    const [isCriarTarefaModalOpen, setIsCriarTarefaModalOpen] = useState(false);
+    const [anotacaoParaTarefa, setAnotacaoParaTarefa] = useState(null); 
 
-    // Campos do formulário unificado
     const [tarefa, setTarefa] = useState('');
     const [prioridade, setPrioridade] = useState('');
     const [area, setArea] = useState('');
-    const [acao, setAcao] = useState(''); // Novo campo
-    const [dataInicio, setDataInicio] = useState(''); // Novo campo
     const [orientacao, setOrientacao] = useState('');
-    const [loadingForm, setLoadingForm] = useState(false);
-
 
     const basePath = `/artifacts/${appId}/public/data`;
     const anotacoesCollectionRef = collection(db, `${basePath}/anotacoes_patio`);
     const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
 
-    useEffect(() => { // Apenas para carregar anotações antigas, se existirem e forem úteis
+    useEffect(() => {
         setLoading(true);
-        const q = query(anotacoesCollectionRef, orderBy("createdAt", "desc")); 
+        const q = query(anotacoesCollectionRef); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedAnotacoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAnotacoes(fetchedAnotacoes); 
+            setAnotacoes(fetchedAnotacoes.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0) )); 
             setLoading(false);
         }, (error) => {
             console.error("Erro ao carregar anotações do pátio: ", error);
@@ -2125,166 +2094,300 @@ const AnotacoesPatioComponent = () => {
     }, [userId, appId, db]); 
 
     const resetForm = () => {
-        setTarefa(''); setPrioridade(''); setArea(''); setAcao(''); setDataInicio(''); setOrientacao('');
+        setTarefa(''); setPrioridade(''); setArea(''); setOrientacao('');
         setEditingAnotacao(null);
     };
 
-    const handleOpenModal = (anotacao = null) => { // Renomeado para ser mais genérico
-        if (anotacao) { // Se estiver editando uma anotação existente (funcionalidade pode ser removida/alterada)
+    const handleOpenModalAnotacao = (anotacao = null) => {
+        if (anotacao) {
             setEditingAnotacao(anotacao);
             setTarefa(anotacao.tarefa || '');
             setPrioridade(anotacao.prioridade || '');
             setArea(anotacao.area || '');
             setOrientacao(anotacao.orientacao || '');
-            // Campos de tarefa não são preenchidos ao editar uma anotação simples
-            setAcao(''); 
-            setDataInicio('');
         } else {
             resetForm();
-            setDataInicio(new Date().toISOString().split('T')[0]); // Padrão para data de início
         }
         setIsModalOpen(true);
     };
+    
+    const handleOpenCriarTarefaModal = (anotacao) => {
+        setAnotacaoParaTarefa(anotacao);
+        setIsCriarTarefaModalOpen(true);
+    };
 
-    const handleCloseModal = () => {
 
+    const handleCloseModalAnotacao = () => {
         setIsModalOpen(false);
         resetForm();
     };
+    
+    const handleCloseCriarTarefaModal = () => {
+        setIsCriarTarefaModalOpen(false);
+        setAnotacaoParaTarefa(null);
+    }
 
-    const handleSave = async (e) => {
+    const handleSaveAnotacao = async (e) => {
         e.preventDefault();
-        if (!tarefa.trim() || !prioridade || !area || !acao || !dataInicio) {
-            alert("Os campos Tarefa, Prioridade, Área, Ação e Data de Início são obrigatórios para criar uma tarefa no mapa.");
+        if (!tarefa.trim()) {
+            alert("O campo Tarefa é obrigatório.");
             return;
         }
-        setLoadingForm(true);
-        const usuario = auth.currentUser;
-
-        const novaTarefaMapa = {
+        const anotacaoData = {
             tarefa: tarefa.trim().toUpperCase(),
             prioridade,
             area,
-            acao,
-            dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")),
-            dataProvavelTermino: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")), // Padrão para mesmo dia, pode ser ajustado
             orientacao: orientacao.trim(),
-            status: "AGUARDANDO ALOCAÇÃO",
-            responsaveis: [],
-            turno: TURNO_DIA_INTEIRO, // Padrão
-            criadoPor: usuario?.uid || 'sistema',
-            createdAt: Timestamp.now(),
-            updatedAt: Timestamp.now(),
-            semanaProgramada: "", // Será preenchido na alocação ou sincronização
+            ...(editingAnotacao ? 
+                { updatedAt: Timestamp.now(), criadoPor: editingAnotacao.criadoPor || auth.currentUser?.uid || 'sistema', createdAt: editingAnotacao.createdAt || Timestamp.now() } : 
+                { criadoPor: auth.currentUser?.uid || 'sistema', createdAt: Timestamp.now(), updatedAt: Timestamp.now() })
         };
 
+        setLoading(true);
         try {
-            const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaMapa);
-            await logAlteracaoTarefa(db, basePath, docRef.id, usuario?.uid, usuario?.email, "Tarefa Criada (Registro Rápido)", `Tarefa "${novaTarefaMapa.tarefa}" adicionada com status AGUARDANDO ALOCAÇÃO.`);
-            alert("Tarefa registrada com sucesso no Mapa de Atividades e aguardando alocação!");
-            handleCloseModal();
-
-
-
+            if (editingAnotacao) {
+                const anotacaoDocRef = doc(db, `${basePath}/anotacoes_patio`, editingAnotacao.id);
+                await setDoc(anotacaoDocRef, anotacaoData, { merge: true });
+            } else {
+                await addDoc(anotacoesCollectionRef, anotacaoData);
+            }
+            handleCloseModalAnotacao();
         } catch (error) {
-            console.error("Erro ao registrar tarefa/anotação:", error);
-            alert("Erro ao registrar: " + error.message);
+            console.error("Erro ao salvar anotação: ", error);
+            alert("Erro ao salvar anotação: " + error.message);
         }
-        setLoadingForm(false);
+        setLoading(false);
     };
-
-    // A exclusão de anotações antigas pode ser mantida se necessário, ou removida se o foco for apenas criar tarefas.
-    const handleDeleteAnotacaoAntiga = async (anotacaoId) => {
-        if (window.confirm("Tem certeza que deseja excluir esta anotação antiga?")) {
+    
+    const handleDeleteAnotacao = async (anotacaoId) => {
+        if (window.confirm("Tem certeza que deseja excluir esta anotação?")) {
             setLoading(true);
             try {
                 await deleteDoc(doc(db, `${basePath}/anotacoes_patio`, anotacaoId));
             } catch (error) {
-                console.error("Erro ao excluir anotação antiga: ", error);
-                alert("Erro ao excluir anotação antiga: " + error.message);
+                console.error("Erro ao excluir anotação: ", error);
+                alert("Erro ao excluir anotação: " + error.message);
             }
             setLoading(false);
         }
     };
+    
+    const handleCriarTarefaDoMapa = async (dadosTarefaMapa) => {
+        setLoading(true);
+        const usuario = authGlobal.currentUser;
+        try {
+            const novaTarefaMapa = {
+                ...dadosTarefaMapa,
+                status: "AGUARDANDO ALOCAÇÃO",
+                responsaveis: [],
+                turno: "",
+                dataProvavelTermino: dadosTarefaMapa.dataInicio, 
+                criadoPor: usuario?.uid || 'sistema',
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+                semanaProgramada: "",
+            };
+            const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaMapa);
+            console.log("Tarefa criada no Mapa de Atividades com ID: ", docRef.id);
+            
+            await logAlteracaoTarefa(db, basePath, docRef.id, usuario?.uid, usuario?.email, "Tarefa Criada (via Anotação)", `Tarefa "${novaTarefaMapa.tarefa}" criada a partir da anotação ID ${anotacaoParaTarefa.id}.`);
 
-    if (loading && anotacoes.length === 0) return <div className="p-6 text-center">Carregando...</div>;
+
+            if (anotacaoParaTarefa && anotacaoParaTarefa.id) {
+                await deleteDoc(doc(db, `${basePath}/anotacoes_patio`, anotacaoParaTarefa.id));
+                console.log("Anotação original excluída:", anotacaoParaTarefa.id);
+            }
+
+            alert("Tarefa criada no Mapa de Atividades com status 'AGUARDANDO ALOCAÇÃO' e anotação original removida.");
+            handleCloseCriarTarefaModal();
+        } catch (error) {
+            console.error("Erro ao criar tarefa no Mapa de Atividades a partir da anotação:", error);
+            alert("Erro ao criar tarefa: " + error.message);
+        }
+        setLoading(false);
+    };
+
+
+    if (loading && anotacoes.length === 0) return <div className="p-6 text-center">Carregando anotações do pátio...</div>;
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-800">Registro Rápido de Tarefa</h2>
+                <h2 className="text-2xl font-semibold text-gray-800">Anotações Pátio</h2>
                 <button
-                    onClick={() => handleOpenModal()}
+                    onClick={() => handleOpenModalAnotacao()}
                     className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
                 >
-                    <LucidePlusCircle size={20} className="mr-2"/> Nova Tarefa Rápida
+                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Anotação
                 </button>
             </div>
-            
-            {/* Lista de anotações antigas (opcional, pode ser removido se não for mais útil) */}
-            {anotacoes.length > 0 && (
-                <div className="mb-8">
-                    <h3 className="text-lg font-medium text-gray-700 mb-2">Anotações Antigas (Apenas Visualização/Exclusão)</h3>
-                     <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            {/* ... cabeçalho e corpo da tabela para anotações antigas ... */}
-                        </table>
-                    </div>
-                </div>
-            )}
-            {anotacoes.length === 0 && !loading && <p className="text-gray-500 text-center">Nenhuma anotação antiga para exibir.</p>}
+             <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-100">
+                        <tr>
+                            {["Tarefa", "Prioridade", "Área", "Orientação", "Ações"].map(header => (
+                                <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                                    {header}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {anotacoes.length === 0 && (
+                            <tr><td colSpan="5" className="px-4 py-4 text-center text-gray-500">Nenhuma anotação encontrada.</td></tr>
+                        )}
+                        {anotacoes.map((a) => (
+                            <tr key={a.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm text-gray-800 max-w-md break-words">{a.tarefa}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{a.prioridade}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{a.area}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700 max-w-md break-words">{a.orientacao}</td>
+                                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
+                                    <button onClick={() => handleOpenCriarTarefaModal(a)} title="Criar Tarefa no Mapa" className="text-green-600 hover:text-green-800 mr-3"><LucideArrowRightCircle size={18}/></button>
+                                    <button onClick={() => handleOpenModalAnotacao(a)} title="Editar Anotação" className="text-blue-600 hover:text-blue-800 mr-3"><LucideEdit size={18}/></button>
+                                    <button onClick={() => handleDeleteAnotacao(a.id)} title="Excluir Anotação" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
 
-            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingAnotacao ? "Editar Anotação Antiga" : "Registrar Nova Tarefa Pendente"}>
-                 <form onSubmit={handleSave} className="space-y-4">
+            <Modal isOpen={isModalOpen} onClose={handleCloseModalAnotacao} title={editingAnotacao ? "Editar Anotação" : "Nova Anotação Pátio"}>
+                 <form onSubmit={handleSaveAnotacao} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
-                        <input type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
+                        <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
+                        <input type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Prioridade <span className="text-red-500">*</span></label>
-                            <select value={prioridade} onChange={(e) => setPrioridade(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <label className="block text-sm font-medium text-gray-700">Prioridade</label>
+                            <select value={prioridade} onChange={(e) => setPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
                                 <option value="">Selecione...</option>
                                 {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Área <span className="text-red-500">*</span></label>
-                            <select value={area} onChange={(e) => setArea(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <label className="block text-sm font-medium text-gray-700">Área</label>
+                            <select value={area} onChange={(e) => setArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
                                 <option value="">Selecione...</option>
                                 {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
                             </select>
                         </div>
                     </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
-                            <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">Selecione...</option>
-                                {listasAuxiliares.acoes.map(ac => <option key={ac} value={ac}>{ac}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
-                            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
-                        </div>
-                    </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Orientação</label>
-                        <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
+                        <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
                     </div>
                     <div className="pt-4 flex justify-end space-x-2">
-                        <button type="button" onClick={handleCloseModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={loadingForm} className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 rounded-md hover:bg-yellow-700 disabled:bg-gray-400">
-                            {loadingForm ? 'Salvando...' : 'Salvar Tarefa Pendente'}
+                        <button type="button" onClick={handleCloseModalAnotacao} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                        <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
+                            {loading ? 'Salvando...' : (editingAnotacao ? 'Atualizar Anotação' : 'Adicionar Anotação')}
                         </button>
                     </div>
                 </form>
             </Modal>
 
+            {anotacaoParaTarefa && (
+                <CriarTarefaDoMapaModal 
+                    isOpen={isCriarTarefaModalOpen} 
+                    onClose={handleCloseCriarTarefaModal} 
+                    anotacao={anotacaoParaTarefa}
+                    onSave={handleCriarTarefaDoMapa}
+                />
+            )}
         </div>
     );
 };
+
+// Modal para criar Tarefa no Mapa a partir de uma Anotação
+const CriarTarefaDoMapaModal = ({ isOpen, onClose, anotacao, onSave }) => {
+    const { listasAuxiliares, userId } = useContext(GlobalContext);
+    const [tarefaDesc, setTarefaDesc] = useState('');
+    const [prioridade, setPrioridade] = useState('');
+    const [area, setArea] = useState('');
+    const [acao, setAcao] = useState(''); 
+    const [dataInicio, setDataInicio] = useState('');
+    const [orientacao, setOrientacao] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (anotacao) {
+            setTarefaDesc(anotacao.tarefa || '');
+            setPrioridade(anotacao.prioridade || '');
+            setArea(anotacao.area || '');
+            setOrientacao(anotacao.orientacao || '');
+            setDataInicio(new Date().toISOString().split('T')[0]); 
+            setAcao(''); 
+        }
+    }, [anotacao, isOpen]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!acao) {
+            alert("O campo Ação é obrigatório.");
+            return;
+        }
+        if (!dataInicio) {
+            alert("O campo Data de Início é obrigatório.");
+            return;
+        }
+        setLoading(true);
+        const dadosTarefaMapa = {
+            tarefa: tarefaDesc.trim().toUpperCase(), 
+            prioridade, 
+            area, 
+            acao, 
+            dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")), 
+            orientacao: orientacao.trim(), 
+        };
+        await onSave(dadosTarefaMapa);
+        setLoading(false);
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Criar Tarefa no Mapa a partir da Anotação">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
+                    <input type="text" value={tarefaDesc} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
+                        <input type="text" value={prioridade} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Área</label>
+                        <input type="text" value={area} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
+                    </div>
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
+                    <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Selecione uma Ação...</option>
+                        {listasAuxiliares.acoes.map(ac => <option key={ac} value={ac}>{ac}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
+                    <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Orientação</label>
+                    <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+                <div className="pt-4 flex justify-end space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400">
+                        {loading ? 'Criando...' : 'Criar Tarefa no Mapa'}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
 
 // Componente Relatorios
 const RelatoriosComponent = () => {
@@ -2315,7 +2418,7 @@ const RelatoriosComponent = () => {
     const handleSelectAllFuncionarios = () => {
         const allFuncIds = contextFuncionarios.map(f => f.id);
         setFiltroFuncionarios([SEM_RESPONSAVEL_VALUE, ...allFuncIds]);
-
+        // Marcar todos os checkboxes
         document.querySelectorAll('input[name="funcionarioChkItem"]').forEach(chk => chk.checked = true);
         document.getElementById('funcionarioChk-semResponsavel').checked = true;
 
@@ -2343,7 +2446,7 @@ const RelatoriosComponent = () => {
         document.querySelectorAll('input[name="statusChkItem"]').forEach(chk => chk.checked = false);
     };
 
-
+    
     const escapeHtml = (unsafe) => {
         if (unsafe === null || typeof unsafe === 'undefined') return '';
         return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -2355,7 +2458,7 @@ const RelatoriosComponent = () => {
         const date = timestamp instanceof Timestamp ? timestamp.toDate() : new Date(timestamp);
         return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
     };
-
+    
     const getResponsavelNomesParaRelatorio = (responsavelIds) => {
         if (!responsavelIds || responsavelIds.length === 0) return '--- SEM RESPONSÁVEL ---';
         return responsavelIds.map(id => {
@@ -2386,7 +2489,7 @@ const RelatoriosComponent = () => {
                 if (filtroFuncionarios.length > 0) {
                     const temSemResponsavelNoFiltro = filtroFuncionarios.includes(SEM_RESPONSAVEL_VALUE);
                     const responsaveisDaTarefa = task.responsaveis || [];
-
+                    
                     if (temSemResponsavelNoFiltro && responsaveisDaTarefa.length === 0) {
                         // Mantém
                     } else if (responsaveisDaTarefa.length > 0 && filtroFuncionarios.some(fId => responsaveisDaTarefa.includes(fId))) {
@@ -2412,16 +2515,16 @@ const RelatoriosComponent = () => {
                 if (manter && dataFimFiltro && dataInicioTarefa && dataInicioTarefa.getTime() > dataFimFiltro.getTime()) {
                     manter = false; 
                 }
-
+                
                 return manter;
             });
-
+            
             tarefasProcessadas.sort((a,b) => {
                 const nomeA = getResponsavelNomesParaRelatorio(a.responsaveis);
                 const nomeB = getResponsavelNomesParaRelatorio(b.responsaveis);
                 if (nomeA < nomeB) return -1;
                 if (nomeA > nomeB) return 1;
-
+                
                 const dataA = a.dataInicio ? a.dataInicio.toMillis() : 0;
                 const dataB = b.dataInicio ? b.dataInicio.toMillis() : 0;
                 return dataA - dataB;
@@ -2440,7 +2543,7 @@ const RelatoriosComponent = () => {
         }
         setLoadingReport(false);
     };
-
+    
     const handlePrint = () => {
         const reportContentElement = document.getElementById("printable-report-area-content");
         if (!reportContentElement) {
@@ -2448,7 +2551,7 @@ const RelatoriosComponent = () => {
             return;
         }
         const printContents = reportContentElement.innerHTML;
-
+    
         const printFrame = document.createElement('iframe');
         printFrame.style.position = 'fixed';
         printFrame.style.top = '-9999px'; 
@@ -2457,9 +2560,9 @@ const RelatoriosComponent = () => {
         printFrame.style.height = '1px';
         printFrame.style.border = '0';
         document.body.appendChild(printFrame);
-
+    
         const pri = printFrame.contentWindow;
-
+    
         printFrame.onload = function() {
             pri.document.open();
             pri.document.write('<html><head><title>Relatório de Atividades</title>');
@@ -2524,7 +2627,7 @@ const RelatoriosComponent = () => {
                 }
             }, 2000); 
         };
-
+    
         if (!printFrame.contentWindow || !printFrame.contentWindow.document) {
             console.error("Não foi possível acessar o contentWindow do iframe imediatamente.");
         }
@@ -2534,7 +2637,7 @@ const RelatoriosComponent = () => {
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Relatório de Atividades</h2>
-
+            
             <div className="bg-white p-6 rounded-lg shadow-md mb-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4">
                     <div>
@@ -2617,7 +2720,7 @@ const RelatoriosComponent = () => {
                                 Período: {filtroDataInicio ? formatDateForDisplay(new Date(filtroDataInicio+"T00:00:00Z")) : 'N/A'} a {filtroDataFim ? formatDateForDisplay(new Date(filtroDataFim+"T00:00:00Z")) : 'N/A'}
                             </p>
                         </div>
-
+                        
                         <div className="overflow-x-auto mb-6">
                             <table className="min-w-full divide-y divide-gray-200 border">
                                 <thead className="bg-gray-100">
@@ -2674,7 +2777,7 @@ const TarefasPendentesComponent = () => {
         setLoading(true);
         const tarefasMapaRef = collection(db, `${basePath}/tarefas_mapa`);
         const q = query(tarefasMapaRef, where("status", "==", "AGUARDANDO ALOCAÇÃO"));
-
+        
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedPendentes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTarefasPendentes(fetchedPendentes);
@@ -2715,29 +2818,23 @@ const TarefasPendentesComponent = () => {
                 status: "PROGRAMADA",
                 updatedAt: Timestamp.now(),
             };
-
+            
             if (dadosAlocacao.dataInicio instanceof Timestamp) {
                  const dataInicioJS = dadosAlocacao.dataInicio.toDate();
                  const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
                  const todasSemanasSnap = await getDocs(todasSemanasQuery);
-                 let semanaEncontrada = false;
                  for (const semanaDocSnap of todasSemanasSnap.docs) {
                      const semana = semanaDocSnap.data();
                      if (semana.dataInicioSemana.toDate() <= dataInicioJS && semana.dataFimSemana.toDate() >= dataInicioJS) {
                          dadosParaAtualizar.semanaProgramada = semana.nomeAba || semanaDocSnap.id;
-                         semanaEncontrada = true;
                          break;
                      }
-                 }
-                 if (!semanaEncontrada) {
-                    console.warn(`Nenhuma semana de programação encontrada para a data de início ${formatDate(dadosAlocacao.dataInicio)} da tarefa ${tarefaId}. O campo 'semanaProgramada' não será definido.`);
-                    // Não definir dadosParaAtualizar.semanaProgramada se nenhuma semana for encontrada
                  }
             }
 
 
             await updateDoc(tarefaDocRef, dadosParaAtualizar);
-
+            
             const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
             if (tarefaAtualizadaSnap.exists()) {
                 const tarefaAtualizadaData = tarefaAtualizadaSnap.data();
@@ -2746,7 +2843,7 @@ const TarefasPendentesComponent = () => {
                     `Alocada para: ${getResponsavelNomesParaLog(dadosParaAtualizar.responsaveis)}. Turno: ${dadosParaAtualizar.turno}. Período: ${formatDate(dadosParaAtualizar.dataInicio)} a ${formatDate(dadosParaAtualizar.dataProvavelTermino)}.`
                 );
             }
-
+            
             alert("Tarefa alocada com sucesso!");
             handleFecharModalAlocacao();
         } catch (error) {
@@ -2755,7 +2852,7 @@ const TarefasPendentesComponent = () => {
         }
         setLoading(false);
     };
-
+    
 
     if (loading) return <div className="p-6 text-center">Carregando tarefas pendentes...</div>;
 
@@ -2859,7 +2956,7 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
         };
         await onAlocar(tarefaPendente.id, dadosAlocacao);
     };
-
+    
     const handleResponsavelAlocChange = (e) => {
         const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
         setResponsaveisAloc(selectedOptions);
@@ -2874,7 +2971,7 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
                 <p className="text-sm"><strong>Prioridade:</strong> {tarefaPendente.prioridade}</p>
                 <p className="text-sm"><strong>Área:</strong> {tarefaPendente.area}</p>
                 <p className="text-sm"><strong>Ação:</strong> {tarefaPendente.acao}</p>
-
+                
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Responsável(eis) <span className="text-red-500">*</span></label>
                     <select multiple value={responsaveisAloc} onChange={handleResponsavelAlocChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-28">
@@ -2922,8 +3019,7 @@ const DashboardComponent = () => {
         porStatus: {},
         porPrioridade: {},
         proximoPrazo: [],
-        atrasadas: [],
-        porFuncionario: {} 
+        atrasadas: []
     });
     const [loadingDashboard, setLoadingDashboard] = useState(true);
     const basePath = `/artifacts/${appId}/public/data`;
@@ -2934,10 +3030,9 @@ const DashboardComponent = () => {
             dbReady: !!db, 
             appIdReady: !!appId, 
             statusLength: listasAuxiliares.status.length, 
-            prioLength: listasAuxiliares.prioridades.length,
-            funcionariosLength: funcionarios.length
+            prioLength: listasAuxiliares.prioridades.length 
         });
-
+        
         const fetchDashboardData = async () => {
             console.log("[Dashboard] fetchDashboardData: Iniciando busca...");
             setLoadingDashboard(true); 
@@ -2949,12 +3044,9 @@ const DashboardComponent = () => {
 
                 const porStatus = {};
                 (Array.isArray(listasAuxiliares.status) ? listasAuxiliares.status : []).forEach(s => porStatus[s] = 0);
-
+                
                 const porPrioridade = {};
                 (Array.isArray(listasAuxiliares.prioridades) ? listasAuxiliares.prioridades : []).forEach(p => porPrioridade[p] = 0);
-
-                const porFuncionario = {};
-                (Array.isArray(funcionarios) ? funcionarios : []).forEach(f => porFuncionario[f.nome] = 0); 
 
                 const hoje = new Date();
                 hoje.setHours(0,0,0,0);
@@ -2977,16 +3069,6 @@ const DashboardComponent = () => {
                         porPrioridade[tarefa.prioridade] = 1; 
                     }
 
-                    if (tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA" && Array.isArray(tarefa.responsaveis)) {
-                        tarefa.responsaveis.forEach(respId => {
-                            const func = funcionarios.find(f => f.id === respId);
-                            if (func && func.nome) {
-                                porFuncionario[func.nome] = (porFuncionario[func.nome] || 0) + 1;
-                            }
-                        });
-                    }
-
-
                     if (tarefa.dataProvavelTermino && (tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA")) {
                         const dataTermino = tarefa.dataProvavelTermino.toDate();
                         dataTermino.setHours(0,0,0,0); 
@@ -2997,15 +3079,15 @@ const DashboardComponent = () => {
                         }
                     }
                 });
-
+                
                 proximoPrazo.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
                 atrasadas.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
 
-                console.log("[Dashboard] fetchDashboardData: Stats calculados:", { porStatus, porPrioridade, proximoPrazo: proximoPrazo.length, atrasadas: atrasadas.length, porFuncionario });
-                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, porFuncionario });
+                console.log("[Dashboard] fetchDashboardData: Stats calculados:", { porStatus, porPrioridade, proximoPrazo: proximoPrazo.length, atrasadas: atrasadas.length });
+                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas });
             } catch (error) {
                 console.error("[Dashboard] fetchDashboardData: Erro ao buscar dados:", error);
-                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], porFuncionario: {} }); 
+                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [] }); 
             } finally {
                 console.log("[Dashboard] fetchDashboardData: setLoadingDashboard(false)");
                 setLoadingDashboard(false); 
@@ -3013,24 +3095,22 @@ const DashboardComponent = () => {
         };
 
         if (!loadingAuth && db && appId) {
-            console.log("[Dashboard] useEffect: Condições atendidas (auth, db, appId). Verificando listasAuxiliares e funcionarios...");
-            if (listasAuxiliares && listasAuxiliares.status && listasAuxiliares.status.length > 0 && 
-                listasAuxiliares.prioridades && listasAuxiliares.prioridades.length > 0 &&
-                funcionarios && funcionarios.length > 0) {
-                console.log("[Dashboard] Listas auxiliares e funcionarios prontos, chamando fetchDashboardData.");
+            console.log("[Dashboard] useEffect: Condições atendidas (auth, db, appId). Verificando listasAuxiliares...");
+            if (listasAuxiliares && listasAuxiliares.status && listasAuxiliares.status.length > 0 && listasAuxiliares.prioridades && listasAuxiliares.prioridades.length > 0) {
+                console.log("[Dashboard] Listas auxiliares prontas, chamando fetchDashboardData.");
                 fetchDashboardData();
             } else {
-                 console.log("[Dashboard] Listas auxiliares ou funcionarios ainda não estão prontas ou estão vazias. Aguardando...");
+                 console.log("[Dashboard] Listas auxiliares ainda não estão prontas ou estão vazias. Aguardando...");
             }
         } else if (!loadingAuth) {
             console.log("[Dashboard] useEffect: db ou appId não está pronto após autenticação. Não buscando dados.");
             setLoadingDashboard(false); 
         }
-
+        
         return () => {
            console.log("[Dashboard] Cleanup useEffect");
         };
-    }, [db, appId, listasAuxiliares.status, listasAuxiliares.prioridades, funcionarios, loadingAuth]);
+    }, [db, appId, listasAuxiliares.status, listasAuxiliares.prioridades, loadingAuth]);
 
     const getPrioridadeColor = (prioridade) => {
         if (prioridade === "P4 - URGENTE") return "bg-red-500 text-white";
@@ -3038,7 +3118,7 @@ const DashboardComponent = () => {
         if (prioridade === "P2 - MÉDIO PRAZO") return "bg-yellow-400 text-black";
         return "bg-gray-200 text-gray-700";
     };
-
+    
     const getStatusColorText = (status) => {
         if (status === "CANCELADA") return "text-red-600";
         if (status === "CONCLUÍDA") return "text-green-600";
@@ -3058,9 +3138,9 @@ const DashboardComponent = () => {
             <h2 className="text-3xl font-semibold text-gray-800 mb-8">Dashboard</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-
+                {/* Card Tarefas por Status */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><LucideListChecks size={22} className="mr-2 text-blue-500"/>Tarefas por Status</h3>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Status</h3>
                     <ul className="space-y-2">
                         {Object.entries(stats.porStatus).map(([status, count]) => (
                             <li key={status} className="flex justify-between items-center text-sm">
@@ -3071,9 +3151,9 @@ const DashboardComponent = () => {
                     </ul>
                 </div>
 
-
+                {/* Card Tarefas por Prioridade */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><LucideAlertCircle size={22} className="mr-2 text-orange-500"/>Tarefas por Prioridade</h3>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Prioridade</h3>
                     <ul className="space-y-2">
                          {Object.entries(stats.porPrioridade).map(([prioridade, count]) => (
                             <li key={prioridade} className="flex justify-between items-center text-sm">
@@ -3083,24 +3163,10 @@ const DashboardComponent = () => {
                         ))}
                     </ul>
                 </div>
-                <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><LucideUserCog size={22} className="mr-2 text-indigo-500"/>Tarefas Ativas por Funcionário</h3>
-                    <ul className="space-y-2 max-h-60 overflow-y-auto">
-                        {Object.entries(stats.porFuncionario)
-                            .sort(([, countA], [, countB]) => countB - countA) // Ordena por contagem decrescente
-                            .map(([funcionario, count]) => (
-                            <li key={funcionario} className="flex justify-between items-center text-sm">
-                                <span className="font-medium text-gray-600">{funcionario}</span>
-                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">{count}</span>
-                            </li>
-                        ))}
-                         {Object.keys(stats.porFuncionario).length === 0 && <p className="text-sm text-gray-500">Nenhuma tarefa ativa atribuída.</p>}
-                    </ul>
-                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
+                 {/* Card Tarefas com Prazo Próximo */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
@@ -3115,7 +3181,7 @@ const DashboardComponent = () => {
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
                 </div>
 
-
+                {/* Card Tarefas Atrasadas */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
                      {stats.atrasadas.length > 0 ? (
@@ -3143,7 +3209,7 @@ function App() {
     if (!currentUser) {
         return <AuthComponent />;
     }
-
+    
     const PageContent = () => {
         switch (currentPage) {
             case 'dashboard': return <DashboardComponent />;
@@ -3208,3 +3274,4 @@ export default function WrappedApp() {
             <App />
         </GlobalProvider>
     );
+}
