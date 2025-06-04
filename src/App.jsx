@@ -1,20 +1,18 @@
-import React, { useState, useEffect, createContext, useContext, memo } from 'react';More actions
+import React, { useState, useEffect, createContext, useContext, memo } from 'react';
 // Importe a instância do app Firebase já inicializada
 // Garanta que o arquivo 'firebaseConfig.js' está na pasta 'src',
 // junto com este arquivo App.jsx.
-import firebaseAppInstance from './firebaseConfig'; 
+import firebaseAppInstance from './firebaseConfig';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore'; 
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory } from 'lucide-react'; 
+import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory } from 'lucide-react';
 
 // Inicialização do Firebase usando a instância importada
 const firebaseApp = firebaseAppInstance;
-const authGlobal = getAuth(firebaseApp); 
+const authGlobal = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 
 // Usa o projectId da configuração do Firebase para o appId interno da aplicação
-
-
 const appId = firebaseApp.options.projectId || 'default-app-id-fallback';
 
 // Contexto Global
@@ -23,11 +21,11 @@ const GlobalContext = createContext();
 // Constantes do script original
 const DIAS_SEMANA = ["SEGUNDA-FEIRA", "TERÇA-FEIRA", "QUARTA-FEIRA", "QUINTA-FEIRA", "SEXTA-FEIRA", "SÁBADO"];
 const TURNO_DIA_INTEIRO = "DIA INTEIRO";
-const SEM_RESPONSAVEL_VALUE = "---SEM_RESPONSAVEL---"; 
+const SEM_RESPONSAVEL_VALUE = "---SEM_RESPONSAVEL---";
 const TODOS_OS_STATUS_VALUE = "---TODOS_OS_STATUS---";
 const TODAS_AS_PRIORIDADES_VALUE = "---TODAS_AS_PRIORIDADES---";
 const TODAS_AS_AREAS_VALUE = "---TODAS_AS_AREAS---";
-const COR_STATUS_CONCLUIDA_FUNDO_MAPA = "bg-green-200"; 
+const COR_STATUS_CONCLUIDA_FUNDO_MAPA = "bg-green-200";
 
 const LOGO_URL = "https://gramoterra.com.br/assets/images/misc/Logo%20Gramoterra-02.png";
 
@@ -37,7 +35,7 @@ const formatDate = (timestamp) => {
     let date;
     if (timestamp instanceof Timestamp) {
         date = timestamp.toDate();
-    } else if (timestamp && typeof timestamp.seconds === 'number' && typeof timestamp.nanoseconds === 'number') { 
+    } else if (timestamp && typeof timestamp.seconds === 'number' && typeof timestamp.nanoseconds === 'number') {
         date = new Date(timestamp.seconds * 1000 + timestamp.nanoseconds / 1000000);
     } else if (timestamp instanceof Date) {
         date = timestamp;
@@ -78,7 +76,7 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
 
     todasSemanasSnap.forEach(semanaDocSnap => {
         const semanaDataOriginal = semanaDocSnap.data();
-        const semanaDataModificada = JSON.parse(JSON.stringify(semanaDataOriginal)); 
+        const semanaDataModificada = JSON.parse(JSON.stringify(semanaDataOriginal));
         let estaSemanaEspecificaFoiAlterada = false;
 
         if (semanaDataModificada.dias) {
@@ -97,7 +95,7 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
         }
 
         if (estaSemanaEspecificaFoiAlterada) {
-            batch.set(semanaDocSnap.ref, semanaDataModificada); 
+            batch.set(semanaDocSnap.ref, semanaDataModificada);
             algumaSemanaModificada = true;
         }
     });
@@ -137,9 +135,9 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
 
     const itemTarefaProgramacao = {
         mapaTaskId: tarefaId,
-        textoVisivel: textoVisivelFinal, 
+        textoVisivel: textoVisivelFinal,
         statusLocal: tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
-        turno: tarefaData.turno || TURNO_DIA_INTEIRO 
+        turno: tarefaData.turno || TURNO_DIA_INTEIRO
     };
 
     const dataInicioLoop = tarefaData.dataInicio.toDate();
@@ -152,15 +150,15 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
 
     const alteracoesPorSemana = new Map();
     todasSemanasSnap.forEach(semanaDocSnap => {
-        alteracoesPorSemana.set(semanaDocSnap.id, { 
-            ...semanaDocSnap.data(), 
-            dias: JSON.parse(JSON.stringify(semanaDocSnap.data().dias || {})) 
+        alteracoesPorSemana.set(semanaDocSnap.id, {
+            ...semanaDocSnap.data(),
+            dias: JSON.parse(JSON.stringify(semanaDocSnap.data().dias || {}))
         });
     });
 
     let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
     const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
-    dataFimLoopUTC.setUTCHours(23,59,59,999); 
+    dataFimLoopUTC.setUTCHours(23,59,59,999);
 
     while (dataAtual.getTime() <= dataFimLoopUTC.getTime()) {
         const diaFormatado = dataAtual.toISOString().split('T')[0];
@@ -173,7 +171,7 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
             } else if (semanaDataModificada.dataInicioSemana && typeof semanaDataModificada.dataInicioSemana.seconds === 'number') {
                 inicioSemana = new Date(semanaDataModificada.dataInicioSemana.seconds * 1000 + (semanaDataModificada.dataInicioSemana.nanoseconds || 0) / 1000000);
             } else {
-                continue; 
+                continue;
             }
 
             if (semanaDataModificada.dataFimSemana && typeof semanaDataModificada.dataFimSemana.toDate === 'function') {
@@ -181,7 +179,7 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
             } else if (semanaDataModificada.dataFimSemana && typeof semanaDataModificada.dataFimSemana.seconds === 'number') {
                 fimSemana = new Date(semanaDataModificada.dataFimSemana.seconds * 1000 + (semanaDataModificada.dataFimSemana.nanoseconds || 0) / 1000000);
             } else {
-                continue; 
+                continue;
             }
 
             const inicioSemanaUTC = new Date(Date.UTC(inicioSemana.getUTCFullYear(), inicioSemana.getUTCMonth(), inicioSemana.getUTCDate()));
@@ -196,9 +194,9 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
                         semanaDataModificada.dias[diaFormatado][responsavelId] = [];
                     }
                     if (!semanaDataModificada.dias[diaFormatado][responsavelId].find(t => t.mapaTaskId === tarefaId)) {
-                        semanaDataModificada.dias[diaFormatado][responsavelId].push({...itemTarefaProgramacao}); 
+                        semanaDataModificada.dias[diaFormatado][responsavelId].push({...itemTarefaProgramacao});
                         algumaSemanaModificadaNaAdicao = true;
-                    } 
+                    }
                 });
             }
         }
@@ -208,7 +206,7 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
     if (algumaSemanaModificadaNaAdicao) {
         alteracoesPorSemana.forEach((dadosModificados, semanaId) => {
             const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaId);
-            batch.set(semanaDocRef, dadosModificados); 
+            batch.set(semanaDocRef, dadosModificados);
         });
         try {
             await batch.commit();
@@ -244,8 +242,8 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
         const dataFimPrincipal = tarefaPrincipal.dataProvavelTermino.toDate();
         const responsaveisPrincipais = tarefaPrincipal.responsaveis;
 
-        let todasInstanciasProgramadasConcluidas = true; 
-        let algumaInstanciaProgramadaRelevanteEncontrada = false; 
+        let todasInstanciasProgramadasConcluidas = true;
+        let algumaInstanciaProgramadaRelevanteEncontrada = false;
 
         const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
         const todasSemanasSnap = await getDocs(todasSemanasQuery);
@@ -258,11 +256,11 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
             const diaFormatado = diaAtualTarefaMapa.toISOString().split('T')[0];
             let encontrouInstanciaParaEsteDia = false;
 
-            for (const semanaDocSnap of todasSemanasSnap.docs) { 
+            for (const semanaDocSnap of todasSemanasSnap.docs) {
                 const semanaData = semanaDocSnap.data();
-                 if (!semanaData.dataInicioSemana || !(semanaData.dataInicioSemana.seconds !== undefined) || 
+                 if (!semanaData.dataInicioSemana || !(semanaData.dataInicioSemana.seconds !== undefined) ||
                     !semanaData.dataFimSemana || !(semanaData.dataFimSemana.seconds !== undefined)) {
-                    continue; 
+                    continue;
                 }
                 const inicioSemana = semanaData.dataInicioSemana.toDate();
                 const fimSemana = semanaData.dataFimSemana.toDate();
@@ -280,7 +278,7 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
                             encontrouInstanciaParaEsteDia = true;
                             if (instanciaTarefaNaCelula.statusLocal !== 'CONCLUÍDA') {
                                 todasInstanciasProgramadasConcluidas = false;
-                                break; 
+                                break;
                             }
                         } else {
                             todasInstanciasProgramadasConcluidas = false;
@@ -288,9 +286,9 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
                         }
                     }
                 }
-                if (!todasInstanciasProgramadasConcluidas || encontrouInstanciaParaEsteDia) break; 
+                if (!todasInstanciasProgramadasConcluidas || encontrouInstanciaParaEsteDia) break;
             }
-            if (!todasInstanciasProgramadasConcluidas) break; 
+            if (!todasInstanciasProgramadasConcluidas) break;
             diaAtualTarefaMapa.setUTCDate(diaAtualTarefaMapa.getUTCDate() + 1);
         }
 
@@ -328,22 +326,22 @@ const GlobalProvider = ({ children }) => {
 
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(authGlobal, async (user) => { 
+        const unsubscribe = onAuthStateChanged(authGlobal, async (user) => {
             if (user) {
                 setCurrentUser(user);
                 setUserId(user.uid);
             } else {
                 try {
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                         console.warn("Initial auth token present, but custom token sign-in flow might need backend setup. Falling back to anonymous for now if direct sign-in fails or not implemented.");
-                         await signInAnonymously(authGlobal); 
+                        console.warn("Initial auth token present, but custom token sign-in flow might need backend setup. Falling back to anonymous for now if direct sign-in fails or not implemented.");
+                        await signInAnonymously(authGlobal);
                     } else {
-                        await signInAnonymously(authGlobal); 
+                        await signInAnonymously(authGlobal);
                     }
                 } catch (error) {
                     console.error("Erro no login anônimo ou customizado:", error);
                 }
-                setCurrentUser(authGlobal.currentUser); 
+                setCurrentUser(authGlobal.currentUser);
                 setUserId(authGlobal.currentUser ? authGlobal.currentUser.uid : crypto.randomUUID());
             }
             setLoadingAuth(false);
@@ -361,11 +359,11 @@ const GlobalProvider = ({ children }) => {
             console.log("[SeedData] Tentando pré-carregar dados iniciais...");
             const basePath = `/artifacts/${appId}/public/data`;
             let seededSomething = false;
-            const seedMarkerDocRef = doc(db, `${basePath}/app_metadata/initial_seed_status`); 
+            const seedMarkerDocRef = doc(db, `${basePath}/app_metadata/initial_seed_status`);
 
             try {
                 const seedMarkerSnap = await getDoc(seedMarkerDocRef);
-                if (seedMarkerSnap.exists() && seedMarkerSnap.data().seeded) { 
+                if (seedMarkerSnap.exists() && seedMarkerSnap.data().seeded) {
                     console.log("[SeedData] Dados iniciais já pré-carregados anteriormente (marcador encontrado e válido).");
                     setInitialDataSeeded(true);
                     return;
@@ -382,16 +380,16 @@ const GlobalProvider = ({ children }) => {
 
                 for (const lista of listasParaSeed) {
                     const itemsCollectionRef = collection(db, `${basePath}/listas_auxiliares/${lista.nomeCol}/items`);
-                    const currentItemsSnap = await getDocs(query(itemsCollectionRef)); 
+                    const currentItemsSnap = await getDocs(query(itemsCollectionRef));
                     if (currentItemsSnap.empty) {
                         console.log(`[SeedData] Populando ${lista.nomeCol}...`);
                         for (const itemName of lista.data) {
-                            const newItemRef = doc(itemsCollectionRef); 
+                            const newItemRef = doc(itemsCollectionRef);
                             batchSeed.set(newItemRef, { nome: itemName.toUpperCase() });
                         }
                         seededSomething = true;
                     } else {
-                         console.log(`[SeedData] Coleção ${lista.nomeCol} já possui itens. Pulando seed para esta lista.`);
+                          console.log(`[SeedData] Coleção ${lista.nomeCol} já possui itens. Pulando seed para esta lista.`);
                     }
                 }
 
@@ -412,31 +410,31 @@ const GlobalProvider = ({ children }) => {
 
                 if(seededSomething) {
                     console.log("[SeedData] Preparando para commitar dados iniciais...");
-                    await batchSeed.commit(); 
-                    await setDoc(seedMarkerDocRef, { seeded: true, seededAt: Timestamp.now() }); 
+                    await batchSeed.commit();
+                    await setDoc(seedMarkerDocRef, { seeded: true, seededAt: Timestamp.now() });
                     console.log("[SeedData] Dados iniciais pré-carregados com sucesso e marcador criado!");
                 } else {
                     if (!seedMarkerSnap.exists()){
-                         await setDoc(seedMarkerDocRef, { seeded: true, seededAt: Timestamp.now(), note: "Nenhum dado novo semeado, coleções já populadas." });
-                         console.log("[SeedData] Marcador de seed criado pois coleções já estavam populadas.");
+                          await setDoc(seedMarkerDocRef, { seeded: true, seededAt: Timestamp.now(), note: "Nenhum dado novo semeado, coleções já populadas." });
+                          console.log("[SeedData] Marcador de seed criado pois coleções já estavam populadas.");
                     }
                 }
-                setInitialDataSeeded(true); 
+                setInitialDataSeeded(true);
 
             } catch (error) {
                 console.error("[SeedData] Erro ao pré-carregar dados iniciais:", error);
             }
         };
 
-        if (userId && appId && !initialDataSeeded) { 
+        if (userId && appId && !initialDataSeeded) {
             seedInitialData();
         }
 
-    }, [userId, appId, db, initialDataSeeded, DADOS_INICIAIS_CONFIG]); 
+    }, [userId, appId, db, initialDataSeeded, DADOS_INICIAIS_CONFIG]);
 
 
     useEffect(() => {
-        if (!userId || !appId || !db) return; 
+        if (!userId || !appId || !db) return;
 
 
 
@@ -464,7 +462,7 @@ const GlobalProvider = ({ children }) => {
         return () => {
             unsubscribers.forEach(unsub => unsub());
         };
-    }, [userId, appId, db]); 
+    }, [userId, appId, db]);
 
 
     if (loadingAuth) {
@@ -480,7 +478,7 @@ const GlobalProvider = ({ children }) => {
 
 // Componente de Autenticação Simples
 const AuthComponent = () => {
-    const { auth } = useContext(GlobalContext); 
+    const { auth } = useContext(GlobalContext);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isLogin, setIsLogin] = useState(true);
@@ -694,7 +692,7 @@ const ListaAuxiliarManager = ({ nomeLista, nomeSingular, collectionPathSegment }
 const FuncionariosManager = () => {
     const { userId, db, appId, funcionarios: contextFuncionarios } = useContext(GlobalContext);
     const [novoFuncionarioNome, setNovoFuncionarioNome] = useState('');
-    const [editingFuncionario, setEditingFuncionario] = useState(null); 
+    const [editingFuncionario, setEditingFuncionario] = useState(null);
     const [loading, setLoading] = useState(false);
 
     const basePath = `/artifacts/${appId}/public/data`;
@@ -705,7 +703,7 @@ const FuncionariosManager = () => {
         setLoading(true);
         try {
             const nomeIdFormatado = novoFuncionarioNome.trim().toUpperCase().replace(/\//g, '_');
-            const nomeDisplayFormatado = novoFuncionarioNome.trim().toUpperCase(); 
+            const nomeDisplayFormatado = novoFuncionarioNome.trim().toUpperCase();
 
             if (!nomeIdFormatado) {
                 alert("O nome do funcionário não pode ser vazio ou consistir apenas em caracteres inválidos.");
@@ -736,7 +734,7 @@ const FuncionariosManager = () => {
         try {
             const nomeDisplayAtualizado = editingFuncionario.nome.trim().toUpperCase();
             const funcDocRef = doc(db, `${basePath}/funcionarios`, editingFuncionario.id); // ID não muda
-            await setDoc(funcDocRef, { nome: nomeDisplayAtualizado }); 
+            await setDoc(funcDocRef, { nome: nomeDisplayAtualizado });
             setEditingFuncionario(null);
         } catch (error) {
             console.error("Erro ao atualizar funcionário: ", error);
@@ -830,9 +828,9 @@ const FuncionariosManager = () => {
             </div>
             {(loading && contextFuncionarios.length === 0) && <p>Carregando funcionários...</p>}
             <ul className="space-y-1 max-h-60 overflow-y-auto">
-                {contextFuncionarios.map(f => ( 
+                {contextFuncionarios.map(f => (
                     <li key={f.id} className="flex justify-between items-center p-2 border-b hover:bg-gray-50 rounded-md">
-                        <span>{f.nome}</span> 
+                        <span>{f.nome}</span>
                         <div>
                             <button onClick={() => setEditingFuncionario(f)} className="text-blue-500 hover:text-blue-700 mr-2"><LucideEdit size={16}/></button>
                             <button onClick={() => handleDeleteFuncionario(f.id)} className="text-red-500 hover:text-red-700"><LucideTrash2 size={16}/></button>
@@ -872,11 +870,11 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
     const [prioridade, setPrioridade] = useState('');
     const [area, setArea] = useState('');
     const [acao, setAcao] = useState('');
-    const [responsaveis, setResponsaveis] = useState([]); 
+    const [responsaveis, setResponsaveis] = useState([]);
     const [status, setStatus] = useState('');
     const [turno, setTurno] = useState('');
-    const [dataInicio, setDataInicio] = useState(''); 
-    const [dataProvavelTermino, setDataProvavelTermino] = useState(''); 
+    const [dataInicio, setDataInicio] = useState('');
+    const [dataProvavelTermino, setDataProvavelTermino] = useState('');
     const [orientacao, setOrientacao] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -886,7 +884,7 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
             setPrioridade(tarefaExistente.prioridade || '');
             setArea(tarefaExistente.area || '');
             setAcao(tarefaExistente.acao || '');
-            setResponsaveis(tarefaExistente.responsaveis || []); 
+            setResponsaveis(tarefaExistente.responsaveis || []);
             setStatus(tarefaExistente.status || 'PREVISTA');
             setTurno(tarefaExistente.turno || '');
             setDataInicio(tarefaExistente.dataInicio ? new Date(tarefaExistente.dataInicio.seconds * 1000).toISOString().split('T')[0] : '');
@@ -912,10 +910,10 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
         const novaTarefa = {
             tarefa: tarefa.trim().toUpperCase(),
             prioridade, area, acao,
-            responsaveis, 
+            responsaveis,
             status, turno,
-            dataInicio: dataInicio ? Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")) : null, 
-            dataProvavelTermino: dataProvavelTermino ? Timestamp.fromDate(new Date(dataProvavelTermino + "T00:00:00Z")) : null, 
+            dataInicio: dataInicio ? Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")) : null,
+            dataProvavelTermino: dataProvavelTermino ? Timestamp.fromDate(new Date(dataProvavelTermino + "T00:00:00Z")) : null,
             orientacao: orientacao.trim(),
             ...(tarefaExistente ? { updatedAt: Timestamp.now(), criadoPor: tarefaExistente.criadoPor || userId, createdAt: tarefaExistente.createdAt || Timestamp.now() } : { criadoPor: userId, createdAt: Timestamp.now(), updatedAt: Timestamp.now() })
         };
@@ -1043,7 +1041,7 @@ const HistoricoTarefaModal = ({ isOpen, onClose, tarefaId }) => {
             });
             return () => unsubscribe();
         } else {
-            setHistorico([]); 
+            setHistorico([]);
             setLoadingHistorico(false);
         }
     }, [isOpen, tarefaId, db, basePath, appId]);
@@ -1075,12 +1073,12 @@ const HistoricoTarefaModal = ({ isOpen, onClose, tarefaId }) => {
 
 // Componente MapaAtividades
 const MapaAtividadesComponent = () => {
-    const { userId, db, appId, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext); 
-    const [todasTarefas, setTodasTarefas] = useState([]); 
-    const [tarefasExibidas, setTarefasExibidas] = useState([]); 
+    const { userId, db, appId, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext);
+    const [todasTarefas, setTodasTarefas] = useState([]);
+    const [tarefasExibidas, setTarefasExibidas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingTarefa, setEditingTarefa] = useState(null); 
+    const [editingTarefa, setEditingTarefa] = useState(null);
     const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
     const [selectedTarefaIdParaHistorico, setSelectedTarefaIdParaHistorico] = useState(null);
 
@@ -1099,7 +1097,7 @@ const MapaAtividadesComponent = () => {
 
     useEffect(() => {
         setLoading(true);
-        const q = query(tarefasCollectionRef, orderBy("createdAt", "desc")); 
+        const q = query(tarefasCollectionRef, orderBy("createdAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTodasTarefas(fetchedTarefas);
@@ -1109,7 +1107,7 @@ const MapaAtividadesComponent = () => {
             setLoading(false);
         });
         return () => unsubscribe();
-    }, [userId, appId, db]); 
+    }, [userId, appId, db]);
 
      useEffect(() => {
         let tarefasProcessadas = [...todasTarefas];
@@ -1133,7 +1131,7 @@ const MapaAtividadesComponent = () => {
         }
 
         if (termoBusca.trim() !== "") {
-            tarefasProcessadas = tarefasProcessadas.filter(t => 
+            tarefasProcessadas = tarefasProcessadas.filter(t =>
                 t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())
             );
         }
@@ -1146,10 +1144,10 @@ const MapaAtividadesComponent = () => {
                 const inicioTarefa = t.dataInicio ? t.dataInicio.toDate().getTime() : null;
                 const fimTarefa = t.dataProvavelTermino ? t.dataProvavelTermino.toDate().getTime() : null;
 
-                if (!inicioTarefa) return false; 
+                if (!inicioTarefa) return false;
 
                 const comecaAntesOuDuranteFiltro = inicioTarefa <= (fimFiltro || Infinity);
-                const terminaDepoisOuDuranteFiltro = fimTarefa ? fimTarefa >= (inicioFiltro || 0) : true; 
+                const terminaDepoisOuDuranteFiltro = fimTarefa ? fimTarefa >= (inicioFiltro || 0) : true;
 
                 if (!fimTarefa || inicioTarefa === fimTarefa) {
                     return inicioTarefa >= (inicioFiltro || 0) && inicioTarefa <= (fimFiltro || Infinity);
@@ -1184,11 +1182,11 @@ const MapaAtividadesComponent = () => {
     };
 
 
-    const handleSaveTarefa = async (tarefaData, tarefaIdParaSalvar) => { 
+    const handleSaveTarefa = async (tarefaData, tarefaIdParaSalvar) => {
         let idDaTarefaSalva = tarefaIdParaSalvar;
         const usuario = authGlobal.currentUser;
         try {
-            if (tarefaIdParaSalvar) { 
+            if (tarefaIdParaSalvar) {
                 const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaIdParaSalvar);
                 const tarefaExistenteSnap = await getDoc(tarefaDocRef);
                 let detalhesMudanca = [];
@@ -1218,27 +1216,27 @@ const MapaAtividadesComponent = () => {
                     if (dadosAntigos.orientacao !== tarefaData.orientacao) detalhesMudanca.push(`Orientação alterada.`);
                 }
 
-                await setDoc(tarefaDocRef, tarefaData, { merge: true }); 
+                await setDoc(tarefaDocRef, tarefaData, { merge: true });
                 idDaTarefaSalva = tarefaIdParaSalvar;
                 if (detalhesMudanca.length > 0) {
                     await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Atualizada", detalhesMudanca.join('; '));
                 }
 
-            } else { 
+            } else {
                 const docRef = await addDoc(tarefasCollectionRef, tarefaData);
-                idDaTarefaSalva = docRef.id; 
+                idDaTarefaSalva = docRef.id;
                 await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" adicionada.`);
             }
 
-            if (idDaTarefaSalva) { 
+            if (idDaTarefaSalva) {
                 const tarefaSalvaNoMapaRef = doc(db, `${basePath}/tarefas_mapa`, idDaTarefaSalva);
                 const tarefaSalvaSnap = await getDoc(tarefaSalvaNoMapaRef);
                 if (tarefaSalvaSnap.exists()){
-                    const dadosCompletosFirestore = {id: tarefaSalvaSnap.id, ...tarefaSalvaSnap.data()}; 
+                    const dadosCompletosFirestore = {id: tarefaSalvaSnap.id, ...tarefaSalvaSnap.data()};
                     if (!(dadosCompletosFirestore.dataInicio instanceof Timestamp) || !(dadosCompletosFirestore.dataProvavelTermino instanceof Timestamp)) {
                         console.error("Erro CRÍTICO: Datas da tarefa não são Timestamps válidos após buscar do Firestore. Sincronização abortada.", dadosCompletosFirestore);
                         alert("Erro interno crítico: As datas da tarefa não foram salvas/recuperadas como Timestamps. A programação pode não ser atualizada.");
-                        return; 
+                        return;
                     }
                     await sincronizarTarefaComProgramacao(idDaTarefaSalva, dadosCompletosFirestore, db, basePath);
                 } else {
@@ -1274,8 +1272,8 @@ const MapaAtividadesComponent = () => {
     const getResponsavelNomes = (responsavelIds) => {
         if (!responsavelIds || responsavelIds.length === 0) return '---';
         return responsavelIds.map(id => {
-            const func = contextFuncionarios.find(f => f.id === id); 
-            return func ? func.nome : id; 
+            const func = contextFuncionarios.find(f => f.id === id);
+            return func ? func.nome : id;
         }).join(', ');
     };
 
@@ -1365,7 +1363,7 @@ const MapaAtividadesComponent = () => {
                     </div>
                 </div>
                 <div className="mt-4 text-right">
-                    <button 
+                    <button
                         onClick={limparFiltros}
                         className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center ml-auto"
                     >
@@ -1422,10 +1420,10 @@ const MapaAtividadesComponent = () => {
             </div>
             <TarefaFormModal isOpen={isModalOpen} onClose={handleCloseModal} tarefaExistente={editingTarefa} onSave={handleSaveTarefa} />
             {selectedTarefaIdParaHistorico && (
-                <HistoricoTarefaModal 
-                    isOpen={isHistoricoModalOpen} 
-                    onClose={handleCloseHistoricoModal} 
-                    tarefaId={selectedTarefaIdParaHistorico} 
+                <HistoricoTarefaModal
+                    isOpen={isHistoricoModalOpen}
+                    onClose={handleCloseHistoricoModal}
+                    tarefaId={selectedTarefaIdParaHistorico}
                 />
             )}
         </div>
@@ -1434,16 +1432,16 @@ const MapaAtividadesComponent = () => {
 
 // Modal para Gerenciar Tarefas da Célula da Programação
 const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, responsavelId, tarefasDaCelula, semanaId, onAlteracaoSalva }) => {
-    const { db, appId, funcionarios, listasAuxiliares, auth } = useContext(GlobalContext); 
+    const { db, appId, funcionarios, listasAuxiliares, auth } = useContext(GlobalContext);
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [statusTarefasMapa, setStatusTarefasMapa] = useState({}); 
+    const [statusTarefasMapa, setStatusTarefasMapa] = useState({});
 
     useEffect(() => {
         if (tarefasDaCelula) {
             const tarefasComTurnoPadrao = tarefasDaCelula.map(t => ({
                 ...t,
-                turno: t.turno || TURNO_DIA_INTEIRO 
+                turno: t.turno || TURNO_DIA_INTEIRO
             }));
             const tarefasCopiadas = JSON.parse(JSON.stringify(tarefasComTurnoPadrao));
             setTarefasEditaveis(tarefasCopiadas);
@@ -1467,7 +1465,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
     }, [tarefasDaCelula, isOpen, appId, db]);
 
     const responsavelNome = funcionarios.find(f => f.id === responsavelId)?.nome || responsavelId;
-    const dataExibicao = diaFormatado ? new Date(diaFormatado + "T00:00:00Z").toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : 'Data Inválida'; 
+    const dataExibicao = diaFormatado ? new Date(diaFormatado + "T00:00:00Z").toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : 'Data Inválida';
 
     const handleToggleStatusLocal = async (indexTarefa) => {
         const novasTarefas = [...tarefasEditaveis];
@@ -1513,7 +1511,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
         setLoading(true);
         const basePath = `/artifacts/${appId}/public/data`;
         const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaId);
-        const mapaTaskIdsAlterados = new Set(tarefasEditaveis.map(t => t.mapaTaskId)); 
+        const mapaTaskIdsAlterados = new Set(tarefasEditaveis.map(t => t.mapaTaskId));
         const usuario = authGlobal.currentUser;
 
         try {
@@ -1535,12 +1533,12 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
             console.log("Alterações na programação salvas com sucesso.");
 
             for (const taskId of mapaTaskIdsAlterados) {
-                if (taskId) { 
+                if (taskId) {
                     await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
                 }
             }
 
-            if(onAlteracaoSalva) onAlteracaoSalva(); 
+            if(onAlteracaoSalva) onAlteracaoSalva();
             onClose();
         } catch (error) {
             console.error("Erro ao salvar alterações na programação: ", error);
@@ -1551,15 +1549,15 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
 
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Gerenciar Tarefas - ${responsavelNome} (${dataExibicao})`} width="max-w-xl"> 
+        <Modal isOpen={isOpen} onClose={onClose} title={`Gerenciar Tarefas - ${responsavelNome} (${dataExibicao})`} width="max-w-xl">
             <div className="mb-4 flex justify-start space-x-2">
-                <button 
+                <button
                     onClick={() => handleMarcarTodasComo('CONCLUÍDA')}
                     className="bg-green-500 text-white px-3 py-1.5 text-xs rounded hover:bg-green-600 flex items-center"
                 >
                     <LucideCheckSquare size={14} className="mr-1"/> Marcar Todas Concluídas
                 </button>
-                <button 
+                <button
                     onClick={() => handleMarcarTodasComo('PENDENTE')}
                     className="bg-yellow-500 text-white px-3 py-1.5 text-xs rounded hover:bg-yellow-600 flex items-center"
                 >
@@ -1593,7 +1591,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                         </div>
                         <div className="mt-2">
                             <label htmlFor={`turno-tarefa-${index}`} className="block text-xs font-medium text-gray-600 mb-0.5">Turno:</label>
-                            <select 
+                            <select
                                 id={`turno-tarefa-${index}`}
                                 value={tarefa.turno || TURNO_DIA_INTEIRO}
                                 onChange={(e) => handleTurnoChange(index, e.target.value)}
@@ -1605,7 +1603,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                         {statusTarefasMapa[tarefa.mapaTaskId] && (
                              <div className="mt-1 text-xs text-gray-500">
                                 Status no Mapa: <span className={`font-medium ${
-                                    statusTarefasMapa[tarefa.mapaTaskId] === 'CONCLUÍDA' ? 'text-green-600' : 
+                                    statusTarefasMapa[tarefa.mapaTaskId] === 'CONCLUÍDA' ? 'text-green-600' :
                                     statusTarefasMapa[tarefa.mapaTaskId] === 'PROGRAMADA' ? 'text-blue-600' :
                                     statusTarefasMapa[tarefa.mapaTaskId] === 'CANCELADA' ? 'text-red-600' : 'text-gray-600'
                                 }`}>{statusTarefasMapa[tarefa.mapaTaskId]}</span>
@@ -1618,9 +1616,9 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                 <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
                     Cancelar
                 </button>
-                <button 
-                    type="button" 
-                    onClick={handleSalvarAlteracoes} 
+                <button
+                    type="button"
+                    onClick={handleSalvarAlteracoes}
                     disabled={loading}
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                 >
@@ -1634,12 +1632,12 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
 
 // Componente ProgramacaoSemanal
 const ProgramacaoSemanalComponent = () => {
-    const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios } = useContext(GlobalContext); 
-    const [semanas, setSemanas] = useState([]); 
+    const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios } = useContext(GlobalContext);
+    const [semanas, setSemanas] = useState([]);
     const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
-    const [dadosProgramacao, setDadosProgramacao] = useState(null); 
-    const [loading, setLoading] = useState(false); 
-    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false); 
+    const [dadosProgramacao, setDadosProgramacao] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false);
     const [isNovaSemanaModalOpen, setIsNovaSemanaModalOpen] = useState(false);
     const [novaSemanaDataInicio, setNovaSemanaDataInicio] = useState('');
 
@@ -1647,8 +1645,8 @@ const ProgramacaoSemanalComponent = () => {
     const [dadosCelulaParaGerenciar, setDadosCelulaParaGerenciar] = useState({ diaFormatado: null, responsavelId: null, tarefas: [] });
 
     const coresTurno = {
-        "MANHÃ": "bg-sky-300", 
-        "TARDE": "bg-indigo-300", 
+        "MANHÃ": "bg-sky-300",
+        "TARDE": "bg-indigo-300",
     };
 
 
@@ -1656,7 +1654,7 @@ const ProgramacaoSemanalComponent = () => {
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
 
     useEffect(() => {
-        const q = query(programacaoCollectionRef); 
+        const q = query(programacaoCollectionRef);
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             fetchedSemanas.sort((a, b) => {
@@ -1674,7 +1672,7 @@ const ProgramacaoSemanalComponent = () => {
             }
         }, error => console.error("Erro ao carregar semanas:", error));
         return unsubscribe;
-    }, [userId, appId, db]); 
+    }, [userId, appId, db]);
 
     useEffect(() => {
         if (!semanaSelecionadaId) {
@@ -1691,7 +1689,7 @@ const ProgramacaoSemanalComponent = () => {
                 if (semanas.length > 0 && semanas.find(s => s.id === semanaSelecionadaId)) {
                     // Still in the list of weeks, strange error
                 } else if (semanas.length > 0) {
-                    setSemanaSelecionadaId(semanas[0].id); 
+                    setSemanaSelecionadaId(semanas[0].id);
                 } else {
                     setSemanaSelecionadaId(null);
                 }
@@ -1702,7 +1700,7 @@ const ProgramacaoSemanalComponent = () => {
             setLoading(false);
         });
         return unsub;
-    }, [semanaSelecionadaId, userId, appId, db, semanas]); 
+    }, [semanaSelecionadaId, userId, appId, db, semanas]);
 
     const handleCriarNovaSemana = async () => {
         if (!novaSemanaDataInicio) {
@@ -1711,46 +1709,46 @@ const ProgramacaoSemanalComponent = () => {
         }
 
         const [year, month, day] = novaSemanaDataInicio.split('-').map(Number);
-        const dataInicioUTC = new Date(Date.UTC(year, month - 1, day)); 
+        const dataInicioUTC = new Date(Date.UTC(year, month - 1, day));
 
-        if (dataInicioUTC.getUTCDay() !== 1) { 
+        if (dataInicioUTC.getUTCDay() !== 1) { // 1 para Segunda-feira (0 é Domingo)
             alert("A semana deve começar em uma Segunda-feira.");
             return;
         }
 
-        setLoadingAtualizacao(true); 
+        setLoadingAtualizacao(true);
         try {
             const dataFimUTC = new Date(dataInicioUTC);
-            dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5); 
+            dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5); // Segunda + 5 dias = Sábado
 
             let maiorNumeroSemana = 0;
             semanas.forEach(s => {
                 if (s.nomeAba && s.nomeAba.startsWith("Programação S")) {
-                    const num = parseInt(s.nomeAba.substring(13), 10); 
+                    const num = parseInt(s.nomeAba.substring(13), 10); // "Programação S".length = 13
                     if (!isNaN(num) && num > maiorNumeroSemana) maiorNumeroSemana = num;
                 }
             });
             const proximoNumeroSemana = maiorNumeroSemana + 1;
             const nomeNovaAba = `Programação S${proximoNumeroSemana.toString().padStart(2, '0')}`;
 
-            const novaSemanaDocId = `semana_${dataInicioUTC.toISOString().split('T')[0].replace(/-/g, '_')}`; 
+            const novaSemanaDocId = `semana_${dataInicioUTC.toISOString().split('T')[0].replace(/-/g, '_')}`;
 
             const novaSemanaData = {
                 nomeAba: nomeNovaAba,
                 dataInicioSemana: Timestamp.fromDate(dataInicioUTC),
                 dataFimSemana: Timestamp.fromDate(dataFimUTC),
-                dias: {}, 
+                dias: {},
                 criadoEm: Timestamp.now(),
                 criadoPor: authGlobal.currentUser?.uid || 'sistema'
             };
 
-            for (let i = 0; i < 6; i++) { 
+            for (let i = 0; i < 6; i++) { // De Segunda (0) a Sábado (5)
                 const diaAtualLoop = new Date(dataInicioUTC);
                 diaAtualLoop.setUTCDate(dataInicioUTC.getUTCDate() + i);
-                const diaFormatado = diaAtualLoop.toISOString().split('T')[0]; 
+                const diaFormatado = diaAtualLoop.toISOString().split('T')[0];
                 novaSemanaData.dias[diaFormatado] = {};
-                contextFuncionarios.forEach(func => { 
-                    novaSemanaData.dias[diaFormatado][func.id] = []; 
+                contextFuncionarios.forEach(func => {
+                    novaSemanaData.dias[diaFormatado][func.id] = [];
                 });
             }
 
@@ -1759,7 +1757,7 @@ const ProgramacaoSemanalComponent = () => {
             alert(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
             setIsNovaSemanaModalOpen(false);
             setNovaSemanaDataInicio('');
-            setSemanaSelecionadaId(novaSemanaDocId); 
+            setSemanaSelecionadaId(novaSemanaDocId);
         } catch (error) {
             console.error("Erro ao criar nova semana:", error);
             alert("Erro ao criar nova semana: " + error.message);
@@ -1797,8 +1795,8 @@ const ProgramacaoSemanalComponent = () => {
 
         try {
             const novosDiasDaSemana = {};
-            const dataInicioSemana = dadosProgramacao.dataInicioSemana.toDate(); 
-            const dataFimSemana = dadosProgramacao.dataFimSemana.toDate(); 
+            const dataInicioSemana = dadosProgramacao.dataInicioSemana.toDate();
+            const dataFimSemana = dadosProgramacao.dataFimSemana.toDate();
 
             let diaCorrenteNaSemana = new Date(Date.UTC(dataInicioSemana.getUTCFullYear(), dataInicioSemana.getUTCMonth(), dataInicioSemana.getUTCDate()));
             const dataFimSemanaUTC = new Date(Date.UTC(dataFimSemana.getUTCFullYear(), dataFimSemana.getUTCMonth(), dataFimSemana.getUTCDate()));
@@ -1825,7 +1823,7 @@ const ProgramacaoSemanalComponent = () => {
                 if (!tarefaMapa.dataInicio || !(tarefaMapa.dataInicio instanceof Timestamp) ||
                     !tarefaMapa.dataProvavelTermino || !(tarefaMapa.dataProvavelTermino instanceof Timestamp) ||
                     !tarefaMapa.responsaveis || tarefaMapa.responsaveis.length === 0) {
-                    return; 
+                    return;
                 }
 
                 let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa sem descrição";
@@ -1841,7 +1839,7 @@ const ProgramacaoSemanalComponent = () => {
                     mapaTaskId: tarefaMapa.id,
                     textoVisivel: textoVisivelFinal,
                     statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
-                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO 
+                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO
                 };
 
                 const dataInicioTarefa = tarefaMapa.dataInicio.toDate();
@@ -1857,9 +1855,9 @@ const ProgramacaoSemanalComponent = () => {
                     const dataInicioSemanaUTC = new Date(Date.UTC(dataInicioSemana.getUTCFullYear(), dataInicioSemana.getUTCMonth(), dataInicioSemana.getUTCDate()));
 
                     if (dataAtualTarefa.getTime() >= dataInicioSemanaUTC.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) {
-                        if (novosDiasDaSemana[diaFormatadoTarefa]) { 
-                             tarefaMapa.responsaveis.forEach(respId => {
-                                if (novosDiasDaSemana[diaFormatadoTarefa][respId]) { 
+                        if (novosDiasDaSemana[diaFormatadoTarefa]) {
+                            tarefaMapa.responsaveis.forEach(respId => {
+                                if (novosDiasDaSemana[diaFormatadoTarefa][respId]) {
                                     if (!novosDiasDaSemana[diaFormatadoTarefa][respId].find(t => t.mapaTaskId === tarefaMapa.id)) {
                                         novosDiasDaSemana[diaFormatadoTarefa][respId].push({...itemProg});
                                     }
@@ -1897,7 +1895,7 @@ const ProgramacaoSemanalComponent = () => {
         if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana) return null;
         const dias = [];
         const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
-        const hojeFormatado = new Date().toISOString().split('T')[0]; 
+        const hojeFormatado = new Date().toISOString().split('T')[0];
 
         for (let i = 0; i < DIAS_SEMANA.length; i++) {
             const dataDia = new Date(dataInicio);
@@ -1923,19 +1921,19 @@ const ProgramacaoSemanalComponent = () => {
 
         const celulas = [];
         const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
-        const hojeFormatado = new Date().toISOString().split('T')[0]; 
+        const hojeFormatado = new Date().toISOString().split('T')[0];
 
         for (let i = 0; i < DIAS_SEMANA.length; i++) {
-            const dataDiaAtual = new Date(dataInicio); 
-            dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); 
-            const diaFormatado = dataDiaAtual.toISOString().split('T')[0]; 
+            const dataDiaAtual = new Date(dataInicio);
+            dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i);
+            const diaFormatado = dataDiaAtual.toISOString().split('T')[0];
             const isHoje = diaFormatado === hojeFormatado;
 
             const tarefasDoDiaParaFuncionario = dadosProgramacao.dias[diaFormatado]?.[funcionarioId] || [];
 
             celulas.push(
-                <td 
-                    key={`${funcionarioId}-${diaFormatado}`} 
+                <td
+                    key={`${funcionarioId}-${diaFormatado}`}
                     className={`border p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer hover:bg-gray-100 transition-colors ${isHoje ? 'border-l-4 border-l-amber-400' : ''}`}
                     onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}
                 >
@@ -1954,10 +1952,10 @@ const ProgramacaoSemanalComponent = () => {
                             }
 
                             return (
-                                <div 
-                                    key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`} 
+                                <div
+                                    key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`}
                                     className={`p-1 rounded text-white text-[10px] leading-tight ${corFundoTarefa} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through' : ''}`}
-                                    title={tarefaInst.textoVisivel} 
+                                    title={tarefaInst.textoVisivel}
                                 >
                                     {tarefaInst.textoVisivel.length > 35 ? tarefaInst.textoVisivel.substring(0,32) + "..." : tarefaInst.textoVisivel}
                                 </div>
@@ -1977,8 +1975,8 @@ const ProgramacaoSemanalComponent = () => {
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
                 <div className="flex items-center gap-2">
-                    <select 
-                        value={semanaSelecionadaId || ''} 
+                    <select
+                        value={semanaSelecionadaId || ''}
                         onChange={(e) => setSemanaSelecionadaId(e.target.value)}
                         className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                         disabled={semanas.length === 0 && !loading}
@@ -1996,7 +1994,7 @@ const ProgramacaoSemanalComponent = () => {
                         disabled={!semanaSelecionadaId || loadingAtualizacao}
                         className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
                     >
-                        <LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/> 
+                        <LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>
                         {loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}
                     </button>
                     <button
@@ -2030,15 +2028,15 @@ const ProgramacaoSemanalComponent = () => {
                         </caption>
                         <thead>
                             <tr key="programacao-semanal-header-row">
-                                <th className="px-3 py-2 border bg-teal-600 text-white text-xs font-medium w-32">Responsável</th> 
+                                <th className="px-3 py-2 border bg-teal-600 text-white text-xs font-medium w-32">Responsável</th>
                                 {renderCabecalhoDias()}
                             </tr>
                         </thead>
                         <tbody>
-                            {contextFuncionarios.length === 0 && ( 
+                            {contextFuncionarios.length === 0 && (
                                 <tr><td colSpan={DIAS_SEMANA.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado. Adicione funcionários em Configurações.</td></tr>
                             )}
-                            {contextFuncionarios.map(func => ( 
+                            {contextFuncionarios.map(func => (
                                 <tr key={func.id}>
                                     <td className="border px-3 py-2 font-semibold bg-teal-100 text-teal-800 text-sm whitespace-nowrap">{func.nome}</td>
                                     {renderCelulasTarefas(func.id)}
@@ -2077,7 +2075,7 @@ const ProgramacaoSemanalComponent = () => {
                     diaFormatado={dadosCelulaParaGerenciar.diaFormatado}
                     responsavelId={dadosCelulaParaGerenciar.responsavelId}
                     tarefasDaCelula={dadosCelulaParaGerenciar.tarefas}
-                    semanaId={semanaSelecionadaId} 
+                    semanaId={semanaSelecionadaId}
                     onAlteracaoSalva={() => {
                         // O onSnapshot já deve atualizar
                     }}
@@ -2089,13 +2087,13 @@ const ProgramacaoSemanalComponent = () => {
 
 // Componente AnotacoesPatio
 const AnotacoesPatioComponent = () => {
-    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext); 
+    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext);
     const [anotacoes, setAnotacoes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingAnotacao, setEditingAnotacao] = useState(null); 
+    const [editingAnotacao, setEditingAnotacao] = useState(null);
     const [isCriarTarefaModalOpen, setIsCriarTarefaModalOpen] = useState(false);
-    const [anotacaoParaTarefa, setAnotacaoParaTarefa] = useState(null); 
+    const [anotacaoParaTarefa, setAnotacaoParaTarefa] = useState(null);
 
 
     const [tarefa, setTarefa] = useState('');
@@ -2114,17 +2112,17 @@ const AnotacoesPatioComponent = () => {
 
     useEffect(() => {
         setLoading(true);
-        const q = query(anotacoesCollectionRef); 
+        const q = query(anotacoesCollectionRef);
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedAnotacoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAnotacoes(fetchedAnotacoes.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0) )); 
+            setAnotacoes(fetchedAnotacoes.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0) ));
             setLoading(false);
         }, (error) => {
             console.error("Erro ao carregar anotações do pátio: ", error);
             setLoading(false);
         });
         return () => unsubscribe();
-    }, [userId, appId, db]); 
+    }, [userId, appId, db]);
 
     const resetForm = () => {
         setTarefa(''); setPrioridade(''); setArea(''); setOrientacao('');
@@ -2158,7 +2156,7 @@ const AnotacoesPatioComponent = () => {
         setIsModalOpen(false);
         resetForm();
     };
-    
+
     const handleCloseCriarTarefaModal = () => {
         setIsCriarTarefaModalOpen(false);
         setAnotacaoParaTarefa(null);
@@ -2181,8 +2179,8 @@ const AnotacoesPatioComponent = () => {
 
 
             orientacao: orientacao.trim(),
-            ...(editingAnotacao ? 
-                { updatedAt: Timestamp.now(), criadoPor: editingAnotacao.criadoPor || auth.currentUser?.uid || 'sistema', createdAt: editingAnotacao.createdAt || Timestamp.now() } : 
+            ...(editingAnotacao ?
+                { updatedAt: Timestamp.now(), criadoPor: editingAnotacao.criadoPor || auth.currentUser?.uid || 'sistema', createdAt: editingAnotacao.createdAt || Timestamp.now() } :
                 { criadoPor: auth.currentUser?.uid || 'sistema', createdAt: Timestamp.now(), updatedAt: Timestamp.now() })
 
 
@@ -2219,7 +2217,7 @@ const AnotacoesPatioComponent = () => {
             setLoading(false);
         }
     };
-    
+
     const handleCriarTarefaDoMapa = async (dadosTarefaMapa) => {
         setLoading(true);
         const usuario = authGlobal.currentUser;
@@ -2229,7 +2227,7 @@ const AnotacoesPatioComponent = () => {
                 status: "AGUARDANDO ALOCAÇÃO",
                 responsaveis: [],
                 turno: "",
-                dataProvavelTermino: dadosTarefaMapa.dataInicio, 
+                dataProvavelTermino: dadosTarefaMapa.dataInicio,
                 criadoPor: usuario?.uid || 'sistema',
                 createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now(),
@@ -2237,7 +2235,7 @@ const AnotacoesPatioComponent = () => {
             };
             const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaMapa);
             console.log("Tarefa criada no Mapa de Atividades com ID: ", docRef.id);
-            
+
             await logAlteracaoTarefa(db, basePath, docRef.id, usuario?.uid, usuario?.email, "Tarefa Criada (via Anotação)", `Tarefa "${novaTarefaMapa.tarefa}" criada a partir da anotação ID ${anotacaoParaTarefa.id}.`);
 
 
@@ -2351,9 +2349,9 @@ const AnotacoesPatioComponent = () => {
             </Modal>
 
             {anotacaoParaTarefa && (
-                <CriarTarefaDoMapaModal 
-                    isOpen={isCriarTarefaModalOpen} 
-                    onClose={handleCloseCriarTarefaModal} 
+                <CriarTarefaDoMapaModal
+                    isOpen={isCriarTarefaModalOpen}
+                    onClose={handleCloseCriarTarefaModal}
                     anotacao={anotacaoParaTarefa}
                     onSave={handleCriarTarefaDoMapa}
                 />
@@ -2368,7 +2366,7 @@ const CriarTarefaDoMapaModal = ({ isOpen, onClose, anotacao, onSave }) => {
     const [tarefaDesc, setTarefaDesc] = useState('');
     const [prioridade, setPrioridade] = useState('');
     const [area, setArea] = useState('');
-    const [acao, setAcao] = useState(''); 
+    const [acao, setAcao] = useState('');
     const [dataInicio, setDataInicio] = useState('');
     const [orientacao, setOrientacao] = useState('');
     const [loading, setLoading] = useState(false);
@@ -2379,8 +2377,8 @@ const CriarTarefaDoMapaModal = ({ isOpen, onClose, anotacao, onSave }) => {
             setPrioridade(anotacao.prioridade || '');
             setArea(anotacao.area || '');
             setOrientacao(anotacao.orientacao || '');
-            setDataInicio(new Date().toISOString().split('T')[0]); 
-            setAcao(''); 
+            setDataInicio(new Date().toISOString().split('T')[0]);
+            setAcao('');
         }
     }, [anotacao, isOpen]);
 
@@ -2396,12 +2394,12 @@ const CriarTarefaDoMapaModal = ({ isOpen, onClose, anotacao, onSave }) => {
         }
         setLoading(true);
         const dadosTarefaMapa = {
-            tarefa: tarefaDesc.trim().toUpperCase(), 
-            prioridade, 
-            area, 
-            acao, 
-            dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")), 
-            orientacao: orientacao.trim(), 
+            tarefa: tarefaDesc.trim().toUpperCase(),
+            prioridade,
+            area,
+            acao,
+            dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")),
+            orientacao: orientacao.trim(),
         };
         await onSave(dadosTarefaMapa);
         setLoading(false);
@@ -2473,7 +2471,7 @@ const RelatoriosComponent = () => {
 
     const handleFuncionarioChange = (e) => {
         const { value, checked } = e.target;
-        setFiltroFuncionarios(prev => 
+        setFiltroFuncionarios(prev =>
             checked ? [...prev, value] : prev.filter(item => item !== value)
         );
     };
@@ -2525,7 +2523,7 @@ const RelatoriosComponent = () => {
         if (!responsavelIds || responsavelIds.length === 0) return '--- SEM RESPONSÁVEL ---';
         return responsavelIds.map(id => {
             const func = contextFuncionarios.find(f => f.id === id);
-            return func ? func.nome : id; 
+            return func ? func.nome : id;
         }).join(', ');
     };
 
@@ -2535,7 +2533,7 @@ const RelatoriosComponent = () => {
         setShowReport(false);
         const basePath = `/artifacts/${appId}/public/data`;
         const tarefasMapaRef = collection(db, `${basePath}/tarefas_mapa`);
-        let q = query(tarefasMapaRef); 
+        let q = query(tarefasMapaRef);
 
         try {
             const querySnapshot = await getDocs(q);
@@ -2557,7 +2555,7 @@ const RelatoriosComponent = () => {
                     } else if (responsaveisDaTarefa.length > 0 && filtroFuncionarios.some(fId => responsaveisDaTarefa.includes(fId))) {
                         // Mantém
                     } else {
-                        manter = false; 
+                        manter = false;
                     }
                 }
 
@@ -2572,10 +2570,10 @@ const RelatoriosComponent = () => {
                 const dataFimTarefa = task.dataProvavelTermino ? task.dataProvavelTermino.toDate() : null;
 
                 if (manter && dataInicioFiltro && dataFimTarefa && dataFimTarefa.getTime() < dataInicioFiltro.getTime()) {
-                    manter = false; 
+                    manter = false;
                 }
                 if (manter && dataFimFiltro && dataInicioTarefa && dataInicioTarefa.getTime() > dataFimFiltro.getTime()) {
-                    manter = false; 
+                    manter = false;
                 }
 
                 return manter;
@@ -2616,9 +2614,9 @@ const RelatoriosComponent = () => {
 
         const printFrame = document.createElement('iframe');
         printFrame.style.position = 'fixed';
-        printFrame.style.top = '-9999px'; 
+        printFrame.style.top = '-9999px';
         printFrame.style.left = '-9999px';
-        printFrame.style.width = '1px'; 
+        printFrame.style.width = '1px';
         printFrame.style.height = '1px';
         printFrame.style.border = '0';
         document.body.appendChild(printFrame);
@@ -2644,14 +2642,14 @@ const RelatoriosComponent = () => {
                     .report-footer .footer-center { text-align: center !important; }
                     .report-footer .last-line { text-transform: uppercase !important; font-weight: bold !important; }
                     img { max-height: 50px !important; display: block !important; margin-left:auto !important; margin-right:auto !important; margin-bottom: 10px !important; }
-                    .text-2xl { font-size: 16pt !important; } 
+                    .text-2xl { font-size: 16pt !important; }
                     .font-semibold { font-weight: bold !important; }
                     .text-gray-800 { color: #374151 !important; }
                     .text-sm { font-size: 0.9em !important; }
                     .text-gray-600 { color: #4B5563 !important; }
                     .mb-6 { margin-bottom: 25px !important; }
                     .mx-auto { margin-left: auto !important; margin-right: auto !important; }
-                    .h-14 { height: 50px !important; } 
+                    .h-14 { height: 50px !important; }
                     .w-auto { width: auto !important; }
                     .mb-4 { margin-bottom: 10px !important; }
                     .border { border: 1px solid #ccc !important; }
@@ -2667,7 +2665,7 @@ const RelatoriosComponent = () => {
                     .tracking-wider { letter-spacing: 0.05em !important; }
                     .border-b { border-bottom-width: 1px !important; }
                     .whitespace-nowrap { white-space: nowrap !important; }
-                    .max-w-xs { max-width: 20rem !important; } 
+                    .max-w-xs { max-width: 20rem !important; }
                     .whitespace-normal { white-space: normal !important; }
                     .break-words { word-break: break-word !important; }
                     .mt-8 { margin-top: 2rem !important; }
@@ -2681,13 +2679,13 @@ const RelatoriosComponent = () => {
             pri.document.write(printContents);
             pri.document.write('</body></html>');
             pri.document.close();
-            pri.focus(); 
+            pri.focus();
             pri.print();
             setTimeout(() => {
                 if (document.body.contains(printFrame)) {
                     document.body.removeChild(printFrame);
                 }
-            }, 2000); 
+            }, 2000);
         };
 
         if (!printFrame.contentWindow || !printFrame.contentWindow.document) {
@@ -2748,8 +2746,8 @@ const RelatoriosComponent = () => {
                     </div>
                 </div>
                 <div className="text-right">
-                    <button 
-                        onClick={handleGerarRelatorio} 
+                    <button
+                        onClick={handleGerarRelatorio}
                         disabled={loadingReport}
                         className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-md flex items-center justify-center disabled:bg-gray-400"
                     >
@@ -2760,9 +2758,9 @@ const RelatoriosComponent = () => {
             </div>
 
             {showReport && (
-                <div > 
+                <div >
                     <div className="text-center mt-6 mb-4 no-print-in-report">
-                        <button 
+                        <button
                             onClick={handlePrint}
                             className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-md flex items-center justify-center mx-auto"
                         >
@@ -2770,7 +2768,7 @@ const RelatoriosComponent = () => {
                             Imprimir / Salvar PDF
                         </button>
                     </div>
-                    <div id="printable-report-area-content" className="bg-white p-6 rounded-lg shadow-md"> 
+                    <div id="printable-report-area-content" className="bg-white p-6 rounded-lg shadow-md">
                         <div className="text-center mb-6 print-header">
                             {LOGO_URL && <img src={LOGO_URL} alt="Logotipo Gramoterra" className="mx-auto h-14 w-auto mb-4" onError={(e) => e.target.style.display='none'}/>}
                             <h1 className="text-2xl font-semibold text-gray-800">Relatório de Atividades</h1>
@@ -2861,22 +2859,22 @@ const TarefasPendentesComponent = () => {
         setTarefaParaAlocar(null);
     };
 
-    const getResponsavelNomesParaLog = (responsavelIds) => { 
+    const getResponsavelNomesParaLog = (responsavelIds) => {
         if (!responsavelIds || responsavelIds.length === 0) return 'Nenhum';
         return responsavelIds.map(id => {
             const func = funcionarios.find(f => f.id === id);
-            return func ? func.nome : id; 
+            return func ? func.nome : id;
         }).join(', ');
     };
 
 
     const handleSalvarAlocacao = async (tarefaId, dadosAlocacao) => {
-        setLoading(true); 
+        setLoading(true);
         const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
         const usuario = authGlobal.currentUser;
         try {
             const dadosParaAtualizar = {
-                ...dadosAlocacao, 
+                ...dadosAlocacao,
                 status: "PROGRAMADA",
                 updatedAt: Timestamp.now(),
             };
@@ -2907,7 +2905,7 @@ const TarefasPendentesComponent = () => {
             if (tarefaAtualizadaSnap.exists()) {
                 const tarefaAtualizadaData = tarefaAtualizadaSnap.data();
                 await sincronizarTarefaComProgramacao(tarefaId, {id: tarefaId, ...tarefaAtualizadaData}, db, basePath);
-                 await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Alocada", 
+                 await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Alocada",
                     `Alocada para: ${getResponsavelNomesParaLog(dadosParaAtualizar.responsaveis)}. Turno: ${dadosParaAtualizar.turno}. Período: ${formatDate(dadosParaAtualizar.dataInicio)} a ${formatDate(dadosParaAtualizar.dataProvavelTermino)}.`
                 );
             }
@@ -2949,7 +2947,7 @@ const TarefasPendentesComponent = () => {
                                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{formatDate(tp.createdAt)}</td>
                                     <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal break-words">{tp.orientacao}</td>
                                     <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
-                                        <button 
+                                        <button
                                             onClick={() => handleAbrirModalAlocacao(tp)}
                                             className="bg-green-500 hover:bg-green-600 text-white text-xs font-semibold py-1 px-3 rounded-md flex items-center"
                                         >
@@ -2963,7 +2961,7 @@ const TarefasPendentesComponent = () => {
                 </div>
             )}
             {isAlocarModalOpen && tarefaParaAlocar && (
-                <AlocarTarefaModal 
+                <AlocarTarefaModal
                     isOpen={isAlocarModalOpen}
                     onClose={handleFecharModalAlocacao}
                     tarefaPendente={tarefaParaAlocar}
@@ -3082,7 +3080,7 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
 
 // Componente Dashboard
 const DashboardComponent = () => {
-    const { db, appId, listasAuxiliares, funcionarios, loadingAuth } = useContext(GlobalContext); 
+    const { db, appId, listasAuxiliares, funcionarios, loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
         porStatus: {},
         porPrioridade: {},
@@ -3094,18 +3092,18 @@ const DashboardComponent = () => {
     const basePath = `/artifacts/${appId}/public/data`;
 
     useEffect(() => {
-        console.log("[Dashboard] useEffect triggered. Deps:", { 
-            loadingAuth, 
-            dbReady: !!db, 
-            appIdReady: !!appId, 
-            statusLength: listasAuxiliares.status.length, 
-            prioLength: listasAuxiliares.prioridades.length 
+        console.log("[Dashboard] useEffect triggered. Deps:", {
+            loadingAuth,
+            dbReady: !!db,
+            appIdReady: !!appId,
+            statusLength: listasAuxiliares.status.length,
+            prioLength: listasAuxiliares.prioridades.length
 
         });
 
         const fetchDashboardData = async () => {
             console.log("[Dashboard] fetchDashboardData: Iniciando busca...");
-            setLoadingDashboard(true); 
+            setLoadingDashboard(true);
             try {
                 const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
                 const snapshot = await getDocs(tarefasRef);
@@ -3130,16 +3128,16 @@ const DashboardComponent = () => {
                 const atrasadas = [];
 
                 todasTarefas.forEach(tarefa => {
-                    if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) { 
+                    if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) {
                         porStatus[tarefa.status]++;
-                    } else if (tarefa.status) { 
-                        porStatus[tarefa.status] = 1; 
+                    } else if (tarefa.status) {
+                        porStatus[tarefa.status] = 1;
                     }
 
                     if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) {
                         porPrioridade[tarefa.prioridade]++;
-                    } else if (tarefa.prioridade) { 
-                        porPrioridade[tarefa.prioridade] = 1; 
+                    } else if (tarefa.prioridade) {
+                        porPrioridade[tarefa.prioridade] = 1;
                     }
 
 
@@ -3154,7 +3152,7 @@ const DashboardComponent = () => {
 
                     if (tarefa.dataProvavelTermino && (tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA")) {
                         const dataTermino = tarefa.dataProvavelTermino.toDate();
-                        dataTermino.setHours(0,0,0,0); 
+                        dataTermino.setHours(0,0,0,0);
                         if (dataTermino < hoje) {
                             atrasadas.push(tarefa);
                         } else if (dataTermino >= hoje && dataTermino <= daqui7Dias) {
@@ -3170,10 +3168,10 @@ const DashboardComponent = () => {
                 setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas });
             } catch (error) {
                 console.error("[Dashboard] fetchDashboardData: Erro ao buscar dados:", error);
-                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [] }); 
+                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [] });
             } finally {
                 console.log("[Dashboard] fetchDashboardData: setLoadingDashboard(false)");
-                setLoadingDashboard(false); 
+                setLoadingDashboard(false);
             }
         };
 
@@ -3189,7 +3187,7 @@ const DashboardComponent = () => {
             }
         } else if (!loadingAuth) {
             console.log("[Dashboard] useEffect: db ou appId não está pronto após autenticação. Não buscando dados.");
-            setLoadingDashboard(false); 
+            setLoadingDashboard(false);
         }
 
         return () => {
@@ -3302,8 +3300,8 @@ const DashboardComponent = () => {
 
 // Componente Principal App
 function App() {
-    const [currentPage, setCurrentPage] = useState('dashboard'); 
-    const { currentUser, auth: firebaseAuth } = useContext(GlobalContext); 
+    const [currentPage, setCurrentPage] = useState('dashboard');
+    const { currentUser, auth: firebaseAuth } = useContext(GlobalContext);
 
     if (!currentUser) {
         return <AuthComponent />;
@@ -3315,14 +3313,14 @@ function App() {
             case 'mapa': return <MapaAtividadesComponent />;
             case 'programacao': return <ProgramacaoSemanalComponent />;
             case 'anotacoes': return <AnotacoesPatioComponent />;
-            case 'tarefasPendentes': return <TarefasPendentesComponent />; 
+            case 'tarefasPendentes': return <TarefasPendentesComponent />;
             case 'config': return <ConfiguracoesComponent />;
             case 'relatorios': return <RelatoriosComponent />;
-            default: return <DashboardComponent />; 
+            default: return <DashboardComponent />;
         }
     };
 
-    const NavLink = memo(({ page, children, icon: Icon, currentPage, setCurrentPage }) => ( 
+    const NavLink = memo(({ page, children, icon: Icon, currentPage, setCurrentPage }) => (
         <button
             onClick={() => setCurrentPage(page)}
             className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors duration-150 ease-in-out
@@ -3341,17 +3339,17 @@ function App() {
                     <h1 className="text-xl font-semibold text-gray-700">Gestor de Equipes</h1>
                 </div>
                 <nav className="flex-grow space-y-1">
-                    <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink> 
+                    <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>
                     <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>
                     <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>
                     <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Anotações Pátio</NavLink>
-                    <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink> 
+                    <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>
                     <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>
                     <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>
                 </nav>
                 <div className="mt-auto">
                      <p className="text-xs text-gray-500 mb-2 px-2">Logado como: {currentUser.isAnonymous ? "Anônimo" : currentUser.email || currentUser.uid}</p>
-                    <button 
+                    <button
                         onClick={() => firebaseAuth.signOut()}
                         className="w-full flex items-center justify-center px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors duration-150 ease-in-out"
                     >
@@ -3373,3 +3371,4 @@ export default function WrappedApp() {
             <App />
         </GlobalProvider>
     );
+}
