@@ -1,7 +1,6 @@
-// Versão: 2.4.0
-// Script completo e atualizado. 
-// Alteração: 1. Adicionado filtro por "Ação" na aba de Relatórios.
-// Alteração: 2. Modificadas as cores das tarefas na Programação Semanal para usar cores HEX específicas baseadas no status e turno.
+// Versão: 2.5.0
+// Script completo e atualizado.
+// Alteração: Cores da Programação Semanal simplificadas para usar as mesmas classes de cor do Mapa de Atividades, corrigindo a aplicação.
 
 import React, { useState, useEffect, createContext, useContext, memo } from 'react';
 // Importe a instância do app Firebase já inicializada
@@ -48,6 +47,17 @@ const formatDate = (timestamp) => {
         return 'Data inválida';
     }
     return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+};
+
+// ALTERAÇÃO v2.5.0: Função movida para o escopo global para ser reutilizada.
+const getStatusColor = (status) => {
+    if (status === "CANCELADA") return "bg-red-200 text-gray-800";
+    if (status === "CONCLUÍDA") return "bg-green-300 text-gray-800";
+    if (status === "PROGRAMADA") return "bg-blue-200 text-gray-800";
+    if (status === "EM OPERAÇÃO") return "bg-cyan-200 text-gray-800";
+    if (status === "AGUARDANDO ALOCAÇÃO") return "bg-red-300 text-gray-800";
+    if (status === "PREVISTA") return "bg-yellow-200 text-gray-800";
+    return "bg-gray-200 text-gray-800";
 };
 
 
@@ -138,7 +148,6 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
     }
     const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
 
-    // ALTERAÇÃO v2.4.0: Adicionado 'mapaStatus' para carregar o status original para a lógica de cores.
     const itemTarefaProgramacao = {
         mapaTaskId: tarefaId,
         textoVisivel: textoVisivelFinal, 
@@ -511,7 +520,7 @@ const AuthComponent = () => {
                 </h2>
                 <form onSubmit={handleSubmit}>
                     <div className="mb-4">
-                        <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="email">
+                        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="email">
                             Email
                         </label>
                         <input
@@ -519,7 +528,7 @@ const AuthComponent = () => {
                             id="email" type="email" placeholder="seu@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
                     </div>
                     <div className="mb-6">
-                        <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
+                        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="password">
                             Senha
                         </label>
                         <input
@@ -1198,7 +1207,6 @@ const MapaAtividadesComponent = () => {
             tarefasProcessadas = tarefasProcessadas.filter(t => t.area === filtroArea);
         }
         
-        // ALTERAÇÃO v2.3.0: Filtro de busca agora procura na orientação da tarefa.
         if (termoBusca.trim() !== "") {
             tarefasProcessadas = tarefasProcessadas.filter(t => 
                 t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase())
@@ -1379,16 +1387,6 @@ const MapaAtividadesComponent = () => {
         }).join(', ');
     };
     
-    const getStatusColor = (status) => {
-        if (status === "CANCELADA") return "bg-red-200";
-        if (status === "CONCLUÍDA") return "bg-green-300";
-        if (status === "PROGRAMADA") return "bg-blue-200";
-        if (status === "EM OPERAÇÃO") return "bg-cyan-200";
-        if (status === "AGUARDANDO ALOCAÇÃO") return "bg-red-300";
-        if (status === "PREVISTA") return "bg-yellow-200";
-        return "bg-gray-100";
-    };
-    
     const limparFiltros = () => {
         setFiltroResponsavel("TODOS");
         setFiltroStatus(TODOS_OS_STATUS_VALUE);
@@ -1502,7 +1500,7 @@ const MapaAtividadesComponent = () => {
                                 <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{t.acao}</td>
                                 <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{getResponsavelNomes(t.responsaveis)}</td>
                                 <td className="px-4 py-3 text-sm whitespace-nowrap">
-                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(t.status)} text-gray-800`}>
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(t.status)}`}>
                                         {t.status}
                                     </span>
                                 </td>
@@ -1785,7 +1783,6 @@ const ProgramacaoSemanalComponent = () => {
                 }
                 const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
 
-                // ALTERAÇÃO v2.4.0: Adicionado 'mapaStatus' para carregar o status original para a lógica de cores.
                 const itemProg = {
                     mapaTaskId: tarefaMapa.id,
                     textoVisivel: textoVisivelFinal,
@@ -1838,28 +1835,6 @@ const ProgramacaoSemanalComponent = () => {
             tarefas: tarefas || []
         });
         setIsGerenciarTarefaModalOpen(true);
-    };
-    
-    // ALTERAÇÃO v2.4.0: Nova função para determinar a cor da tarefa com base no status e turno.
-    const getCorTarefaProgramacao = (tarefa) => {
-        const status = tarefa.mapaStatus;
-        const turno = tarefa.turno || TURNO_DIA_INTEIRO;
-
-        if (tarefa.statusLocal === "CONCLUÍDA") {
-            return { backgroundColor: '#08400a' };
-        }
-        if (status === "EM OPERAÇÃO") {
-            if (turno === "MANHÃ") return { backgroundColor: '#385707' };
-            if (turno === "TARDE") return { backgroundColor: '#476e0a' };
-            return { backgroundColor: '#263b05' }; // Dia Inteiro
-        }
-        if (status === "PROGRAMADA") {
-            if (turno === "MANHÃ") return { backgroundColor: '#1a20c9' };
-            if (turno === "TARDE") return { backgroundColor: '#141896' };
-            return { backgroundColor: '#0c0f63' }; // Dia Inteiro
-        }
-        
-        return { backgroundColor: '#6b7280' }; // Cor padrão (cinza)
     };
 
     const renderCabecalhoDias = () => {
@@ -1914,12 +1889,12 @@ const ProgramacaoSemanalComponent = () => {
                     ) : (
                         <div className="space-y-0.5">
                         {tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
-                            const taskStyle = getCorTarefaProgramacao(tarefaInst);
+                            // ALTERAÇÃO v2.5.0: Lógica de cor simplificada para usar a função global getStatusColor.
+                            const bgColorClass = getStatusColor(tarefaInst.mapaStatus);
                             return (
                                 <div
                                     key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`}
-                                    style={taskStyle}
-                                    className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`}
+                                    className={`p-1 rounded text-gray-800 font-medium text-[10px] leading-tight ${bgColorClass} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`}
                                     title={tarefaInst.textoVisivel}
                                 >
                                     {tarefaInst.textoVisivel && tarefaInst.textoVisivel.length > 35 ? tarefaInst.textoVisivel.substring(0,32) + "..." : tarefaInst.textoVisivel}
@@ -2073,7 +2048,7 @@ const ProgramacaoSemanalComponent = () => {
     );
 };
 
-// Componente TarefaPátio (anteriormente NovaTarefaRapidaComponent)
+// Componente TarefaPátio
 const TarefaPatioComponent = () => {
     const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext);
 
@@ -2452,7 +2427,7 @@ const RelatoriosComponent = () => {
     const [loadingReport, setLoadingReport] = useState(false);
     const [filtroFuncionarios, setFiltroFuncionarios] = useState([]);
     const [filtroStatus, setFiltroStatus] = useState([]);
-    const [filtroAcoes, setFiltroAcoes] = useState([]); // ALTERAÇÃO v2.4.0: Novo estado para filtro de Ação
+    const [filtroAcoes, setFiltroAcoes] = useState([]);
     const [filtroDataInicio, setFiltroDataInicio] = useState('');
     const [filtroDataFim, setFiltroDataFim] = useState('');
     const [showReport, setShowReport] = useState(false);
@@ -2516,7 +2491,6 @@ const RelatoriosComponent = () => {
         });
     };
     
-    // ALTERAÇÃO v2.4.0: Novas funções para controlar o filtro de Ação
     const handleAcaoChange = (e) => {
         const { value, checked } = e.target;
         setFiltroAcoes(prev =>
@@ -2590,7 +2564,6 @@ const RelatoriosComponent = () => {
                     }
                 }
                 
-                // ALTERAÇÃO v2.4.0: Lógica de filtro por Ação adicionada.
                 if (manter && filtroAcoes.length > 0) {
                     if (!filtroAcoes.includes(task.acao)) {
                         manter = false;
@@ -2747,7 +2720,6 @@ const RelatoriosComponent = () => {
                             ))}
                         </div>
                     </div>
-                     {/* ALTERAÇÃO v2.4.0: Novo bloco de filtro para "Ação" */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Ação:</label>
                          <div className="flex space-x-2 mb-2">
