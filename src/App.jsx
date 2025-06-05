@@ -1,5 +1,7 @@
-// Versão: 2.1.0
-// Script completo e atualizado. Alteração: inclui o status "EM OPERAÇÃO" na lógica de exibição da Programação Semanal.
+// Versão: 2.4.0
+// Script completo e atualizado. 
+// Alteração: 1. Adicionado filtro por "Ação" na aba de Relatórios.
+// Alteração: 2. Modificadas as cores das tarefas na Programação Semanal para usar cores HEX específicas baseadas no status e turno.
 
 import React, { useState, useEffect, createContext, useContext, memo } from 'react';
 // Importe a instância do app Firebase já inicializada
@@ -115,7 +117,6 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
     await removerTarefaDaProgramacao(tarefaId, db, basePath);
 
-    // ALTERAÇÃO v2.1.0: Incluído "EM OPERAÇÃO" na lista de status que devem aparecer na programação.
     const statusValidosParaProgramacao = ["PROGRAMADA", "CONCLUÍDA", "EM OPERAÇÃO"];
     if (!statusValidosParaProgramacao.includes(tarefaData.status)) {
         return;
@@ -137,11 +138,12 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
     }
     const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
 
-
+    // ALTERAÇÃO v2.4.0: Adicionado 'mapaStatus' para carregar o status original para a lógica de cores.
     const itemTarefaProgramacao = {
         mapaTaskId: tarefaId,
         textoVisivel: textoVisivelFinal, 
         statusLocal: tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
+        mapaStatus: tarefaData.status,
         turno: tarefaData.turno || TURNO_DIA_INTEIRO 
     };
 
@@ -301,7 +303,6 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
         if (algumaInstanciaProgramadaRelevanteEncontrada && todasInstanciasProgramadasConcluidas && tarefaPrincipal.status !== "CONCLUÍDA") {
             await updateDoc(tarefaMapaDocRef, { status: "CONCLUÍDA" });
         } else if ((!algumaInstanciaProgramadaRelevanteEncontrada || !todasInstanciasProgramadasConcluidas) && tarefaPrincipal.status === "CONCLUÍDA") {
-            // Se a tarefa no mapa está "CONCLUÍDA" mas na programação não está mais, volta para "PROGRAMADA"
             await updateDoc(tarefaMapaDocRef, { status: "PROGRAMADA" });
         }
 
@@ -312,7 +313,6 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 
 
 const GlobalProvider = ({ children }) => {
-    // ALTERAÇÃO v2.1.0: Adicionado "EM OPERAÇÃO" à lista de status iniciais.
     const DADOS_INICIAIS_CONFIG = {
         prioridades: ["P1 - CURTO PRAZO", "P2 - MÉDIO PRAZO", "P3 - LONGO PRAZO", "P4 - URGENTE"],
         areas: ["LADO 01", "LADO 02", "ANEXO A", "ANEXO B", "ANEXO C", "CANTEIRO CENTRAL", "LOJA", "OLIVEIRAS - ANT. REFEITORIO", "OLIVEIRAS - ESQUINA", "TERRENO - TEO (FRENTE ANT. REF.)", "PLANTÃO", "EXTERNO"],
@@ -1071,9 +1071,7 @@ const HistoricoTarefaModal = ({ isOpen, onClose, tarefaId }) => {
     );
 };
 
-// ==========================================================================================
-// == NOVO COMPONENTE DE MODAL PARA ATUALIZAÇÃO RÁPIDA DE STATUS
-// ==========================================================================================
+// Componente para Modal de Atualização Rápida de Status
 const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
     const { listasAuxiliares } = useContext(GlobalContext);
     const [novoStatus, setNovoStatus] = useState('');
@@ -1087,7 +1085,7 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
 
     const handleSave = async () => {
         if (novoStatus === tarefa.status) {
-            onClose(); // Nenhuma mudança, apenas fecha o modal
+            onClose(); 
             return;
         }
         setLoading(true);
@@ -1152,12 +1150,8 @@ const MapaAtividadesComponent = () => {
     const [editingTarefa, setEditingTarefa] = useState(null); 
     const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
     const [selectedTarefaIdParaHistorico, setSelectedTarefaIdParaHistorico] = useState(null);
-
-    // --- NOVOS ESTADOS PARA O MODAL DE STATUS ---
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
     const [tarefaParaStatusUpdate, setTarefaParaStatusUpdate] = useState(null);
-
-
     const [filtroResponsavel, setFiltroResponsavel] = useState("TODOS");
     const [filtroStatus, setFiltroStatus] = useState(TODOS_OS_STATUS_VALUE);
     const [filtroPrioridade, setFiltroPrioridade] = useState(TODAS_AS_PRIORIDADES_VALUE);
@@ -1165,7 +1159,6 @@ const MapaAtividadesComponent = () => {
     const [filtroDataInicio, setFiltroDataInicio] = useState('');
     const [filtroDataFim, setFiltroDataFim] = useState('');
     const [termoBusca, setTermoBusca] = useState('');
-
 
     const basePath = `/artifacts/${appId}/public/data`;
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
@@ -1205,9 +1198,10 @@ const MapaAtividadesComponent = () => {
             tarefasProcessadas = tarefasProcessadas.filter(t => t.area === filtroArea);
         }
         
+        // ALTERAÇÃO v2.3.0: Filtro de busca agora procura na orientação da tarefa.
         if (termoBusca.trim() !== "") {
             tarefasProcessadas = tarefasProcessadas.filter(t => 
-                t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())
+                t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase())
             );
         }
 
@@ -1256,7 +1250,6 @@ const MapaAtividadesComponent = () => {
         setSelectedTarefaIdParaHistorico(null);
     };
 
-    // --- NOVAS FUNÇÕES PARA O MODAL DE STATUS ---
     const handleOpenStatusModal = (tarefa) => {
         setTarefaParaStatusUpdate(tarefa);
         setIsStatusModalOpen(true);
@@ -1283,11 +1276,9 @@ const MapaAtividadesComponent = () => {
         const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
         await updateDoc(tarefaDocRef, payload);
 
-        // Log da alteração
         const detalhesLog = `Status alterado de '${tarefaOriginal.status}' para '${novoStatus}' via alteração rápida.`;
         await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Status Atualizado", detalhesLog);
 
-        // Sincronizar com a programação
         const tarefaAtualizadaParaSync = { ...tarefaOriginal, ...payload };
         await sincronizarTarefaComProgramacao(tarefaId, tarefaAtualizadaParaSync, db, basePath);
     };
@@ -1388,7 +1379,6 @@ const MapaAtividadesComponent = () => {
         }).join(', ');
     };
     
-    // ALTERAÇÃO v2.1.0: Adicionada cor para o status "EM OPERAÇÃO".
     const getStatusColor = (status) => {
         if (status === "CANCELADA") return "bg-red-200";
         if (status === "CONCLUÍDA") return "bg-green-300";
@@ -1424,7 +1414,6 @@ const MapaAtividadesComponent = () => {
                 </button>
             </div>
 
-            {/* Seção de Filtros */}
             <div className="bg-white p-4 rounded-lg shadow mb-6">
                 <h3 className="text-lg font-semibold mb-3 text-gray-700">Filtros</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -1466,9 +1455,9 @@ const MapaAtividadesComponent = () => {
                         <input type="date" id="filtroDataFim" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/>
                     </div>
                      <div className="col-span-full sm:col-span-2 md:col-span-2 lg:col-span-2">
-                        <label htmlFor="termoBusca" className="block text-sm font-medium text-gray-700">Buscar na Descrição</label>
+                        <label htmlFor="termoBusca" className="block text-sm font-medium text-gray-700">Buscar na Orientação</label>
                         <div className="mt-1 flex rounded-md shadow-sm">
-                             <input type="text" id="termoBusca" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Digite para buscar..." className="block w-full p-2 border-gray-300 rounded-l-md focus:ring-blue-500 focus:border-blue-500"/>
+                             <input type="text" id="termoBusca" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Buscar por palavra na orientação..." className="block w-full p-2 border-gray-300 rounded-l-md focus:ring-blue-500 focus:border-blue-500"/>
                              <button onClick={() => setTermoBusca('')} className="bg-gray-200 p-2 rounded-r-md text-gray-500 hover:bg-gray-300">
                                 <LucideX size={18}/>
                              </button>
@@ -1522,7 +1511,6 @@ const MapaAtividadesComponent = () => {
                                 <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{formatDate(t.dataProvavelTermino)}</td>
                                 <td className="px-4 py-3 text-sm text-gray-700 whitespace-normal break-words max-w-xs">{t.orientacao}</td>
                                 <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
-                                    {/* --- BOTÃO NOVO ADICIONADO AQUI --- */}
                                     <button onClick={() => handleOpenStatusModal(t)} title="Gerenciar Status" className="text-green-600 hover:text-green-800 mr-2"><LucideListChecks size={18}/></button>
                                     <button onClick={() => handleOpenHistoricoModal(t.id)} title="Histórico" className="text-gray-500 hover:text-gray-700 mr-2"><LucideHistory size={18}/></button>
                                     <button onClick={() => handleOpenModal(t)} title="Editar" className="text-blue-600 hover:text-blue-800 mr-2"><LucideEdit size={18}/></button>
@@ -1541,7 +1529,6 @@ const MapaAtividadesComponent = () => {
                     tarefaId={selectedTarefaIdParaHistorico} 
                 />
             )}
-            {/* --- RENDERIZAÇÃO DO NOVO MODAL DE STATUS --- */}
             <StatusUpdateModal 
                 isOpen={isStatusModalOpen}
                 onClose={handleCloseStatusModal}
@@ -1559,38 +1546,28 @@ const ProgramacaoSemanalComponent = () => {
     const [semanas, setSemanas] = useState([]);
     const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
     const [dadosProgramacao, setDadosProgramacao] = useState(null);
-    const [loading, setLoading] = useState(false); // Loading para dados da semana
-    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false); // Loading para operações (criar, atualizar, excluir semana)
+    const [loading, setLoading] = useState(false);
+    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false);
     const [isNovaSemanaModalOpen, setIsNovaSemanaModalOpen] = useState(false);
     const [novaSemanaDataInicio, setNovaSemanaDataInicio] = useState('');
-
     const [isGerenciarTarefaModalOpen, setIsGerenciarTarefaModalOpen] = useState(false);
     const [dadosCelulaParaGerenciar, setDadosCelulaParaGerenciar] = useState({ diaFormatado: null, responsavelId: null, tarefas: [] });
-
-    // Novo estado para o modal de Gerenciar Semana
     const [isGerenciarSemanaModalOpen, setIsGerenciarSemanaModalOpen] = useState(false);
-
-    const coresTurno = {
-        "MANHÃ": "bg-sky-300",
-        "TARDE": "bg-indigo-300",
-    };
 
     const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
 
-    // --- Funções Utilitárias Simuladas (substitua pelas reais) ---
     const formatDateProg = (timestamp) => {
         if (!timestamp) return 'N/A';
         if (timestamp instanceof Timestamp) {
             return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         }
-        // Se for um objeto {seconds, nanoseconds} mas não Timestamp (pode acontecer em alguns cenários)
         if (typeof timestamp.seconds === 'number' && typeof timestamp.nanoseconds === 'number') {
              return new Timestamp(timestamp.seconds, timestamp.nanoseconds).toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         }
         return 'Data inválida';
     };
-    const DIAS_SEMANA_PROG = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"]; // Exemplo
+    const DIAS_SEMANA_PROG = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
 
     useEffect(() => {
         const q = query(programacaoCollectionRef, orderBy("dataInicioSemana", "desc"));
@@ -1627,7 +1604,7 @@ const ProgramacaoSemanalComponent = () => {
             }
         }, error => console.error("Erro ao carregar semanas:", error));
         return unsubscribe;
-    }, [userId, appId, db]); // Removido semanaSelecionadaId daqui para evitar loop com a lógica de seleção acima
+    }, [userId, appId, db]);
 
     useEffect(() => {
         if (!semanaSelecionadaId) {
@@ -1660,7 +1637,6 @@ const ProgramacaoSemanalComponent = () => {
             } else {
                 setDadosProgramacao(null);
                 console.warn(`Semana ${semanaSelecionadaId} não encontrada.`);
-                // Tenta selecionar a primeira da lista se a selecionada não existe mais
                 if (semanas.length > 0) {
                     const stillExists = semanas.find(s => s.id === semanaSelecionadaId);
                     if (!stillExists) setSemanaSelecionadaId(semanas[0].id);
@@ -1674,24 +1650,23 @@ const ProgramacaoSemanalComponent = () => {
             setLoading(false);
         });
         return unsub;
-    }, [semanaSelecionadaId, db, basePath, semanas]); // Adicionado 'semanas' como dependência para reavaliar se a lista mudar
+    }, [semanaSelecionadaId, db, basePath, semanas]);
 
     const handleCriarNovaSemana = async () => {
-        // ... (código existente, sem alterações)
         if (!novaSemanaDataInicio) {
             alert("Por favor, selecione uma data de início para a nova semana.");
             return;
         }
         const [year, month, day] = novaSemanaDataInicio.split('-').map(Number);
         const dataInicioUTC = new Date(Date.UTC(year, month - 1, day));
-        if (dataInicioUTC.getUTCDay() !== 1) { // 1 para Segunda-feira
+        if (dataInicioUTC.getUTCDay() !== 1) { 
             alert("A semana deve começar em uma Segunda-feira.");
             return;
         }
         setLoadingAtualizacao(true);
         try {
             const dataFimUTC = new Date(dataInicioUTC);
-            dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5); // Segunda + 5 dias = Sábado
+            dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5); 
 
             let maiorNumeroSemana = 0;
             semanas.forEach(s => {
@@ -1733,13 +1708,11 @@ const ProgramacaoSemanalComponent = () => {
         setLoadingAtualizacao(false);
     };
 
-    // Nova função para excluir semana
     const handleExcluirSemana = async () => {
         if (!semanaSelecionadaId || !dadosProgramacao) {
             alert("Nenhuma semana selecionada para excluir.");
             return;
         }
-        // Garantir que as datas são Timestamps para formatação correta no confirm
         const dataInicioFormatada = dadosProgramacao.dataInicioSemana instanceof Timestamp ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'Data Inválida';
         const dataFimFormatada = dadosProgramacao.dataFimSemana instanceof Timestamp ? formatDateProg(dadosProgramacao.dataFimSemana) : 'Data Inválida';
 
@@ -1750,8 +1723,6 @@ const ProgramacaoSemanalComponent = () => {
                 
                 alert(`Semana "${dadosProgramacao.nomeAba}" excluída com sucesso.`);
                 setIsGerenciarSemanaModalOpen(false);
-                // A lógica no useEffect de 'semanas' cuidará de selecionar a próxima ou limpar.
-                // Forçar o ID para null aqui ajuda a desselecionar explicitamente.
                 setSemanaSelecionadaId(null);
                 setDadosProgramacao(null); 
             } catch (error) {
@@ -1763,7 +1734,6 @@ const ProgramacaoSemanalComponent = () => {
     };
 
     const handleAtualizarProgramacaoDaSemana = async () => {
-        // ... (código existente, apenas adicionando verificações mais robustas para datas)
         if (!semanaSelecionadaId || !dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dataFimSemana) {
             alert("Nenhuma semana selecionada ou dados da semana inválidos para atualizar.");
             return;
@@ -1792,7 +1762,6 @@ const ProgramacaoSemanalComponent = () => {
                 diaCorrenteNaSemana.setUTCDate(diaCorrenteNaSemana.getUTCDate() + 1);
             }
             
-            // ALTERAÇÃO v2.1.0: Incluído "EM OPERAÇÃO" na query para buscar tarefas relevantes do mapa.
             const tarefasMapaQuery = query(
                 collection(db, `${basePath}/tarefas_mapa`),
                 where("status", "in", ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"])
@@ -1816,10 +1785,12 @@ const ProgramacaoSemanalComponent = () => {
                 }
                 const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
 
+                // ALTERAÇÃO v2.4.0: Adicionado 'mapaStatus' para carregar o status original para a lógica de cores.
                 const itemProg = {
                     mapaTaskId: tarefaMapa.id,
                     textoVisivel: textoVisivelFinal,
                     statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
+                    mapaStatus: tarefaMapa.status,
                     turno: tarefaMapa.turno || TURNO_DIA_INTEIRO
                 };
 
@@ -1828,14 +1799,12 @@ const ProgramacaoSemanalComponent = () => {
 
                 let dataAtualTarefa = new Date(Date.UTC(dataInicioTarefaDate.getUTCFullYear(), dataInicioTarefaDate.getUTCMonth(), dataInicioTarefaDate.getUTCDate()));
                 const dataFimTarefaUTC = new Date(Date.UTC(dataFimTarefaDate.getUTCFullYear(), dataFimTarefaDate.getUTCMonth(), dataFimTarefaDate.getUTCDate()));
-                dataFimTarefaUTC.setUTCHours(23,59,59,999); // Assegura que o dia final é inclusivo
+                dataFimTarefaUTC.setUTCHours(23,59,59,999); 
 
-                // Loop pelos dias da tarefa
                 while (dataAtualTarefa.getTime() <= dataFimTarefaUTC.getTime()) {
                     const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
                     
-                    // Verifica se o dia da tarefa está dentro do período da semana selecionada
-                    if (dataAtualTarefa.getTime() >= dataInicioSemanaDate.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) { // Usar dataFimSemanaUTC
+                    if (dataAtualTarefa.getTime() >= dataInicioSemanaDate.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) {
                         if (novosDiasDaSemana[diaFormatadoTarefa]) {
                             tarefaMapa.responsaveis.forEach(respId => {
                                 if (novosDiasDaSemana[diaFormatadoTarefa][respId]) {
@@ -1869,6 +1838,28 @@ const ProgramacaoSemanalComponent = () => {
             tarefas: tarefas || []
         });
         setIsGerenciarTarefaModalOpen(true);
+    };
+    
+    // ALTERAÇÃO v2.4.0: Nova função para determinar a cor da tarefa com base no status e turno.
+    const getCorTarefaProgramacao = (tarefa) => {
+        const status = tarefa.mapaStatus;
+        const turno = tarefa.turno || TURNO_DIA_INTEIRO;
+
+        if (tarefa.statusLocal === "CONCLUÍDA") {
+            return { backgroundColor: '#08400a' };
+        }
+        if (status === "EM OPERAÇÃO") {
+            if (turno === "MANHÃ") return { backgroundColor: '#385707' };
+            if (turno === "TARDE") return { backgroundColor: '#476e0a' };
+            return { backgroundColor: '#263b05' }; // Dia Inteiro
+        }
+        if (status === "PROGRAMADA") {
+            if (turno === "MANHÃ") return { backgroundColor: '#1a20c9' };
+            if (turno === "TARDE") return { backgroundColor: '#141896' };
+            return { backgroundColor: '#0c0f63' }; // Dia Inteiro
+        }
+        
+        return { backgroundColor: '#6b7280' }; // Cor padrão (cinza)
     };
 
     const renderCabecalhoDias = () => {
@@ -1906,7 +1897,7 @@ const ProgramacaoSemanalComponent = () => {
 
         for (let i = 0; i < DIAS_SEMANA_PROG.length; i++) {
             const dataDiaAtual = new Date(dataInicio);
-            dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); // Correto: use getUTCDate
+            dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); 
             const diaFormatado = dataDiaAtual.toISOString().split('T')[0];
             const isHoje = diaFormatado === hojeFormatado;
 
@@ -1923,19 +1914,12 @@ const ProgramacaoSemanalComponent = () => {
                     ) : (
                         <div className="space-y-0.5">
                         {tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
-                            let corFundoTarefa = '';
-                            const turnoUpper = tarefaInst.turno?.toUpperCase();
-
-                            if (turnoUpper && coresTurno[turnoUpper]) {
-                                corFundoTarefa = coresTurno[turnoUpper];
-                            } else {
-                                corFundoTarefa = tarefaInst.statusLocal === 'CONCLUÍDA' ? 'bg-green-500' : 'bg-blue-500';
-                            }
-
+                            const taskStyle = getCorTarefaProgramacao(tarefaInst);
                             return (
                                 <div
                                     key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`}
-                                    className={`p-1 rounded text-white text-[10px] leading-tight ${corFundoTarefa} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`}
+                                    style={taskStyle}
+                                    className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`}
                                     title={tarefaInst.textoVisivel}
                                 >
                                     {tarefaInst.textoVisivel && tarefaInst.textoVisivel.length > 35 ? tarefaInst.textoVisivel.substring(0,32) + "..." : tarefaInst.textoVisivel}
@@ -1954,7 +1938,7 @@ const ProgramacaoSemanalComponent = () => {
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
-                <div className="flex flex-wrap items-center gap-2"> {/* Adicionado flex-wrap aqui */}
+                <div className="flex flex-wrap items-center gap-2">
                     <select
                         value={semanaSelecionadaId || ''}
                         onChange={(e) => setSemanaSelecionadaId(e.target.value)}
@@ -1984,10 +1968,9 @@ const ProgramacaoSemanalComponent = () => {
                     >
                         <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
                     </button>
-                    {/* Botão Gerenciar Semana */}
                     <button
                         onClick={() => setIsGerenciarSemanaModalOpen(true)}
-                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao} // Adicionado !dadosProgramacao
+                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao}
                         className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
                     >
                         <LucideSettings size={18} className="mr-2"/> Gerenciar Semana
@@ -1995,7 +1978,6 @@ const ProgramacaoSemanalComponent = () => {
                 </div>
             </div>
 
-            {/* Mensagens de Loading e Status */}
             {loading && !dadosProgramacao && <p className="text-center py-4">Carregando programação da semana...</p>}
             {!loading && !dadosProgramacao && semanaSelecionadaId && <p className="text-center py-4 text-red-500">Não foi possível carregar os dados da semana selecionada ou a semana não existe mais.</p>}
             {!loading && !semanaSelecionadaId && semanas.length > 0 && <p className="text-center py-4 text-gray-500">Selecione uma semana para visualizar.</p>}
@@ -2029,7 +2011,6 @@ const ProgramacaoSemanalComponent = () => {
                 </div>
             )}
 
-            {/* Modal para Criar Nova Semana */}
             <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação">
                 <div className="space-y-4">
                     <div>
@@ -2051,8 +2032,7 @@ const ProgramacaoSemanalComponent = () => {
                 </div>
             </Modal>
 
-            {/* Novo Modal para Gerenciar Semana */}
-            {dadosProgramacao && ( // Só renderiza o modal se dadosProgramacao estiver carregado
+            {dadosProgramacao && (
                 <Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}>
                     <div className="space-y-4">
                         <p className="text-sm text-gray-600">
@@ -2060,8 +2040,6 @@ const ProgramacaoSemanalComponent = () => {
                             Período: {dadosProgramacao.dataInicioSemana ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'N/A'} - {dadosProgramacao.dataFimSemana ? formatDateProg(dadosProgramacao.dataFimSemana) : 'N/A'}
                         </p>
                         
-                        {/* Adicionar outras opções de gerenciamento aqui no futuro */}
-
                         <div className="mt-6 pt-4 border-t">
                             <h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4>
                             <button
@@ -2080,7 +2058,6 @@ const ProgramacaoSemanalComponent = () => {
                 </Modal>
             )}
 
-            {/* Modal Gerenciar Tarefa Programacao */}
             {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (
                 <GerenciarTarefaProgramacaoModal
                     isOpen={isGerenciarTarefaModalOpen}
@@ -2089,69 +2066,64 @@ const ProgramacaoSemanalComponent = () => {
                     responsavelId={dadosCelulaParaGerenciar.responsavelId}
                     tarefasDaCelula={dadosCelulaParaGerenciar.tarefas}
                     semanaId={semanaSelecionadaId}
-                    onAlteracaoSalva={() => {
-                        // O onSnapshot já deve atualizar
-                    }}
+                    onAlteracaoSalva={() => {}}
                 />
             )}
         </div>
     );
 };
 
-// Componente NovaTarefaRapidaComponent (anteriormente AnotacoesPatioComponent)
-const NovaTarefaRapidaComponent = () => {
-    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext); // auth para criadoPor
+// Componente TarefaPátio (anteriormente NovaTarefaRapidaComponent)
+const TarefaPatioComponent = () => {
+    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext);
 
-    // Estados do formulário principal
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [loading, setLoading] = useState(false); // Loading para a criação da tarefa
+    const [loading, setLoading] = useState(false);
 
-    // Campos do formulário para Nova Tarefa Rápida
-    const [tarefa, setTarefa] = useState(''); // Descrição da tarefa
+    const [tarefa, setTarefa] = useState('');
     const [prioridade, setPrioridade] = useState('');
     const [area, setArea] = useState('');
     const [orientacao, setOrientacao] = useState('');
-    const [acao, setAcao] = useState(''); // Estado para Ação - continua o mesmo
-    const [dataInicio, setDataInicio] = useState(''); // Novo campo obrigatório
+    const [acao, setAcao] = useState('');
+    const [dataInicio, setDataInicio] = useState('');
 
     const basePath = `/artifacts/${appId}/public/data`;
     const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
-    const resetFormularioNovaTarefa = () => {
+    const resetFormulario = () => {
         setTarefa('');
         setPrioridade('');
         setArea('');
         setOrientacao('');
-        setAcao(''); // Reset da ação
+        setAcao('');
         setDataInicio('');
     };
 
-    const handleOpenModalNovaTarefa = () => {
-        resetFormularioNovaTarefa();
+    const handleOpenModal = () => {
+        resetFormulario();
         setIsModalOpen(true);
     };
 
-    const handleCloseModalNovaTarefa = () => {
+    const handleCloseModal = () => {
         setIsModalOpen(false);
     };
 
     const handleCriarTarefaPendente = async (e) => {
         e.preventDefault();
-        // A validação !acao.trim() continua válida, pois o valor inicial do select será ''
-        if (!tarefa.trim() || !acao || !dataInicio) { // Alterado para !acao (select vazio terá valor '')
-            alert("Os campos Tarefa (Descrição), Ação e Data de Início são obrigatórios.");
+        if (!tarefa.trim() || !acao || !dataInicio) {
+            alert("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios.");
             return;
         }
 
         setLoading(true);
         try {
-            const dataInicioTimestamp = Timestamp.fromDate(new Date(dataInicio + "T00:00:00"));
+            const dataInicioTimestamp = Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z"));
 
             const novaTarefaData = {
                 tarefa: tarefa.trim().toUpperCase(),
                 prioridade: prioridade || "",
                 area: area || "",
-                acao: acao, // O valor já virá do estado `acao`
+                acao: acao,
                 dataInicio: dataInicioTimestamp,
                 dataProvavelTermino: dataInicioTimestamp,
                 orientacao: orientacao.trim(),
@@ -2163,11 +2135,11 @@ const NovaTarefaRapidaComponent = () => {
                 createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now(),
                 semanaProgramada: "",
-                origem: "Nova Tarefa Rápida",
+                origem: "Tarefa Pátio",
             };
 
             const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaData);
-            console.log("Nova tarefa rápida criada no Mapa de Atividades com ID: ", docRef.id);
+            console.log("Nova tarefa do pátio criada no Mapa de Atividades com ID: ", docRef.id);
 
             await logAlteracaoTarefa(
                 db,
@@ -2175,16 +2147,16 @@ const NovaTarefaRapidaComponent = () => {
                 docRef.id,
                 auth.currentUser?.uid,
                 auth.currentUser?.email,
-                "Tarefa Criada (Rápida)",
-                `Tarefa "${novaTarefaData.tarefa}" criada via Nova Tarefa Rápida.`
+                "Tarefa Criada (Pátio)",
+                `Tarefa "${novaTarefaData.tarefa}" criada via Tarefa Pátio.`
             );
 
             alert("Nova tarefa criada com sucesso no Mapa de Atividades com status 'AGUARDANDO ALOCAÇÃO'.");
-            handleCloseModalNovaTarefa();
+            handleCloseModal();
 
         } catch (error) {
-            console.error("Erro ao criar tarefa rápida: ", error);
-            alert("Erro ao criar tarefa rápida: " + error.message);
+            console.error("Erro ao criar tarefa do pátio: ", error);
+            alert("Erro ao criar tarefa do pátio: " + error.message);
         }
         setLoading(false);
     };
@@ -2192,24 +2164,24 @@ const NovaTarefaRapidaComponent = () => {
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-800">Nova Tarefa Rápida</h2>
+                <h2 className="text-2xl font-semibold text-gray-800">Tarefa Pátio</h2>
                 <button
-                    onClick={handleOpenModalNovaTarefa}
+                    onClick={handleOpenModal}
                     className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
                 >
-                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa Rápida
+                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa do Pátio
                 </button>
             </div>
 
             <div className="text-center p-5 bg-white shadow rounded-md">
                 <p className="text-gray-600">
-                    Utilize o botão "Adicionar Tarefa Rápida" para registrar rapidamente uma nova demanda
+                    Utilize o botão "Adicionar Tarefa do Pátio" para registrar rapidamente uma nova demanda
                     que será incluída no Mapa de Atividades para posterior alocação e programação.
                 </p>
             </div>
 
 
-            <Modal isOpen={isModalOpen} onClose={handleCloseModalNovaTarefa} title="Criar Nova Tarefa Rápida">
+            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title="Criar Nova Tarefa do Pátio">
                 <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
                     <div>
                         <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
@@ -2218,7 +2190,6 @@ const NovaTarefaRapidaComponent = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            {/* CAMPO "AÇÃO" CORRIGIDO ABAIXO */}
                             <label htmlFor="tarefaAcao" className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
                             <select
                                 id="tarefaAcao"
@@ -2234,7 +2205,7 @@ const NovaTarefaRapidaComponent = () => {
                             </select>
                         </div>
                         <div>
-                            <label htmlFor="tarefaDataInicio" className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
+                            <label htmlFor="tarefaDataInicio" className="block text-sm font-medium text-gray-700">Data da inclusão da tarefa <span className="text-red-500">*</span></label>
                             <input id="tarefaDataInicio" type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
                         </div>
                     </div>
@@ -2262,7 +2233,7 @@ const NovaTarefaRapidaComponent = () => {
                     </div>
 
                     <div className="pt-4 flex justify-end space-x-2">
-                        <button type="button" onClick={handleCloseModalNovaTarefa} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                        <button type="button" onClick={handleCloseModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
                         <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
                             {loading ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
                         </button>
@@ -2273,18 +2244,10 @@ const NovaTarefaRapidaComponent = () => {
     );
 };
 
-// ... O restante dos componentes (RelatoriosComponent, TarefasPendentesComponent, AlocarTarefaModal, DashboardComponent, etc.) permanecem aqui, sem alterações ...
-// (Para economizar espaço, não vou repetir todos os outros componentes que não foram alterados, mas eles devem estar presentes no seu arquivo final)
-
-
-// =============================================================================================================================
-// == OS COMPONENTES ABAIXO (DE `GerenciarTarefaProgramacaoModal` ATÉ O FIM) NÃO FORAM ALTERADOS E DEVEM SER MANTIDOS COMO ESTÃO ==
-// =============================================================================================================================
-
 
 // Componente Modal para Gerenciar Tarefas da Célula da Programação
 const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, responsavelId, tarefasDaCelula, semanaId, onAlteracaoSalva }) => {
-    const { db, appId, funcionarios, listasAuxiliares, auth } = useContext(GlobalContext); 
+    const { db, appId, funcionarios, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext); 
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
     const [loading, setLoading] = useState(false);
     const [statusTarefasMapa, setStatusTarefasMapa] = useState({}); 
@@ -2489,6 +2452,7 @@ const RelatoriosComponent = () => {
     const [loadingReport, setLoadingReport] = useState(false);
     const [filtroFuncionarios, setFiltroFuncionarios] = useState([]);
     const [filtroStatus, setFiltroStatus] = useState([]);
+    const [filtroAcoes, setFiltroAcoes] = useState([]); // ALTERAÇÃO v2.4.0: Novo estado para filtro de Ação
     const [filtroDataInicio, setFiltroDataInicio] = useState('');
     const [filtroDataFim, setFiltroDataFim] = useState('');
     const [showReport, setShowReport] = useState(false);
@@ -2503,7 +2467,7 @@ const RelatoriosComponent = () => {
         if (!filtroDataFim) {
             setFiltroDataFim(today.toISOString().split('T')[0]);
         }
-    }, []); // Executa apenas na montagem inicial
+    }, []); 
 
     const handleFuncionarioChange = (e) => {
         const { value, checked } = e.target;
@@ -2516,27 +2480,19 @@ const RelatoriosComponent = () => {
         const allFuncIds = Array.isArray(contextFuncionarios) ? contextFuncionarios.map(f => f.id) : [];
         setFiltroFuncionarios([SEM_RESPONSAVEL_VALUE, ...allFuncIds]);
         document.querySelectorAll('input[name="funcionarioChkItem"]').forEach(chk => {
-            if (chk instanceof HTMLInputElement) {
-                chk.checked = true;
-            }
+            if (chk instanceof HTMLInputElement) chk.checked = true;
         });
         const semResponsavelChk = document.getElementById('funcionarioChk-semResponsavel');
-        if (semResponsavelChk instanceof HTMLInputElement) {
-            semResponsavelChk.checked = true;
-        }
+        if (semResponsavelChk instanceof HTMLInputElement) semResponsavelChk.checked = true;
     };
 
     const handleClearAllFuncionarios = () => {
         setFiltroFuncionarios([]);
         document.querySelectorAll('input[name="funcionarioChkItem"]').forEach(chk => {
-            if (chk instanceof HTMLInputElement) {
-                chk.checked = false;
-            }
+            if (chk instanceof HTMLInputElement) chk.checked = false;
         });
         const semResponsavelChk = document.getElementById('funcionarioChk-semResponsavel');
-        if (semResponsavelChk instanceof HTMLInputElement) {
-            semResponsavelChk.checked = false;
-        }
+        if (semResponsavelChk instanceof HTMLInputElement) semResponsavelChk.checked = false;
     };
 
     const handleStatusChange = (e) => {
@@ -2556,6 +2512,28 @@ const RelatoriosComponent = () => {
     const handleClearAllStatus = () => {
         setFiltroStatus([]);
         document.querySelectorAll('input[name="statusChkItem"]').forEach(chk => {
+            if (chk instanceof HTMLInputElement) chk.checked = false;
+        });
+    };
+    
+    // ALTERAÇÃO v2.4.0: Novas funções para controlar o filtro de Ação
+    const handleAcaoChange = (e) => {
+        const { value, checked } = e.target;
+        setFiltroAcoes(prev =>
+            checked ? [...prev, value] : prev.filter(item => item !== value)
+        );
+    };
+
+    const handleSelectAllAcoes = () => {
+        setFiltroAcoes(Array.isArray(listasAuxiliares.acoes) ? [...listasAuxiliares.acoes] : []);
+        document.querySelectorAll('input[name="acaoChkItem"]').forEach(chk => {
+             if (chk instanceof HTMLInputElement) chk.checked = true;
+        });
+    };
+
+    const handleClearAllAcoes = () => {
+        setFiltroAcoes([]);
+        document.querySelectorAll('input[name="acaoChkItem"]').forEach(chk => {
             if (chk instanceof HTMLInputElement) chk.checked = false;
         });
     };
@@ -2608,6 +2586,13 @@ const RelatoriosComponent = () => {
 
                 if (manter && filtroStatus.length > 0) {
                     if (!filtroStatus.includes(task.status)) {
+                        manter = false;
+                    }
+                }
+                
+                // ALTERAÇÃO v2.4.0: Lógica de filtro por Ação adicionada.
+                if (manter && filtroAcoes.length > 0) {
+                    if (!filtroAcoes.includes(task.acao)) {
                         manter = false;
                     }
                 }
@@ -2727,7 +2712,7 @@ const RelatoriosComponent = () => {
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Relatório de Atividades</h2>
 
             <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Funcionário(s):</label>
                         <div className="flex space-x-2 mb-2">
@@ -2758,6 +2743,22 @@ const RelatoriosComponent = () => {
                                 <div key={s} className="flex items-center mb-1">
                                     <input type="checkbox" id={`status-${s.replace(/\s+/g, '-')}`} name="statusChkItem" value={s} onChange={handleStatusChange} checked={filtroStatus.includes(s)} className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"/>
                                     <label htmlFor={`status-${s.replace(/\s+/g, '-')}`} className="ml-2 text-sm text-gray-700">{s}</label>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                     {/* ALTERAÇÃO v2.4.0: Novo bloco de filtro para "Ação" */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Ação:</label>
+                         <div className="flex space-x-2 mb-2">
+                            <button onClick={handleSelectAllAcoes} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200">Todas</button>
+                            <button onClick={handleClearAllAcoes} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">Limpar</button>
+                        </div>
+                        <div className="max-h-40 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                            {(Array.isArray(listasAuxiliares.acoes) ? listasAuxiliares.acoes : []).map(ac => (
+                                <div key={ac} className="flex items-center mb-1">
+                                    <input type="checkbox" id={`acao-${ac.replace(/\s+/g, '-')}`} name="acaoChkItem" value={ac} onChange={handleAcaoChange} checked={filtroAcoes.includes(ac)} className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"/>
+                                    <label htmlFor={`acao-${ac.replace(/\s+/g, '-')}`} className="ml-2 text-sm text-gray-700">{ac}</label>
                                 </div>
                             ))}
                         </div>
@@ -2804,6 +2805,8 @@ const RelatoriosComponent = () => {
                                 Funcionário(s): {filtroFuncionarios.length > 0 ? filtroFuncionarios.map(fId => fId === SEM_RESPONSAVEL_VALUE ? "Sem Responsável" : (contextFuncionarios.find(f=>f.id === fId)?.nome || fId)).join(', ') : "TODOS"}
                                 <br/>
                                 Status: {filtroStatus.length > 0 ? filtroStatus.join(', ') : "TODOS"}
+                                <br/>
+                                Ação: {filtroAcoes.length > 0 ? filtroAcoes.join(', ') : "TODAS"}
                                 <br/>
                                 Período: {filtroDataInicio ? formatDateForDisplay(new Date(filtroDataInicio+"T00:00:00Z")) : 'N/A'} a {filtroDataFim ? formatDateForDisplay(new Date(filtroDataFim+"T00:00:00Z")) : 'N/A'}
                             </p>
@@ -3343,7 +3346,7 @@ function App() {
             case 'dashboard': return <DashboardComponent />;
             case 'mapa': return <MapaAtividadesComponent />;
             case 'programacao': return <ProgramacaoSemanalComponent />;
-            case 'anotacoes': return <NovaTarefaRapidaComponent />;
+            case 'anotacoes': return <TarefaPatioComponent />;
             case 'tarefasPendentes': return <TarefasPendentesComponent />;
             case 'config': return <ConfiguracoesComponent />;
             case 'relatorios': return <RelatoriosComponent />;
@@ -3373,7 +3376,7 @@ function App() {
                     <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>
                     <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>
                     <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>
-                    <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Anotações Pátio</NavLink>
+                    <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>
                     <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>
                     <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>
                     <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>
