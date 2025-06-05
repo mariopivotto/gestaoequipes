@@ -1,3 +1,6 @@
+// Versão: 2.0.0
+// Script completo e atualizado com a funcionalidade de alteração rápida de status.
+
 import React, { useState, useEffect, createContext, useContext, memo } from 'react';
 // Importe a instância do app Firebase já inicializada
 // Garanta que o arquivo 'firebaseConfig.js' está na pasta 'src',
@@ -1064,6 +1067,76 @@ const HistoricoTarefaModal = ({ isOpen, onClose, tarefaId }) => {
     );
 };
 
+// ==========================================================================================
+// == NOVO COMPONENTE DE MODAL PARA ATUALIZAÇÃO RÁPIDA DE STATUS
+// ==========================================================================================
+const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
+    const { listasAuxiliares } = useContext(GlobalContext);
+    const [novoStatus, setNovoStatus] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (tarefa) {
+            setNovoStatus(tarefa.status || '');
+        }
+    }, [tarefa, isOpen]);
+
+    const handleSave = async () => {
+        if (novoStatus === tarefa.status) {
+            onClose(); // Nenhuma mudança, apenas fecha o modal
+            return;
+        }
+        setLoading(true);
+        try {
+            await onStatusSave(tarefa.id, novoStatus);
+            onClose();
+        } catch (error) {
+            console.error("Erro ao tentar salvar o novo status:", error);
+            alert("Falha ao atualizar o status. Verifique o console para mais detalhes.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (!isOpen || !tarefa) return null;
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Alteração Rápida de Status" width="max-w-md">
+            <div className="space-y-4">
+                <div className="p-3 bg-gray-100 rounded-md">
+                    <p className="text-sm text-gray-600">Tarefa:</p>
+                    <p className="font-semibold text-gray-800">{tarefa.tarefa}</p>
+                </div>
+                <div>
+                    <label htmlFor="status-rapido" className="block text-sm font-medium text-gray-700">Novo Status</label>
+                    <select
+                        id="status-rapido"
+                        value={novoStatus}
+                        onChange={(e) => setNovoStatus(e.target.value)}
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    >
+                        <option value="">Selecione...</option>
+                        {(listasAuxiliares.status || []).map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                </div>
+                <div className="pt-4 flex justify-end space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleSave}
+                        disabled={loading || !novoStatus}
+                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+                    >
+                        {loading ? 'Salvando...' : 'Salvar Status'}
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 
 // Componente MapaAtividades
 const MapaAtividadesComponent = () => {
@@ -1075,6 +1148,10 @@ const MapaAtividadesComponent = () => {
     const [editingTarefa, setEditingTarefa] = useState(null); 
     const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
     const [selectedTarefaIdParaHistorico, setSelectedTarefaIdParaHistorico] = useState(null);
+
+    // --- NOVOS ESTADOS PARA O MODAL DE STATUS ---
+    const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+    const [tarefaParaStatusUpdate, setTarefaParaStatusUpdate] = useState(null);
 
 
     const [filtroResponsavel, setFiltroResponsavel] = useState("TODOS");
@@ -1173,6 +1250,42 @@ const MapaAtividadesComponent = () => {
     const handleCloseHistoricoModal = () => {
         setIsHistoricoModalOpen(false);
         setSelectedTarefaIdParaHistorico(null);
+    };
+
+    // --- NOVAS FUNÇÕES PARA O MODAL DE STATUS ---
+    const handleOpenStatusModal = (tarefa) => {
+        setTarefaParaStatusUpdate(tarefa);
+        setIsStatusModalOpen(true);
+    };
+
+    const handleCloseStatusModal = () => {
+        setIsStatusModalOpen(false);
+        setTarefaParaStatusUpdate(null);
+    };
+
+    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
+        const usuario = authGlobal.currentUser;
+        const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
+
+        if (!tarefaOriginal) {
+            throw new Error("Tarefa original não encontrada para atualização de status.");
+        }
+
+        const payload = {
+            status: novoStatus,
+            updatedAt: Timestamp.now()
+        };
+
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        await updateDoc(tarefaDocRef, payload);
+
+        // Log da alteração
+        const detalhesLog = `Status alterado de '${tarefaOriginal.status}' para '${novoStatus}' via alteração rápida.`;
+        await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Status Atualizado", detalhesLog);
+
+        // Sincronizar com a programação
+        const tarefaAtualizadaParaSync = { ...tarefaOriginal, ...payload };
+        await sincronizarTarefaComProgramacao(tarefaId, tarefaAtualizadaParaSync, db, basePath);
     };
 
 
@@ -1403,6 +1516,8 @@ const MapaAtividadesComponent = () => {
                                 <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{formatDate(t.dataProvavelTermino)}</td>
                                 <td className="px-4 py-3 text-sm text-gray-700 whitespace-normal break-words max-w-xs">{t.orientacao}</td>
                                 <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
+                                    {/* --- BOTÃO NOVO ADICIONADO AQUI --- */}
+                                    <button onClick={() => handleOpenStatusModal(t)} title="Gerenciar Status" className="text-green-600 hover:text-green-800 mr-2"><LucideListChecks size={18}/></button>
                                     <button onClick={() => handleOpenHistoricoModal(t.id)} title="Histórico" className="text-gray-500 hover:text-gray-700 mr-2"><LucideHistory size={18}/></button>
                                     <button onClick={() => handleOpenModal(t)} title="Editar" className="text-blue-600 hover:text-blue-800 mr-2"><LucideEdit size={18}/></button>
                                     <button onClick={() => handleDeleteTarefa(t.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
@@ -1420,11 +1535,747 @@ const MapaAtividadesComponent = () => {
                     tarefaId={selectedTarefaIdParaHistorico} 
                 />
             )}
+            {/* --- RENDERIZAÇÃO DO NOVO MODAL DE STATUS --- */}
+            <StatusUpdateModal 
+                isOpen={isStatusModalOpen}
+                onClose={handleCloseStatusModal}
+                tarefa={tarefaParaStatusUpdate}
+                onStatusSave={handleQuickStatusUpdate}
+            />
         </div>
     );
 };
 
-// Modal para Gerenciar Tarefas da Célula da Programação
+
+// Componente ProgramacaoSemanal
+const ProgramacaoSemanalComponent = () => {
+    const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
+    const [semanas, setSemanas] = useState([]);
+    const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
+    const [dadosProgramacao, setDadosProgramacao] = useState(null);
+    const [loading, setLoading] = useState(false); // Loading para dados da semana
+    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false); // Loading para operações (criar, atualizar, excluir semana)
+    const [isNovaSemanaModalOpen, setIsNovaSemanaModalOpen] = useState(false);
+    const [novaSemanaDataInicio, setNovaSemanaDataInicio] = useState('');
+
+    const [isGerenciarTarefaModalOpen, setIsGerenciarTarefaModalOpen] = useState(false);
+    const [dadosCelulaParaGerenciar, setDadosCelulaParaGerenciar] = useState({ diaFormatado: null, responsavelId: null, tarefas: [] });
+
+    // Novo estado para o modal de Gerenciar Semana
+    const [isGerenciarSemanaModalOpen, setIsGerenciarSemanaModalOpen] = useState(false);
+
+    const coresTurno = {
+        "MANHÃ": "bg-sky-300",
+        "TARDE": "bg-indigo-300",
+    };
+
+    const basePath = `/artifacts/${appId}/public/data`;
+    const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
+
+    // --- Funções Utilitárias Simuladas (substitua pelas reais) ---
+    const formatDateProg = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        if (timestamp instanceof Timestamp) {
+            return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        }
+        // Se for um objeto {seconds, nanoseconds} mas não Timestamp (pode acontecer em alguns cenários)
+        if (typeof timestamp.seconds === 'number' && typeof timestamp.nanoseconds === 'number') {
+             return new Timestamp(timestamp.seconds, timestamp.nanoseconds).toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        }
+        return 'Data inválida';
+    };
+    const DIAS_SEMANA_PROG = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"]; // Exemplo
+
+    useEffect(() => {
+        const q = query(programacaoCollectionRef, orderBy("dataInicioSemana", "desc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedSemanas = snapshot.docs.map(doc => {
+                const data = doc.data();
+                let inicioSemana = null;
+                let fimSemana = null;
+
+                if (data.dataInicioSemana) {
+                    if (data.dataInicioSemana instanceof Timestamp) {
+                        inicioSemana = data.dataInicioSemana;
+                    } else if (typeof data.dataInicioSemana.seconds === 'number' && typeof data.dataInicioSemana.nanoseconds === 'number') {
+                        inicioSemana = new Timestamp(data.dataInicioSemana.seconds, data.dataInicioSemana.nanoseconds);
+                    }
+                }
+                if (data.dataFimSemana) {
+                    if (data.dataFimSemana instanceof Timestamp) {
+                        fimSemana = data.dataFimSemana;
+                    } else if (typeof data.dataFimSemana.seconds === 'number' && typeof data.dataFimSemana.nanoseconds === 'number') {
+                        fimSemana = new Timestamp(data.dataFimSemana.seconds, data.dataFimSemana.nanoseconds);
+                    }
+                }
+                return { id: doc.id, ...data, dataInicioSemana: inicioSemana, dataFimSemana: fimSemana };
+            });
+
+            setSemanas(fetchedSemanas);
+            const currentSelectedExists = fetchedSemanas.some(s => s.id === semanaSelecionadaId);
+            if (fetchedSemanas.length > 0 && (!semanaSelecionadaId || !currentSelectedExists) ) {
+                 setSemanaSelecionadaId(fetchedSemanas[0].id);
+            } else if (fetchedSemanas.length === 0) {
+                setSemanaSelecionadaId(null);
+                setDadosProgramacao(null);
+            }
+        }, error => console.error("Erro ao carregar semanas:", error));
+        return unsubscribe;
+    }, [userId, appId, db]); // Removido semanaSelecionadaId daqui para evitar loop com a lógica de seleção acima
+
+    useEffect(() => {
+        if (!semanaSelecionadaId) {
+            setDadosProgramacao(null);
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
+        const unsub = onSnapshot(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                let inicioSemana = null;
+                let fimSemana = null;
+
+                if (data.dataInicioSemana) {
+                    if (data.dataInicioSemana instanceof Timestamp) {
+                        inicioSemana = data.dataInicioSemana;
+                    } else if (typeof data.dataInicioSemana.seconds === 'number' && typeof data.dataInicioSemana.nanoseconds === 'number') {
+                        inicioSemana = new Timestamp(data.dataInicioSemana.seconds, data.dataInicioSemana.nanoseconds);
+                    }
+                }
+                if (data.dataFimSemana) {
+                     if (data.dataFimSemana instanceof Timestamp) {
+                        fimSemana = data.dataFimSemana;
+                    } else if (typeof data.dataFimSemana.seconds === 'number' && typeof data.dataFimSemana.nanoseconds === 'number') {
+                        fimSemana = new Timestamp(data.dataFimSemana.seconds, data.dataFimSemana.nanoseconds);
+                    }
+                }
+                setDadosProgramacao({ id: docSnap.id, ...data, dataInicioSemana: inicioSemana, dataFimSemana: fimSemana });
+            } else {
+                setDadosProgramacao(null);
+                console.warn(`Semana ${semanaSelecionadaId} não encontrada.`);
+                // Tenta selecionar a primeira da lista se a selecionada não existe mais
+                if (semanas.length > 0) {
+                    const stillExists = semanas.find(s => s.id === semanaSelecionadaId);
+                    if (!stillExists) setSemanaSelecionadaId(semanas[0].id);
+                } else {
+                    setSemanaSelecionadaId(null);
+                }
+            }
+            setLoading(false);
+        }, error => {
+            console.error("Erro ao carregar dados da programação:", error);
+            setLoading(false);
+        });
+        return unsub;
+    }, [semanaSelecionadaId, db, basePath, semanas]); // Adicionado 'semanas' como dependência para reavaliar se a lista mudar
+
+    const handleCriarNovaSemana = async () => {
+        // ... (código existente, sem alterações)
+        if (!novaSemanaDataInicio) {
+            alert("Por favor, selecione uma data de início para a nova semana.");
+            return;
+        }
+        const [year, month, day] = novaSemanaDataInicio.split('-').map(Number);
+        const dataInicioUTC = new Date(Date.UTC(year, month - 1, day));
+        if (dataInicioUTC.getUTCDay() !== 1) { // 1 para Segunda-feira
+            alert("A semana deve começar em uma Segunda-feira.");
+            return;
+        }
+        setLoadingAtualizacao(true);
+        try {
+            const dataFimUTC = new Date(dataInicioUTC);
+            dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5); // Segunda + 5 dias = Sábado
+
+            let maiorNumeroSemana = 0;
+            semanas.forEach(s => {
+                if (s.nomeAba && s.nomeAba.startsWith("Programação S")) {
+                    const num = parseInt(s.nomeAba.substring(13), 10);
+                    if (!isNaN(num) && num > maiorNumeroSemana) maiorNumeroSemana = num;
+                }
+            });
+            const proximoNumeroSemana = maiorNumeroSemana + 1;
+            const nomeNovaAba = `Programação S${proximoNumeroSemana.toString().padStart(2, '0')}`;
+            const novaSemanaDocId = `semana_${dataInicioUTC.toISOString().split('T')[0].replace(/-/g, '_')}`;
+
+            const novaSemanaData = {
+                nomeAba: nomeNovaAba,
+                dataInicioSemana: Timestamp.fromDate(dataInicioUTC),
+                dataFimSemana: Timestamp.fromDate(dataFimUTC),
+                dias: {},
+                criadoEm: Timestamp.now(),
+                criadoPor: authGlobal.currentUser?.uid || 'sistema'
+            };
+            for (let i = 0; i < 6; i++) {
+                const diaAtualLoop = new Date(dataInicioUTC);
+                diaAtualLoop.setUTCDate(dataInicioUTC.getUTCDate() + i);
+                const diaFormatado = diaAtualLoop.toISOString().split('T')[0];
+                novaSemanaData.dias[diaFormatado] = {};
+                (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => {
+                     if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = [];
+                });
+            }
+            await setDoc(doc(db, `${basePath}/programacao_semanal`, novaSemanaDocId), novaSemanaData);
+            alert(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
+            setIsNovaSemanaModalOpen(false);
+            setNovaSemanaDataInicio('');
+            setSemanaSelecionadaId(novaSemanaDocId);
+        } catch (error) {
+            console.error("Erro ao criar nova semana:", error);
+            alert("Erro ao criar nova semana: " + error.message);
+        }
+        setLoadingAtualizacao(false);
+    };
+
+    // Nova função para excluir semana
+    const handleExcluirSemana = async () => {
+        if (!semanaSelecionadaId || !dadosProgramacao) {
+            alert("Nenhuma semana selecionada para excluir.");
+            return;
+        }
+        // Garantir que as datas são Timestamps para formatação correta no confirm
+        const dataInicioFormatada = dadosProgramacao.dataInicioSemana instanceof Timestamp ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'Data Inválida';
+        const dataFimFormatada = dadosProgramacao.dataFimSemana instanceof Timestamp ? formatDateProg(dadosProgramacao.dataFimSemana) : 'Data Inválida';
+
+        if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao.nomeAba}" (${dataInicioFormatada} - ${dataFimFormatada})? Esta ação não pode ser desfeita e removerá todas as programações desta semana.`)) {
+            setLoadingAtualizacao(true);
+            try {
+                await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
+                
+                alert(`Semana "${dadosProgramacao.nomeAba}" excluída com sucesso.`);
+                setIsGerenciarSemanaModalOpen(false);
+                // A lógica no useEffect de 'semanas' cuidará de selecionar a próxima ou limpar.
+                // Forçar o ID para null aqui ajuda a desselecionar explicitamente.
+                setSemanaSelecionadaId(null);
+                setDadosProgramacao(null); 
+            } catch (error) {
+                console.error("Erro ao excluir semana:", error);
+                alert("Erro ao excluir semana: " + error.message);
+            }
+            setLoadingAtualizacao(false);
+        }
+    };
+
+    const handleAtualizarProgramacaoDaSemana = async () => {
+        // ... (código existente, apenas adicionando verificações mais robustas para datas)
+        if (!semanaSelecionadaId || !dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dataFimSemana) {
+            alert("Nenhuma semana selecionada ou dados da semana inválidos para atualizar.");
+            return;
+        }
+        if (!(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !(dadosProgramacao.dataFimSemana instanceof Timestamp)) {
+            alert("Datas da semana selecionada estão em formato inválido. Não é possível atualizar.");
+            console.error("Tentativa de atualizar semana com datas inválidas:", dadosProgramacao);
+            return;
+        }
+        setLoadingAtualizacao(true);
+        try {
+            const novosDiasDaSemana = {};
+            const dataInicioSemanaDate = dadosProgramacao.dataInicioSemana.toDate();
+            const dataFimSemanaDate = dadosProgramacao.dataFimSemana.toDate();
+
+            let diaCorrenteNaSemana = new Date(Date.UTC(dataInicioSemanaDate.getUTCFullYear(), dataInicioSemanaDate.getUTCMonth(), dataInicioSemanaDate.getUTCDate()));
+            const dataFimSemanaUTC = new Date(Date.UTC(dataFimSemanaDate.getUTCFullYear(), dataFimSemanaDate.getUTCMonth(), dataFimSemanaDate.getUTCDate()));
+            dataFimSemanaUTC.setUTCHours(23,59,59,999);
+
+            while(diaCorrenteNaSemana.getTime() <= dataFimSemanaUTC.getTime()){
+                const diaFmt = diaCorrenteNaSemana.toISOString().split('T')[0];
+                novosDiasDaSemana[diaFmt] = {};
+                (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => {
+                    if(func && func.id) novosDiasDaSemana[diaFmt][func.id] = [];
+                });
+                diaCorrenteNaSemana.setUTCDate(diaCorrenteNaSemana.getUTCDate() + 1);
+            }
+
+            const tarefasMapaQuery = query(
+                collection(db, `${basePath}/tarefas_mapa`),
+                where("status", "in", ["PROGRAMADA", "CONCLUÍDA"]) // Poderia ser "PROGRAMADA" apenas se o status "CONCLUÍDA" na programação for local
+            );
+            const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
+
+            tarefasMapaSnap.forEach(docTarefaMapa => {
+                const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
+
+                if (!tarefaMapa.dataInicio || !(tarefaMapa.dataInicio instanceof Timestamp) ||
+                    !tarefaMapa.dataProvavelTermino || !(tarefaMapa.dataProvavelTermino instanceof Timestamp) ||
+                    !tarefaMapa.responsaveis || !Array.isArray(tarefaMapa.responsaveis) || tarefaMapa.responsaveis.length === 0) {
+                    return;
+                }
+
+                let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa sem descrição";
+                if (tarefaMapa.prioridade) textoBaseTarefa += ` - ${tarefaMapa.prioridade}`;
+                let turnoParaTexto = "";
+                if (tarefaMapa.turno && typeof tarefaMapa.turno === 'string' && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
+                    turnoParaTexto = `[${tarefaMapa.turno.toUpperCase()}] `;
+                }
+                const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
+
+                const itemProg = {
+                    mapaTaskId: tarefaMapa.id,
+                    textoVisivel: textoVisivelFinal,
+                    statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
+                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO
+                };
+
+                const dataInicioTarefaDate = tarefaMapa.dataInicio.toDate();
+                const dataFimTarefaDate = tarefaMapa.dataProvavelTermino.toDate();
+
+                let dataAtualTarefa = new Date(Date.UTC(dataInicioTarefaDate.getUTCFullYear(), dataInicioTarefaDate.getUTCMonth(), dataInicioTarefaDate.getUTCDate()));
+                const dataFimTarefaUTC = new Date(Date.UTC(dataFimTarefaDate.getUTCFullYear(), dataFimTarefaDate.getUTCMonth(), dataFimTarefaDate.getUTCDate()));
+                dataFimTarefaUTC.setUTCHours(23,59,59,999); // Assegura que o dia final é inclusivo
+
+                // Loop pelos dias da tarefa
+                while (dataAtualTarefa.getTime() <= dataFimTarefaUTC.getTime()) {
+                    const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
+                    
+                    // Verifica se o dia da tarefa está dentro do período da semana selecionada
+                    if (dataAtualTarefa.getTime() >= dataInicioSemanaDate.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) { // Usar dataFimSemanaUTC
+                        if (novosDiasDaSemana[diaFormatadoTarefa]) {
+                            tarefaMapa.responsaveis.forEach(respId => {
+                                if (novosDiasDaSemana[diaFormatadoTarefa][respId]) {
+                                    if (!novosDiasDaSemana[diaFormatadoTarefa][respId].find(t => t.mapaTaskId === tarefaMapa.id)) {
+                                        novosDiasDaSemana[diaFormatadoTarefa][respId].push({...itemProg});
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    dataAtualTarefa.setUTCDate(dataAtualTarefa.getUTCDate() + 1);
+                }
+            });
+
+            const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
+            await updateDoc(semanaDocRef, { dias: novosDiasDaSemana, atualizadoEm: Timestamp.now(), atualizadoPor: authGlobal.currentUser?.uid || 'sistema' });
+            console.log(`[BotaoAtualizar] Programação da semana ${semanaSelecionadaId} atualizada com sucesso.`);
+            alert("Programação da semana atualizada com base no Mapa de Atividades!");
+
+        } catch (error) {
+            console.error("[BotaoAtualizar] Erro ao atualizar programação da semana:", error);
+            alert("Erro ao atualizar programação: " + error.message);
+        }
+        setLoadingAtualizacao(false);
+    };
+
+    const handleAbrirModalGerenciarTarefa = (diaFormatado, responsavelId, tarefas) => {
+        setDadosCelulaParaGerenciar({
+            diaFormatado,
+            responsavelId,
+            tarefas: tarefas || []
+        });
+        setIsGerenciarTarefaModalOpen(true);
+    };
+
+    const renderCabecalhoDias = () => {
+        if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {
+            return DIAS_SEMANA_PROG.map((_, i) => <th key={`header-dia-placeholder-${i}`} className="px-3 py-2 border text-xs font-medium text-white bg-teal-600 whitespace-nowrap">Carregando...</th>);
+        }
+        const dias = [];
+        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
+        const hojeFormatado = new Date().toISOString().split('T')[0];
+
+        for (let i = 0; i < DIAS_SEMANA_PROG.length; i++) {
+            const dataDia = new Date(dataInicio);
+            dataDia.setUTCDate(dataInicio.getUTCDate() + i);
+            const diaFormatadoAtual = dataDia.toISOString().split('T')[0];
+            const isHoje = diaFormatadoAtual === hojeFormatado;
+
+            dias.push(
+                <th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>
+                    {dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA_PROG[i]}
+                </th>
+            );
+        }
+        return dias;
+    };
+
+    const renderCelulasTarefas = (funcionarioId) => {
+        if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !dadosProgramacao.dias) {
+            return Array(DIAS_SEMANA_PROG.length).fill(null).map((_, index) => (
+                <td key={`placeholder-${funcionarioId}-${index}`} className="border p-1 min-h-[80px] h-20 align-top"></td>
+            ));
+        }
+        const celulas = [];
+        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
+        const hojeFormatado = new Date().toISOString().split('T')[0];
+
+        for (let i = 0; i < DIAS_SEMANA_PROG.length; i++) {
+            const dataDiaAtual = new Date(dataInicio);
+            dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); // Correto: use getUTCDate
+            const diaFormatado = dataDiaAtual.toISOString().split('T')[0];
+            const isHoje = diaFormatado === hojeFormatado;
+
+            const tarefasDoDiaParaFuncionario = dadosProgramacao.dias[diaFormatado]?.[funcionarioId] || [];
+
+            celulas.push(
+                <td
+                    key={`${funcionarioId}-${diaFormatado}`}
+                    className={`border p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer hover:bg-gray-100 transition-colors ${isHoje ? 'border-l-4 border-l-amber-400' : ''}`}
+                    onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}
+                >
+                    {tarefasDoDiaParaFuncionario.length === 0 ? (
+                        <span className="text-gray-400 italic text-xs">Vazio</span>
+                    ) : (
+                        <div className="space-y-0.5">
+                        {tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
+                            let corFundoTarefa = '';
+                            const turnoUpper = tarefaInst.turno?.toUpperCase();
+
+                            if (turnoUpper && coresTurno[turnoUpper]) {
+                                corFundoTarefa = coresTurno[turnoUpper];
+                            } else {
+                                corFundoTarefa = tarefaInst.statusLocal === 'CONCLUÍDA' ? 'bg-green-500' : 'bg-blue-500';
+                            }
+
+                            return (
+                                <div
+                                    key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`}
+                                    className={`p-1 rounded text-white text-[10px] leading-tight ${corFundoTarefa} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`}
+                                    title={tarefaInst.textoVisivel}
+                                >
+                                    {tarefaInst.textoVisivel && tarefaInst.textoVisivel.length > 35 ? tarefaInst.textoVisivel.substring(0,32) + "..." : tarefaInst.textoVisivel}
+                                </div>
+                            );
+                        })}
+                        </div>
+                    )}
+                </td>
+            );
+        }
+        return celulas;
+    };
+
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
+                <div className="flex flex-wrap items-center gap-2"> {/* Adicionado flex-wrap aqui */}
+                    <select
+                        value={semanaSelecionadaId || ''}
+                        onChange={(e) => setSemanaSelecionadaId(e.target.value)}
+                        className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        disabled={semanas.length === 0 && !loading}
+                    >
+                        {loading && semanas.length === 0 && <option>Carregando semanas...</option>}
+                        {!loading && semanas.length === 0 && <option>Nenhuma semana criada</option>}
+                        {semanas.map(s => (
+                            <option key={s.id} value={s.id}>
+                                {s.nomeAba} ({s.dataInicioSemana ? formatDateProg(s.dataInicioSemana) : 'N/A'} - {s.dataFimSemana ? formatDateProg(s.dataFimSemana) : 'N/A'})
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={handleAtualizarProgramacaoDaSemana}
+                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao}
+                        className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
+                    >
+                        <LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>
+                        {loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}
+                    </button>
+                    <button
+                        onClick={() => setIsNovaSemanaModalOpen(true)}
+                        disabled={loadingAtualizacao}
+                        className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
+                    >
+                        <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
+                    </button>
+                    {/* Botão Gerenciar Semana */}
+                    <button
+                        onClick={() => setIsGerenciarSemanaModalOpen(true)}
+                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao} // Adicionado !dadosProgramacao
+                        className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
+                    >
+                        <LucideSettings size={18} className="mr-2"/> Gerenciar Semana
+                    </button>
+                </div>
+            </div>
+
+            {/* Mensagens de Loading e Status */}
+            {loading && !dadosProgramacao && <p className="text-center py-4">Carregando programação da semana...</p>}
+            {!loading && !dadosProgramacao && semanaSelecionadaId && <p className="text-center py-4 text-red-500">Não foi possível carregar os dados da semana selecionada ou a semana não existe mais.</p>}
+            {!loading && !semanaSelecionadaId && semanas.length > 0 && <p className="text-center py-4 text-gray-500">Selecione uma semana para visualizar.</p>}
+            {!loading && semanas.length === 0 && <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda. Clique em "Criar Nova Semana".</p>}
+
+
+            {!loading && dadosProgramacao && (
+                 <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                    <table className="min-w-full border-collapse border border-gray-300 table-fixed">
+                        <caption className="text-lg font-semibold p-2 bg-teal-700 text-white">
+                            PROGRAMAÇÃO DIÁRIA - Semana de: {dadosProgramacao.dataInicioSemana ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'N/A'} a {dadosProgramacao.dataFimSemana ? formatDateProg(dadosProgramacao.dataFimSemana) : 'N/A'}
+                        </caption>
+                        <thead>
+                            <tr key="programacao-semanal-header-row">
+                                <th className="px-3 py-2 border bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>
+                                {renderCabecalhoDias()}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {(Array.isArray(contextFuncionarios) && contextFuncionarios.length === 0) && (
+                                <tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado. Adicione funcionários em Configurações.</td></tr>
+                            )}
+                            {(Array.isArray(contextFuncionarios) ? contextFuncionarios : []).map(func => (
+                                <tr key={func.id}>
+                                    <td className="border px-3 py-2 font-semibold bg-teal-100 text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10">{func.nome}</td>
+                                    {renderCelulasTarefas(func.id)}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Modal para Criar Nova Semana */}
+            <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação">
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label>
+                        <input
+                            type="date"
+                            id="novaSemanaData"
+                            value={novaSemanaDataInicio}
+                            onChange={(e) => setNovaSemanaDataInicio(e.target.value)}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                        <button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                        <button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400">
+                            {loadingAtualizacao ? "Criando..." : "Criar Semana"}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Novo Modal para Gerenciar Semana */}
+            {dadosProgramacao && ( // Só renderiza o modal se dadosProgramacao estiver carregado
+                <Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}>
+                    <div className="space-y-4">
+                        <p className="text-sm text-gray-600">
+                            Semana: <strong>{dadosProgramacao?.nomeAba}</strong> <br/>
+                            Período: {dadosProgramacao.dataInicioSemana ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'N/A'} - {dadosProgramacao.dataFimSemana ? formatDateProg(dadosProgramacao.dataFimSemana) : 'N/A'}
+                        </p>
+                        
+                        {/* Adicionar outras opções de gerenciamento aqui no futuro */}
+
+                        <div className="mt-6 pt-4 border-t">
+                            <h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4>
+                            <button
+                                onClick={handleExcluirSemana}
+                                disabled={loadingAtualizacao}
+                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center disabled:bg-gray-400"
+                            >
+                                <LucideTrash2 size={18} className="mr-2"/> Excluir Semana Selecionada
+                            </button>
+                            <p className="text-xs text-gray-500 mt-2">Esta ação removerá a semana e todas as suas programações associadas. As tarefas originais no Mapa de Atividades não serão afetadas.</p>
+                        </div>
+                        <div className="flex justify-end mt-4">
+                             <button onClick={() => setIsGerenciarSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Fechar</button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* Modal Gerenciar Tarefa Programacao */}
+            {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (
+                <GerenciarTarefaProgramacaoModal
+                    isOpen={isGerenciarTarefaModalOpen}
+                    onClose={() => setIsGerenciarTarefaModalOpen(false)}
+                    diaFormatado={dadosCelulaParaGerenciar.diaFormatado}
+                    responsavelId={dadosCelulaParaGerenciar.responsavelId}
+                    tarefasDaCelula={dadosCelulaParaGerenciar.tarefas}
+                    semanaId={semanaSelecionadaId}
+                    onAlteracaoSalva={() => {
+                        // O onSnapshot já deve atualizar
+                    }}
+                />
+            )}
+        </div>
+    );
+};
+
+// Componente NovaTarefaRapidaComponent (anteriormente AnotacoesPatioComponent)
+const NovaTarefaRapidaComponent = () => {
+    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext); // auth para criadoPor
+
+    // Estados do formulário principal
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [loading, setLoading] = useState(false); // Loading para a criação da tarefa
+
+    // Campos do formulário para Nova Tarefa Rápida
+    const [tarefa, setTarefa] = useState(''); // Descrição da tarefa
+    const [prioridade, setPrioridade] = useState('');
+    const [area, setArea] = useState('');
+    const [orientacao, setOrientacao] = useState('');
+    const [acao, setAcao] = useState(''); // Estado para Ação - continua o mesmo
+    const [dataInicio, setDataInicio] = useState(''); // Novo campo obrigatório
+
+    const basePath = `/artifacts/${appId}/public/data`;
+    const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
+
+    const resetFormularioNovaTarefa = () => {
+        setTarefa('');
+        setPrioridade('');
+        setArea('');
+        setOrientacao('');
+        setAcao(''); // Reset da ação
+        setDataInicio('');
+    };
+
+    const handleOpenModalNovaTarefa = () => {
+        resetFormularioNovaTarefa();
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModalNovaTarefa = () => {
+        setIsModalOpen(false);
+    };
+
+    const handleCriarTarefaPendente = async (e) => {
+        e.preventDefault();
+        // A validação !acao.trim() continua válida, pois o valor inicial do select será ''
+        if (!tarefa.trim() || !acao || !dataInicio) { // Alterado para !acao (select vazio terá valor '')
+            alert("Os campos Tarefa (Descrição), Ação e Data de Início são obrigatórios.");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const dataInicioTimestamp = Timestamp.fromDate(new Date(dataInicio + "T00:00:00"));
+
+            const novaTarefaData = {
+                tarefa: tarefa.trim().toUpperCase(),
+                prioridade: prioridade || "",
+                area: area || "",
+                acao: acao, // O valor já virá do estado `acao`
+                dataInicio: dataInicioTimestamp,
+                dataProvavelTermino: dataInicioTimestamp,
+                orientacao: orientacao.trim(),
+                status: "AGUARDANDO ALOCAÇÃO",
+                responsaveis: [],
+                turno: "",
+                criadoPor: auth.currentUser?.uid || 'sistema',
+                criadoPorEmail: auth.currentUser?.email || 'sistema',
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+                semanaProgramada: "",
+                origem: "Nova Tarefa Rápida",
+            };
+
+            const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaData);
+            console.log("Nova tarefa rápida criada no Mapa de Atividades com ID: ", docRef.id);
+
+            await logAlteracaoTarefa(
+                db,
+                basePath,
+                docRef.id,
+                auth.currentUser?.uid,
+                auth.currentUser?.email,
+                "Tarefa Criada (Rápida)",
+                `Tarefa "${novaTarefaData.tarefa}" criada via Nova Tarefa Rápida.`
+            );
+
+            alert("Nova tarefa criada com sucesso no Mapa de Atividades com status 'AGUARDANDO ALOCAÇÃO'.");
+            handleCloseModalNovaTarefa();
+
+        } catch (error) {
+            console.error("Erro ao criar tarefa rápida: ", error);
+            alert("Erro ao criar tarefa rápida: " + error.message);
+        }
+        setLoading(false);
+    };
+
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-semibold text-gray-800">Nova Tarefa Rápida</h2>
+                <button
+                    onClick={handleOpenModalNovaTarefa}
+                    className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
+                >
+                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa Rápida
+                </button>
+            </div>
+
+            <div className="text-center p-5 bg-white shadow rounded-md">
+                <p className="text-gray-600">
+                    Utilize o botão "Adicionar Tarefa Rápida" para registrar rapidamente uma nova demanda
+                    que será incluída no Mapa de Atividades para posterior alocação e programação.
+                </p>
+            </div>
+
+
+            <Modal isOpen={isModalOpen} onClose={handleCloseModalNovaTarefa} title="Criar Nova Tarefa Rápida">
+                <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
+                    <div>
+                        <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
+                        <input id="tarefaDescricao" type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            {/* CAMPO "AÇÃO" CORRIGIDO ABAIXO */}
+                            <label htmlFor="tarefaAcao" className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
+                            <select
+                                id="tarefaAcao"
+                                value={acao}
+                                onChange={(e) => setAcao(e.target.value)}
+                                required
+                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
+                            >
+                                <option value="">Selecione uma Ação...</option>
+                                {(listasAuxiliares && listasAuxiliares.acoes ? listasAuxiliares.acoes : []).map(ac => (
+                                    <option key={ac} value={ac}>{ac}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="tarefaDataInicio" className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
+                            <input id="tarefaDataInicio" type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="tarefaPrioridade" className="block text-sm font-medium text-gray-700">Prioridade</label>
+                            <select id="tarefaPrioridade" value={prioridade} onChange={(e) => setPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
+                                <option value="">Selecione se aplicável...</option>
+                                {(listasAuxiliares && listasAuxiliares.prioridades ? listasAuxiliares.prioridades : []).map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="tarefaArea" className="block text-sm font-medium text-gray-700">Área</label>
+                            <select id="tarefaArea" value={area} onChange={(e) => setArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
+                                <option value="">Selecione se aplicável...</option>
+                                {(listasAuxiliares && listasAuxiliares.areas ? listasAuxiliares.areas : []).map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label htmlFor="tarefaOrientacao" className="block text-sm font-medium text-gray-700">Observação/Orientação</label>
+                        <textarea id="tarefaOrientacao" value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
+                    </div>
+
+                    <div className="pt-4 flex justify-end space-x-2">
+                        <button type="button" onClick={handleCloseModalNovaTarefa} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                        <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
+                            {loading ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
+                        </button>
+                    </div>
+                </form>
+            </Modal>
+        </div>
+    );
+};
+
+// ... O restante dos componentes (RelatoriosComponent, TarefasPendentesComponent, AlocarTarefaModal, DashboardComponent, etc.) permanecem aqui, sem alterações ...
+// (Para economizar espaço, não vou repetir todos os outros componentes que não foram alterados, mas eles devem estar presentes no seu arquivo final)
+
+
+// =============================================================================================================================
+// == OS COMPONENTES ABAIXO (DE `GerenciarTarefaProgramacaoModal` ATÉ O FIM) NÃO FORAM ALTERADOS E DEVEM SER MANTIDOS COMO ESTÃO ==
+// =============================================================================================================================
+
+
+// Componente Modal para Gerenciar Tarefas da Célula da Programação
 const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, responsavelId, tarefasDaCelula, semanaId, onAlteracaoSalva }) => {
     const { db, appId, funcionarios, listasAuxiliares, auth } = useContext(GlobalContext); 
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
@@ -1624,845 +2475,6 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
 };
 
 
-// Componente ProgramacaoSemanal
-// Componente ProgramacaoSemanal
-const ProgramacaoSemanalComponent = () => {
-    const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
-    const [semanas, setSemanas] = useState([]);
-    const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
-    const [dadosProgramacao, setDadosProgramacao] = useState(null);
-    const [loading, setLoading] = useState(false); // Loading para dados da semana
-    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false); // Loading para operações (criar, atualizar, excluir semana)
-    const [isNovaSemanaModalOpen, setIsNovaSemanaModalOpen] = useState(false);
-    const [novaSemanaDataInicio, setNovaSemanaDataInicio] = useState('');
-
-    const [isGerenciarTarefaModalOpen, setIsGerenciarTarefaModalOpen] = useState(false);
-    const [dadosCelulaParaGerenciar, setDadosCelulaParaGerenciar] = useState({ diaFormatado: null, responsavelId: null, tarefas: [] });
-
-    // Novo estado para o modal de Gerenciar Semana
-    const [isGerenciarSemanaModalOpen, setIsGerenciarSemanaModalOpen] = useState(false);
-
-    const coresTurno = {
-        "MANHÃ": "bg-sky-300",
-        "TARDE": "bg-indigo-300",
-    };
-
-    const basePath = `/artifacts/${appId}/public/data`;
-    const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
-
-    // --- Funções Utilitárias Simuladas (substitua pelas reais) ---
-    const formatDate = (timestamp) => {
-        if (!timestamp) return 'N/A';
-        if (timestamp instanceof Timestamp) {
-            return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        }
-        // Se for um objeto {seconds, nanoseconds} mas não Timestamp (pode acontecer em alguns cenários)
-        if (typeof timestamp.seconds === 'number' && typeof timestamp.nanoseconds === 'number') {
-             return new Timestamp(timestamp.seconds, timestamp.nanoseconds).toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        }
-        return 'Data inválida';
-    };
-    const DIAS_SEMANA = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"]; // Exemplo
-    const TURNO_DIA_INTEIRO = "DIA INTEIRO"; // Exemplo
-
-    // Simulação dos ícones (substitua pela importação real de lucide-react ou similar)
-    const LucideRefreshCw = ({ size, className }) => <span className={className} style={{ fontSize: size }}>🔄</span>;
-    const LucidePlusCircle = ({ size, className }) => <span className={className} style={{ fontSize: size }}>➕</span>;
-    const LucideSettings = ({ size, className }) => <span className={className} style={{ fontSize: size }}>⚙️</span>;
-    const LucideTrash2 = ({ size, className }) => <span className={className} style={{ fontSize: size }}>🗑️</span>;
-    // --- Fim Funções Utilitárias Simuladas ---
-
-
-    useEffect(() => {
-        const q = query(programacaoCollectionRef);
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedSemanas = snapshot.docs.map(doc => {
-                const data = doc.data();
-                let inicioSemana = null;
-                let fimSemana = null;
-
-                if (data.dataInicioSemana) {
-                    if (data.dataInicioSemana instanceof Timestamp) {
-                        inicioSemana = data.dataInicioSemana;
-                    } else if (typeof data.dataInicioSemana.seconds === 'number' && typeof data.dataInicioSemana.nanoseconds === 'number') {
-                        inicioSemana = new Timestamp(data.dataInicioSemana.seconds, data.dataInicioSemana.nanoseconds);
-                    }
-                }
-                if (data.dataFimSemana) {
-                    if (data.dataFimSemana instanceof Timestamp) {
-                        fimSemana = data.dataFimSemana;
-                    } else if (typeof data.dataFimSemana.seconds === 'number' && typeof data.dataFimSemana.nanoseconds === 'number') {
-                        fimSemana = new Timestamp(data.dataFimSemana.seconds, data.dataFimSemana.nanoseconds);
-                    }
-                }
-                return { id: doc.id, ...data, dataInicioSemana: inicioSemana, dataFimSemana: fimSemana };
-            });
-
-            fetchedSemanas.sort((a, b) => {
-                const timeA = a.dataInicioSemana ? a.dataInicioSemana.toMillis() : 0;
-                const timeB = b.dataInicioSemana ? b.dataInicioSemana.toMillis() : 0;
-                return timeB - timeA; // Mais recentes primeiro
-            });
-
-            setSemanas(fetchedSemanas);
-            // Se nenhuma semana estiver selecionada E houver semanas carregadas E o ID selecionado não existe mais na lista (após deleção)
-            const currentSelectedExists = fetchedSemanas.some(s => s.id === semanaSelecionadaId);
-            if (fetchedSemanas.length > 0 && (!semanaSelecionadaId || !currentSelectedExists) ) {
-                 setSemanaSelecionadaId(fetchedSemanas[0].id);
-            } else if (fetchedSemanas.length === 0) {
-                setSemanaSelecionadaId(null);
-                setDadosProgramacao(null);
-            }
-        }, error => console.error("Erro ao carregar semanas:", error));
-        return unsubscribe;
-    }, [userId, appId, db]); // Removido semanaSelecionadaId daqui para evitar loop com a lógica de seleção acima
-
-    useEffect(() => {
-        if (!semanaSelecionadaId) {
-            setDadosProgramacao(null);
-            setLoading(false);
-            return;
-        }
-        setLoading(true);
-        const unsub = onSnapshot(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                let inicioSemana = null;
-                let fimSemana = null;
-
-                if (data.dataInicioSemana) {
-                    if (data.dataInicioSemana instanceof Timestamp) {
-                        inicioSemana = data.dataInicioSemana;
-                    } else if (typeof data.dataInicioSemana.seconds === 'number' && typeof data.dataInicioSemana.nanoseconds === 'number') {
-                        inicioSemana = new Timestamp(data.dataInicioSemana.seconds, data.dataInicioSemana.nanoseconds);
-                    }
-                }
-                if (data.dataFimSemana) {
-                     if (data.dataFimSemana instanceof Timestamp) {
-                        fimSemana = data.dataFimSemana;
-                    } else if (typeof data.dataFimSemana.seconds === 'number' && typeof data.dataFimSemana.nanoseconds === 'number') {
-                        fimSemana = new Timestamp(data.dataFimSemana.seconds, data.dataFimSemana.nanoseconds);
-                    }
-                }
-                setDadosProgramacao({ id: docSnap.id, ...data, dataInicioSemana: inicioSemana, dataFimSemana: fimSemana });
-            } else {
-                setDadosProgramacao(null);
-                console.warn(`Semana ${semanaSelecionadaId} não encontrada.`);
-                // Tenta selecionar a primeira da lista se a selecionada não existe mais
-                if (semanas.length > 0) {
-                    const stillExists = semanas.find(s => s.id === semanaSelecionadaId);
-                    if (!stillExists) setSemanaSelecionadaId(semanas[0].id);
-                } else {
-                    setSemanaSelecionadaId(null);
-                }
-            }
-            setLoading(false);
-        }, error => {
-            console.error("Erro ao carregar dados da programação:", error);
-            setLoading(false);
-        });
-        return unsub;
-    }, [semanaSelecionadaId, db, basePath, semanas]); // Adicionado 'semanas' como dependência para reavaliar se a lista mudar
-
-    const handleCriarNovaSemana = async () => {
-        // ... (código existente, sem alterações)
-        if (!novaSemanaDataInicio) {
-            alert("Por favor, selecione uma data de início para a nova semana.");
-            return;
-        }
-        const [year, month, day] = novaSemanaDataInicio.split('-').map(Number);
-        const dataInicioUTC = new Date(Date.UTC(year, month - 1, day));
-        if (dataInicioUTC.getUTCDay() !== 1) { // 1 para Segunda-feira
-            alert("A semana deve começar em uma Segunda-feira.");
-            return;
-        }
-        setLoadingAtualizacao(true);
-        try {
-            const dataFimUTC = new Date(dataInicioUTC);
-            dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5); // Segunda + 5 dias = Sábado
-
-            let maiorNumeroSemana = 0;
-            semanas.forEach(s => {
-                if (s.nomeAba && s.nomeAba.startsWith("Programação S")) {
-                    const num = parseInt(s.nomeAba.substring(13), 10);
-                    if (!isNaN(num) && num > maiorNumeroSemana) maiorNumeroSemana = num;
-                }
-            });
-            const proximoNumeroSemana = maiorNumeroSemana + 1;
-            const nomeNovaAba = `Programação S${proximoNumeroSemana.toString().padStart(2, '0')}`;
-            const novaSemanaDocId = `semana_${dataInicioUTC.toISOString().split('T')[0].replace(/-/g, '_')}`;
-
-            const novaSemanaData = {
-                nomeAba: nomeNovaAba,
-                dataInicioSemana: Timestamp.fromDate(dataInicioUTC),
-                dataFimSemana: Timestamp.fromDate(dataFimUTC),
-                dias: {},
-                criadoEm: Timestamp.now(),
-                criadoPor: authGlobal.currentUser?.uid || 'sistema'
-            };
-            for (let i = 0; i < 6; i++) {
-                const diaAtualLoop = new Date(dataInicioUTC);
-                diaAtualLoop.setUTCDate(dataInicioUTC.getUTCDate() + i);
-                const diaFormatado = diaAtualLoop.toISOString().split('T')[0];
-                novaSemanaData.dias[diaFormatado] = {};
-                (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => {
-                     if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = [];
-                });
-            }
-            await setDoc(doc(db, `${basePath}/programacao_semanal`, novaSemanaDocId), novaSemanaData);
-            alert(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
-            setIsNovaSemanaModalOpen(false);
-            setNovaSemanaDataInicio('');
-            setSemanaSelecionadaId(novaSemanaDocId);
-        } catch (error) {
-            console.error("Erro ao criar nova semana:", error);
-            alert("Erro ao criar nova semana: " + error.message);
-        }
-        setLoadingAtualizacao(false);
-    };
-
-    // Nova função para excluir semana
-    const handleExcluirSemana = async () => {
-        if (!semanaSelecionadaId || !dadosProgramacao) {
-            alert("Nenhuma semana selecionada para excluir.");
-            return;
-        }
-        // Garantir que as datas são Timestamps para formatação correta no confirm
-        const dataInicioFormatada = dadosProgramacao.dataInicioSemana instanceof Timestamp ? formatDate(dadosProgramacao.dataInicioSemana) : 'Data Inválida';
-        const dataFimFormatada = dadosProgramacao.dataFimSemana instanceof Timestamp ? formatDate(dadosProgramacao.dataFimSemana) : 'Data Inválida';
-
-        if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao.nomeAba}" (${dataInicioFormatada} - ${dataFimFormatada})? Esta ação não pode ser desfeita e removerá todas as programações desta semana.`)) {
-            setLoadingAtualizacao(true);
-            try {
-                await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
-                
-                alert(`Semana "${dadosProgramacao.nomeAba}" excluída com sucesso.`);
-                setIsGerenciarSemanaModalOpen(false);
-                // A lógica no useEffect de 'semanas' cuidará de selecionar a próxima ou limpar.
-                // Forçar o ID para null aqui ajuda a desselecionar explicitamente.
-                setSemanaSelecionadaId(null);
-                setDadosProgramacao(null); 
-            } catch (error) {
-                console.error("Erro ao excluir semana:", error);
-                alert("Erro ao excluir semana: " + error.message);
-            }
-            setLoadingAtualizacao(false);
-        }
-    };
-
-    const handleAtualizarProgramacaoDaSemana = async () => {
-        // ... (código existente, apenas adicionando verificações mais robustas para datas)
-        if (!semanaSelecionadaId || !dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dataFimSemana) {
-            alert("Nenhuma semana selecionada ou dados da semana inválidos para atualizar.");
-            return;
-        }
-        if (!(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !(dadosProgramacao.dataFimSemana instanceof Timestamp)) {
-            alert("Datas da semana selecionada estão em formato inválido. Não é possível atualizar.");
-            console.error("Tentativa de atualizar semana com datas inválidas:", dadosProgramacao);
-            return;
-        }
-        setLoadingAtualizacao(true);
-        try {
-            const novosDiasDaSemana = {};
-            const dataInicioSemanaDate = dadosProgramacao.dataInicioSemana.toDate();
-            const dataFimSemanaDate = dadosProgramacao.dataFimSemana.toDate();
-
-            let diaCorrenteNaSemana = new Date(Date.UTC(dataInicioSemanaDate.getUTCFullYear(), dataInicioSemanaDate.getUTCMonth(), dataInicioSemanaDate.getUTCDate()));
-            const dataFimSemanaUTC = new Date(Date.UTC(dataFimSemanaDate.getUTCFullYear(), dataFimSemanaDate.getUTCMonth(), dataFimSemanaDate.getUTCDate()));
-            dataFimSemanaUTC.setUTCHours(23,59,59,999);
-
-            while(diaCorrenteNaSemana.getTime() <= dataFimSemanaUTC.getTime()){
-                const diaFmt = diaCorrenteNaSemana.toISOString().split('T')[0];
-                novosDiasDaSemana[diaFmt] = {};
-                (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => {
-                    if(func && func.id) novosDiasDaSemana[diaFmt][func.id] = [];
-                });
-                diaCorrenteNaSemana.setUTCDate(diaCorrenteNaSemana.getUTCDate() + 1);
-            }
-
-            const tarefasMapaQuery = query(
-                collection(db, `${basePath}/tarefas_mapa`),
-                where("status", "in", ["PROGRAMADA", "CONCLUÍDA"]) // Poderia ser "PROGRAMADA" apenas se o status "CONCLUÍDA" na programação for local
-            );
-            const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
-
-            tarefasMapaSnap.forEach(docTarefaMapa => {
-                const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
-
-                if (!tarefaMapa.dataInicio || !(tarefaMapa.dataInicio instanceof Timestamp) ||
-                    !tarefaMapa.dataProvavelTermino || !(tarefaMapa.dataProvavelTermino instanceof Timestamp) ||
-                    !tarefaMapa.responsaveis || !Array.isArray(tarefaMapa.responsaveis) || tarefaMapa.responsaveis.length === 0) {
-                    return;
-                }
-
-                let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa sem descrição";
-                if (tarefaMapa.prioridade) textoBaseTarefa += ` - ${tarefaMapa.prioridade}`;
-                let turnoParaTexto = "";
-                if (tarefaMapa.turno && typeof tarefaMapa.turno === 'string' && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
-                    turnoParaTexto = `[${tarefaMapa.turno.toUpperCase()}] `;
-                }
-                const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
-
-                const itemProg = {
-                    mapaTaskId: tarefaMapa.id,
-                    textoVisivel: textoVisivelFinal,
-                    statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
-                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO
-                };
-
-                const dataInicioTarefaDate = tarefaMapa.dataInicio.toDate();
-                const dataFimTarefaDate = tarefaMapa.dataProvavelTermino.toDate();
-
-                let dataAtualTarefa = new Date(Date.UTC(dataInicioTarefaDate.getUTCFullYear(), dataInicioTarefaDate.getUTCMonth(), dataInicioTarefaDate.getUTCDate()));
-                const dataFimTarefaUTC = new Date(Date.UTC(dataFimTarefaDate.getUTCFullYear(), dataFimTarefaDate.getUTCMonth(), dataFimTarefaDate.getUTCDate()));
-                dataFimTarefaUTC.setUTCHours(23,59,59,999); // Assegura que o dia final é inclusivo
-
-                // Loop pelos dias da tarefa
-                while (dataAtualTarefa.getTime() <= dataFimTarefaUTC.getTime()) {
-                    const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
-                    
-                    // Verifica se o dia da tarefa está dentro do período da semana selecionada
-                    if (dataAtualTarefa.getTime() >= dataInicioSemanaDate.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) { // Usar dataFimSemanaUTC
-                        if (novosDiasDaSemana[diaFormatadoTarefa]) {
-                            tarefaMapa.responsaveis.forEach(respId => {
-                                if (novosDiasDaSemana[diaFormatadoTarefa][respId]) {
-                                    if (!novosDiasDaSemana[diaFormatadoTarefa][respId].find(t => t.mapaTaskId === tarefaMapa.id)) {
-                                        novosDiasDaSemana[diaFormatadoTarefa][respId].push({...itemProg});
-                                    }
-                                }
-                            });
-                        }
-                    }
-                    dataAtualTarefa.setUTCDate(dataAtualTarefa.getUTCDate() + 1);
-                }
-            });
-
-            const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
-            await updateDoc(semanaDocRef, { dias: novosDiasDaSemana, atualizadoEm: Timestamp.now(), atualizadoPor: authGlobal.currentUser?.uid || 'sistema' });
-            console.log(`[BotaoAtualizar] Programação da semana ${semanaSelecionadaId} atualizada com sucesso.`);
-            alert("Programação da semana atualizada com base no Mapa de Atividades!");
-
-        } catch (error) {
-            console.error("[BotaoAtualizar] Erro ao atualizar programação da semana:", error);
-            alert("Erro ao atualizar programação: " + error.message);
-        }
-        setLoadingAtualizacao(false);
-    };
-
-    const handleAbrirModalGerenciarTarefa = (diaFormatado, responsavelId, tarefas) => {
-        // ... (código existente)
-        setDadosCelulaParaGerenciar({
-            diaFormatado,
-            responsavelId,
-            tarefas: tarefas || []
-        });
-        setIsGerenciarTarefaModalOpen(true);
-    };
-
-    const renderCabecalhoDias = () => {
-        // ... (código existente com pequena melhoria na verificação)
-        if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {
-            return DIAS_SEMANA.map((_, i) => <th key={`header-dia-placeholder-${i}`} className="px-3 py-2 border text-xs font-medium text-white bg-teal-600 whitespace-nowrap">Carregando...</th>);
-        }
-        // ... (resto da função como estava)
-        const dias = [];
-        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
-        const hojeFormatado = new Date().toISOString().split('T')[0];
-
-        for (let i = 0; i < DIAS_SEMANA.length; i++) {
-            const dataDia = new Date(dataInicio);
-            dataDia.setUTCDate(dataInicio.getUTCDate() + i);
-            const diaFormatadoAtual = dataDia.toISOString().split('T')[0];
-            const isHoje = diaFormatadoAtual === hojeFormatado;
-
-            dias.push(
-                <th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>
-                    {dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA[i]}
-                </th>
-            );
-        }
-        return dias;
-    };
-
-    const renderCelulasTarefas = (funcionarioId) => {
-        // ... (código existente com pequena melhoria na verificação)
-        if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !dadosProgramacao.dias) {
-        // ... (resto da função como estava)
-            return Array(DIAS_SEMANA.length).fill(null).map((_, index) => (
-                <td key={`placeholder-${funcionarioId}-${index}`} className="border p-1 min-h-[80px] h-20 align-top"></td>
-            ));
-        }
-        const celulas = [];
-        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
-        const hojeFormatado = new Date().toISOString().split('T')[0];
-
-        for (let i = 0; i < DIAS_SEMANA.length; i++) {
-            const dataDiaAtual = new Date(dataInicio);
-            dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); // Correto: use getUTCDate
-            const diaFormatado = dataDiaAtual.toISOString().split('T')[0];
-            const isHoje = diaFormatado === hojeFormatado;
-
-            const tarefasDoDiaParaFuncionario = dadosProgramacao.dias[diaFormatado]?.[funcionarioId] || [];
-
-            celulas.push(
-                <td
-                    key={`${funcionarioId}-${diaFormatado}`}
-                    className={`border p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer hover:bg-gray-100 transition-colors ${isHoje ? 'border-l-4 border-l-amber-400' : ''}`}
-                    onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}
-                >
-                    {tarefasDoDiaParaFuncionario.length === 0 ? (
-                        <span className="text-gray-400 italic text-xs">Vazio</span>
-                    ) : (
-                        <div className="space-y-0.5">
-                        {tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
-                            let corFundoTarefa = '';
-                            const turnoUpper = tarefaInst.turno?.toUpperCase();
-
-                            if (turnoUpper && coresTurno[turnoUpper]) {
-                                corFundoTarefa = coresTurno[turnoUpper];
-                            } else {
-                                corFundoTarefa = tarefaInst.statusLocal === 'CONCLUÍDA' ? 'bg-green-500' : 'bg-blue-500';
-                            }
-
-                            return (
-                                <div
-                                    key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`}
-                                    className={`p-1 rounded text-white text-[10px] leading-tight ${corFundoTarefa} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`}
-                                    title={tarefaInst.textoVisivel}
-                                >
-                                    {tarefaInst.textoVisivel && tarefaInst.textoVisivel.length > 35 ? tarefaInst.textoVisivel.substring(0,32) + "..." : tarefaInst.textoVisivel}
-                                </div>
-                            );
-                        })}
-                        </div>
-                    )}
-                </td>
-            );
-        }
-        return celulas;
-    };
-
-    return (
-        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
-                <div className="flex flex-wrap items-center gap-2"> {/* Adicionado flex-wrap aqui */}
-                    <select
-                        value={semanaSelecionadaId || ''}
-                        onChange={(e) => setSemanaSelecionadaId(e.target.value)}
-                        className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        disabled={semanas.length === 0 && !loading}
-                    >
-                        {loading && semanas.length === 0 && <option>Carregando semanas...</option>}
-                        {!loading && semanas.length === 0 && <option>Nenhuma semana criada</option>}
-                        {semanas.map(s => (
-                            <option key={s.id} value={s.id}>
-                                {s.nomeAba} ({s.dataInicioSemana ? formatDate(s.dataInicioSemana) : 'N/A'} - {s.dataFimSemana ? formatDate(s.dataFimSemana) : 'N/A'})
-                            </option>
-                        ))}
-                    </select>
-                    <button
-                        onClick={handleAtualizarProgramacaoDaSemana}
-                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao}
-                        className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                    >
-                        <LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>
-                        {loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}
-                    </button>
-                    <button
-                        onClick={() => setIsNovaSemanaModalOpen(true)}
-                        disabled={loadingAtualizacao}
-                        className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                    >
-                        <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
-                    </button>
-                    {/* Botão Gerenciar Semana */}
-                    <button
-                        onClick={() => setIsGerenciarSemanaModalOpen(true)}
-                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao} // Adicionado !dadosProgramacao
-                        className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                    >
-                        <LucideSettings size={18} className="mr-2"/> Gerenciar Semana
-                    </button>
-                </div>
-            </div>
-
-            {/* Mensagens de Loading e Status */}
-            {loading && !dadosProgramacao && <p className="text-center py-4">Carregando programação da semana...</p>}
-            {!loading && !dadosProgramacao && semanaSelecionadaId && <p className="text-center py-4 text-red-500">Não foi possível carregar os dados da semana selecionada ou a semana não existe mais.</p>}
-            {!loading && !semanaSelecionadaId && semanas.length > 0 && <p className="text-center py-4 text-gray-500">Selecione uma semana para visualizar.</p>}
-            {!loading && semanas.length === 0 && <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda. Clique em "Criar Nova Semana".</p>}
-
-
-            {!loading && dadosProgramacao && (
-                 <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-                    <table className="min-w-full border-collapse border border-gray-300 table-fixed">
-                        <caption className="text-lg font-semibold p-2 bg-teal-700 text-white">
-                            PROGRAMAÇÃO DIÁRIA - Semana de: {dadosProgramacao.dataInicioSemana ? formatDate(dadosProgramacao.dataInicioSemana) : 'N/A'} a {dadosProgramacao.dataFimSemana ? formatDate(dadosProgramacao.dataFimSemana) : 'N/A'}
-                        </caption>
-                        <thead>
-                            <tr key="programacao-semanal-header-row">
-                                <th className="px-3 py-2 border bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>
-                                {renderCabecalhoDias()}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(Array.isArray(contextFuncionarios) && contextFuncionarios.length === 0) && (
-                                <tr><td colSpan={DIAS_SEMANA.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado. Adicione funcionários em Configurações.</td></tr>
-                            )}
-                            {(Array.isArray(contextFuncionarios) ? contextFuncionarios : []).map(func => (
-                                <tr key={func.id}>
-                                    <td className="border px-3 py-2 font-semibold bg-teal-100 text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10">{func.nome}</td>
-                                    {renderCelulasTarefas(func.id)}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-
-            {/* Modal para Criar Nova Semana */}
-            <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação">
-                {/* ... (conteúdo do modal existente) ... */}
-                <div className="space-y-4">
-                    <div>
-                        <label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label>
-                        <input
-                            type="date"
-                            id="novaSemanaData"
-                            value={novaSemanaDataInicio}
-                            onChange={(e) => setNovaSemanaDataInicio(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                    </div>
-                    <div className="flex justify-end space-x-2">
-                        <button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400">
-                            {loadingAtualizacao ? "Criando..." : "Criar Semana"}
-                        </button>
-                    </div>
-                </div>
-            </Modal>
-
-            {/* Novo Modal para Gerenciar Semana */}
-            {dadosProgramacao && ( // Só renderiza o modal se dadosProgramacao estiver carregado
-                <Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}>
-                    <div className="space-y-4">
-                        <p className="text-sm text-gray-600">
-                            Semana: <strong>{dadosProgramacao?.nomeAba}</strong> <br/>
-                            Período: {dadosProgramacao.dataInicioSemana ? formatDate(dadosProgramacao.dataInicioSemana) : 'N/A'} - {dadosProgramacao.dataFimSemana ? formatDate(dadosProgramacao.dataFimSemana) : 'N/A'}
-                        </p>
-                        
-                        {/* Adicionar outras opções de gerenciamento aqui no futuro */}
-
-                        <div className="mt-6 pt-4 border-t">
-                            <h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4>
-                            <button
-                                onClick={handleExcluirSemana}
-                                disabled={loadingAtualizacao}
-                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center disabled:bg-gray-400"
-                            >
-                                <LucideTrash2 size={18} className="mr-2"/> Excluir Semana Selecionada
-                            </button>
-                            <p className="text-xs text-gray-500 mt-2">Esta ação removerá a semana e todas as suas programações associadas. As tarefas originais no Mapa de Atividades não serão afetadas.</p>
-                        </div>
-                        <div className="flex justify-end mt-4">
-                             <button onClick={() => setIsGerenciarSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Fechar</button>
-                        </div>
-                    </div>
-                </Modal>
-            )}
-
-            {/* Modal Gerenciar Tarefa Programacao */}
-            {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (
-                <GerenciarTarefaProgramacaoModal
-                    isOpen={isGerenciarTarefaModalOpen}
-                    onClose={() => setIsGerenciarTarefaModalOpen(false)}
-                    diaFormatado={dadosCelulaParaGerenciar.diaFormatado}
-                    responsavelId={dadosCelulaParaGerenciar.responsavelId}
-                    tarefasDaCelula={dadosCelulaParaGerenciar.tarefas}
-                    semanaId={semanaSelecionadaId}
-                    onAlteracaoSalva={() => {
-                        // O onSnapshot já deve atualizar
-                    }}
-                />
-            )}
-        </div>
-    );
-};
-
-// Componente NovaTarefaRapidaComponent (anteriormente AnotacoesPatioComponent)
-
-const NovaTarefaRapidaComponent = () => {
-    const { userId, db, appId, listasAuxiliares, auth } = useContext(GlobalContext); // auth para criadoPor
-
-    // Estados do formulário principal
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [loading, setLoading] = useState(false); // Loading para a criação da tarefa
-
-    // Campos do formulário para Nova Tarefa Rápida
-    const [tarefa, setTarefa] = useState(''); // Descrição da tarefa
-    const [prioridade, setPrioridade] = useState('');
-    const [area, setArea] = useState('');
-    const [orientacao, setOrientacao] = useState('');
-    const [acao, setAcao] = useState(''); // Estado para Ação - continua o mesmo
-    const [dataInicio, setDataInicio] = useState(''); // Novo campo obrigatório
-
-    const basePath = `/artifacts/${appId}/public/data`;
-    const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
-
-    // Simulação dos ícones e funções (substitua pelas reais)
-    // const LucidePlusCircle = ({ size, className }) => <span className={className} style={{ fontSize: size }}>➕</span>;
-    // const logAlteracaoTarefa = async (db, basePath, tarefaId, userId, userEmail, tipo, detalhes) => {
-    //     console.log(`LOG: TarefaID=${tarefaId}, User=${userEmail}, Tipo=${tipo}, Detalhes=${detalhes}`);
-    // };
-
-
-    const resetFormularioNovaTarefa = () => {
-        setTarefa('');
-        setPrioridade('');
-        setArea('');
-        setOrientacao('');
-        setAcao(''); // Reset da ação
-        setDataInicio('');
-    };
-
-    const handleOpenModalNovaTarefa = () => {
-        resetFormularioNovaTarefa();
-        setIsModalOpen(true);
-    };
-
-    const handleCloseModalNovaTarefa = () => {
-        setIsModalOpen(false);
-    };
-
-    const handleCriarTarefaPendente = async (e) => {
-        e.preventDefault();
-        // A validação !acao.trim() continua válida, pois o valor inicial do select será ''
-        if (!tarefa.trim() || !acao || !dataInicio) { // Alterado para !acao (select vazio terá valor '')
-            alert("Os campos Tarefa (Descrição), Ação e Data de Início são obrigatórios.");
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const dataInicioTimestamp = Timestamp.fromDate(new Date(dataInicio + "T00:00:00"));
-
-            const novaTarefaData = {
-                tarefa: tarefa.trim().toUpperCase(),
-                prioridade: prioridade || "",
-                area: area || "",
-                acao: acao, // O valor já virá do estado `acao`
-                dataInicio: dataInicioTimestamp,
-                dataProvavelTermino: dataInicioTimestamp,
-                orientacao: orientacao.trim(),
-                status: "AGUARDANDO ALOCAÇÃO",
-                responsaveis: [],
-                turno: "",
-                criadoPor: auth.currentUser?.uid || 'sistema',
-                criadoPorEmail: auth.currentUser?.email || 'sistema',
-                createdAt: Timestamp.now(),
-                updatedAt: Timestamp.now(),
-                semanaProgramada: "",
-                origem: "Nova Tarefa Rápida",
-            };
-
-            const docRef = await addDoc(tarefasMapaCollectionRef, novaTarefaData);
-            console.log("Nova tarefa rápida criada no Mapa de Atividades com ID: ", docRef.id);
-
-            await logAlteracaoTarefa(
-                db,
-                basePath,
-                docRef.id,
-                auth.currentUser?.uid,
-                auth.currentUser?.email,
-                "Tarefa Criada (Rápida)",
-                `Tarefa "${novaTarefaData.tarefa}" criada via Nova Tarefa Rápida.`
-            );
-
-            alert("Nova tarefa criada com sucesso no Mapa de Atividades com status 'AGUARDANDO ALOCAÇÃO'.");
-            handleCloseModalNovaTarefa();
-
-        } catch (error) {
-            console.error("Erro ao criar tarefa rápida: ", error);
-            alert("Erro ao criar tarefa rápida: " + error.message);
-        }
-        setLoading(false);
-    };
-
-    return (
-        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-800">Nova Tarefa Rápida</h2>
-                <button
-                    onClick={handleOpenModalNovaTarefa}
-                    className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
-                >
-                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa Rápida
-                </button>
-            </div>
-
-            <div className="text-center p-5 bg-white shadow rounded-md">
-                <p className="text-gray-600">
-                    Utilize o botão "Adicionar Tarefa Rápida" para registrar rapidamente uma nova demanda
-                    que será incluída no Mapa de Atividades para posterior alocação e programação.
-                </p>
-            </div>
-
-
-            <Modal isOpen={isModalOpen} onClose={handleCloseModalNovaTarefa} title="Criar Nova Tarefa Rápida">
-                <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
-                    <div>
-                        <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
-                        <input id="tarefaDescricao" type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            {/* CAMPO "AÇÃO" CORRIGIDO ABAIXO */}
-                            <label htmlFor="tarefaAcao" className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
-                            <select
-                                id="tarefaAcao"
-                                value={acao}
-                                onChange={(e) => setAcao(e.target.value)}
-                                required
-                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
-                            >
-                                <option value="">Selecione uma Ação...</option>
-                                {(listasAuxiliares && listasAuxiliares.acoes ? listasAuxiliares.acoes : []).map(ac => (
-                                    <option key={ac} value={ac}>{ac}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="tarefaDataInicio" className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
-                            <input id="tarefaDataInicio" type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="tarefaPrioridade" className="block text-sm font-medium text-gray-700">Prioridade</label>
-                            <select id="tarefaPrioridade" value={prioridade} onChange={(e) => setPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
-                                <option value="">Selecione se aplicável...</option>
-                                {(listasAuxiliares && listasAuxiliares.prioridades ? listasAuxiliares.prioridades : []).map(p => <option key={p} value={p}>{p}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="tarefaArea" className="block text-sm font-medium text-gray-700">Área</label>
-                            <select id="tarefaArea" value={area} onChange={(e) => setArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
-                                <option value="">Selecione se aplicável...</option>
-                                {(listasAuxiliares && listasAuxiliares.areas ? listasAuxiliares.areas : []).map(a => <option key={a} value={a}>{a}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label htmlFor="tarefaOrientacao" className="block text-sm font-medium text-gray-700">Observação/Orientação</label>
-                        <textarea id="tarefaOrientacao" value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
-                    </div>
-
-                    <div className="pt-4 flex justify-end space-x-2">
-                        <button type="button" onClick={handleCloseModalNovaTarefa} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
-                            {loading ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
-        </div>
-    );
-};
-
-// Modal para criar Tarefa no Mapa a partir de uma Anotação
-const CriarTarefaDoMapaModal = ({ isOpen, onClose, anotacao, onSave }) => {
-    const { listasAuxiliares, userId } = useContext(GlobalContext);
-    const [tarefaDesc, setTarefaDesc] = useState('');
-    const [prioridade, setPrioridade] = useState('');
-    const [area, setArea] = useState('');
-    const [acao, setAcao] = useState(''); 
-    const [dataInicio, setDataInicio] = useState('');
-    const [orientacao, setOrientacao] = useState('');
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        if (anotacao) {
-            setTarefaDesc(anotacao.tarefa || '');
-            setPrioridade(anotacao.prioridade || '');
-            setArea(anotacao.area || '');
-            setOrientacao(anotacao.orientacao || '');
-            setDataInicio(new Date().toISOString().split('T')[0]); 
-            setAcao(''); 
-        }
-    }, [anotacao, isOpen]);
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!acao) {
-            alert("O campo Ação é obrigatório.");
-            return;
-        }
-        if (!dataInicio) {
-            alert("O campo Data de Início é obrigatório.");
-            return;
-        }
-        setLoading(true);
-        const dadosTarefaMapa = {
-            tarefa: tarefaDesc.trim().toUpperCase(), 
-            prioridade, 
-            area, 
-            acao, 
-            dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")), 
-            orientacao: orientacao.trim(), 
-        };
-        await onSave(dadosTarefaMapa);
-        setLoading(false);
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Criar Tarefa no Mapa a partir da Anotação">
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
-                    <input type="text" value={tarefaDesc} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
-                        <input type="text" value={prioridade} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Área</label>
-                        <input type="text" value={area} readOnly className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"/>
-                    </div>
-                </div>
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
-                    <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                        <option value="">Selecione uma Ação...</option>
-                        {listasAuxiliares.acoes.map(ac => <option key={ac} value={ac}>{ac}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Data de Início <span className="text-red-500">*</span></label>
-                    <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Orientação</label>
-                    <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
-                </div>
-                <div className="pt-4 flex justify-end space-x-2">
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400">
-                        {loading ? 'Criando...' : 'Criar Tarefa no Mapa'}
-                    </button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-
 // Componente Relatorios
 const RelatoriosComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios: contextFuncionarios } = useContext(GlobalContext);
@@ -2476,10 +2488,6 @@ const RelatoriosComponent = () => {
 
     const today = new Date();
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-    // Certifique-se que SEM_RESPONSAVEL_VALUE está acessível.
-    // Ela é definida no topo do seu arquivo App.jsx:
-    // const SEM_RESPONSAVEL_VALUE = "---SEM_RESPONSAVEL---";
 
     useEffect(() => {
         if (!filtroDataInicio) {
@@ -2497,40 +2505,32 @@ const RelatoriosComponent = () => {
         );
     };
 
-    // ****** AS FUNÇÕES COM PROBLEMA PRECISAM ESTAR DEFINIDAS AQUI ******
     const handleSelectAllFuncionarios = () => {
-        // Certifique-se que 'contextFuncionarios' é um array antes de usar .map
         const allFuncIds = Array.isArray(contextFuncionarios) ? contextFuncionarios.map(f => f.id) : [];
         setFiltroFuncionarios([SEM_RESPONSAVEL_VALUE, ...allFuncIds]);
-
-        // Marcar todos os checkboxes de funcionários
         document.querySelectorAll('input[name="funcionarioChkItem"]').forEach(chk => {
-            if (chk instanceof HTMLInputElement) { // Verificação de tipo
+            if (chk instanceof HTMLInputElement) {
                 chk.checked = true;
             }
         });
-        // Marcar o checkbox "Sem Responsável"
         const semResponsavelChk = document.getElementById('funcionarioChk-semResponsavel');
-        if (semResponsavelChk instanceof HTMLInputElement) { // Verificação de tipo
+        if (semResponsavelChk instanceof HTMLInputElement) {
             semResponsavelChk.checked = true;
         }
     };
 
     const handleClearAllFuncionarios = () => {
         setFiltroFuncionarios([]);
-        // Desmarcar todos os checkboxes de funcionários
         document.querySelectorAll('input[name="funcionarioChkItem"]').forEach(chk => {
-            if (chk instanceof HTMLInputElement) { // Verificação de tipo
+            if (chk instanceof HTMLInputElement) {
                 chk.checked = false;
             }
         });
-        // Desmarcar o checkbox "Sem Responsável"
         const semResponsavelChk = document.getElementById('funcionarioChk-semResponsavel');
-        if (semResponsavelChk instanceof HTMLInputElement) { // Verificação de tipo
+        if (semResponsavelChk instanceof HTMLInputElement) {
             semResponsavelChk.checked = false;
         }
     };
-    // *********************************************************************
 
     const handleStatusChange = (e) => {
         const { value, checked } = e.target;
@@ -2540,7 +2540,6 @@ const RelatoriosComponent = () => {
     };
 
     const handleSelectAllStatus = () => {
-        // Certifique-se que 'listasAuxiliares.status' é um array
         setFiltroStatus(Array.isArray(listasAuxiliares.status) ? [...listasAuxiliares.status] : []);
         document.querySelectorAll('input[name="statusChkItem"]').forEach(chk => {
              if (chk instanceof HTMLInputElement) chk.checked = true;
@@ -2557,7 +2556,6 @@ const RelatoriosComponent = () => {
     const formatDateForDisplay = (timestamp) => {
         if (!timestamp) return 'N/A';
         const date = timestamp instanceof Timestamp ? timestamp.toDate() : new Date(timestamp);
-        // Adicionar verificação para datas inválidas que podem vir de new Date(timestamp) se timestamp não for um formato reconhecido
         if (isNaN(date.getTime())) return 'Data Inválida';
         return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
     };
@@ -2575,27 +2573,20 @@ const RelatoriosComponent = () => {
         setShowReport(false);
         const basePath = `/artifacts/${appId}/public/data`;
         const tarefasMapaRef = collection(db, `${basePath}/tarefas_mapa`);
-        // Não é necessário um query específico aqui inicialmente, pois os filtros são aplicados no cliente.
-        // Se a coleção for muito grande, filtros no servidor (Firestore) seriam mais eficientes.
-        // let q = query(tarefasMapaRef);
 
         try {
-            const querySnapshot = await getDocs(tarefasMapaRef); // Alterado de q para tarefasMapaRef
+            const querySnapshot = await getDocs(tarefasMapaRef);
             let tarefas = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // console.log(`[Relatorio] ${tarefas.length} tarefas encontradas inicialmente no mapa.`);
 
             const dataInicioFiltroDate = filtroDataInicio ? new Date(filtroDataInicio + "T00:00:00Z").getTime() : null;
             const dataFimFiltroDate = filtroDataFim ? new Date(filtroDataFim + "T23:59:59Z").getTime() : null;
 
-
             const tarefasProcessadas = tarefas.filter(task => {
                 let manter = true;
 
-                // Filtro de Funcionários
                 if (filtroFuncionarios.length > 0) {
                     const temSemResponsavelNoFiltro = filtroFuncionarios.includes(SEM_RESPONSAVEL_VALUE);
                     const responsaveisDaTarefa = task.responsaveis || [];
-
                     let correspondeAoFiltroFunc = false;
                     if (temSemResponsavelNoFiltro && responsaveisDaTarefa.length === 0) {
                         correspondeAoFiltroFunc = true;
@@ -2608,35 +2599,24 @@ const RelatoriosComponent = () => {
                     if (!correspondeAoFiltroFunc) manter = false;
                 }
 
-
-                // Filtro de Status
                 if (manter && filtroStatus.length > 0) {
                     if (!filtroStatus.includes(task.status)) {
                         manter = false;
                     }
                 }
 
-                // Filtro de Data
-                // A tarefa deve cruzar o período do filtro.
-                // Data de início da tarefa <= Data de fim do filtro
-                // Data de fim da tarefa >= Data de início do filtro
-                const inicioTarefaMs = task.dataInicio?.toDate().setUTCHours(0,0,0,0); // Normaliza para início do dia UTC
-                const fimTarefaMs = task.dataProvavelTermino?.toDate().setUTCHours(23,59,59,999); // Normaliza para fim do dia UTC
+                const inicioTarefaMs = task.dataInicio?.toDate().setUTCHours(0,0,0,0);
+                const fimTarefaMs = task.dataProvavelTermino?.toDate().setUTCHours(23,59,59,999);
 
-                if (manter && dataInicioFiltroDate && fimTarefaMs < dataInicioFiltroDate) { // Tarefa termina antes do início do filtro
+                if (manter && dataInicioFiltroDate && fimTarefaMs < dataInicioFiltroDate) {
                     manter = false;
                 }
-                if (manter && dataFimFiltroDate && inicioTarefaMs > dataFimFiltroDate) { // Tarefa começa depois do fim do filtro
+                if (manter && dataFimFiltroDate && inicioTarefaMs > dataFimFiltroDate) {
                     manter = false;
                 }
-                // Se a tarefa não tem data de início, não pode ser filtrada por período, a menos que queira um comportamento específico.
-                // Por ora, se não tem data de início e o filtro de data está ativo, ela não passará se as condições acima não forem atendidas.
                 if (manter && (dataInicioFiltroDate || dataFimFiltroDate) && !inicioTarefaMs) {
-                     // Se o filtro de data está ativo mas a tarefa não tem data de início, não a inclua.
-                     // Ou, defina uma lógica: se a tarefa não tem data, ela não se encaixa em nenhum período.
                      manter = false;
                 }
-
 
                 return manter;
             });
@@ -2649,9 +2629,8 @@ const RelatoriosComponent = () => {
 
                 const dataA = a.dataInicio ? a.dataInicio.toMillis() : 0;
                 const dataB = b.dataInicio ? b.dataInicio.toMillis() : 0;
-                return dataA - dataB; // Ordena por data de início após agrupar por responsável
+                return dataA - dataB;
             });
-
 
             setTarefasFiltradas(tarefasProcessadas);
             setShowReport(true);
@@ -2673,7 +2652,6 @@ const RelatoriosComponent = () => {
             return;
         }
         const printContents = reportContentElement.innerHTML;
-
         const printFrame = document.createElement('iframe');
         printFrame.style.position = 'fixed';
         printFrame.style.top = '-9999px';
@@ -2681,7 +2659,6 @@ const RelatoriosComponent = () => {
         printFrame.style.width = '1px';
         printFrame.style.height = '1px';
         printFrame.style.border = '0';
-
         document.body.appendChild(printFrame);
 
         printFrame.onload = function() {
@@ -2718,37 +2695,6 @@ const RelatoriosComponent = () => {
                     .report-footer p { margin: 3px 0 !important; }
                     .report-footer .last-line { text-transform: uppercase !important; font-weight: bold !important; }
                     img { max-height: 50px !important; display: block !important; margin-left:auto !important; margin-right:auto !important; margin-bottom: 10px !important; }
-                    .text-2xl { font-size: 16pt !important; }
-                    .font-semibold { font-weight: bold !important; }
-                    .text-gray-800 { color: #374151 !important; }
-                    .text-sm { font-size: 0.9em !important; }
-                    .text-gray-600 { color: #4B5563 !important; }
-                    .mb-6 { margin-bottom: 25px !important; }
-                    .mx-auto { margin-left: auto !important; margin-right: auto !important; }
-                    .h-14 { height: 50px !important; }
-                    .w-auto { width: auto !important; }
-                    .mb-4 { margin-bottom: 10px !important; }
-                    .border { border: 1px solid #ccc !important; }
-                    .divide-y > :not([hidden]) ~ :not([hidden]) { border-top-width: 1px !important; border-color: #ccc !important; }
-                    .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #ccc !important; }
-                    .bg-gray-100 { background-color: #f2f2f2 !important; }
-                    .px-4 { padding-left: 6px !important; padding-right: 6px !important; }
-                    .py-2 { padding-top: 4px !important; padding-bottom: 4px !important; }
-                    .text-left { text-align: left !important; }
-                    .text-xs { font-size: 0.75rem !important; }
-                    .font-medium { font-weight: 500 !important; }
-                    .uppercase { text-transform: uppercase !important; }
-                    .tracking-wider { letter-spacing: 0.05em !important; }
-                    .border-b { border-bottom-width: 1px !important; border-color: #ccc !important; }
-                    .whitespace-nowrap { white-space: nowrap !important; }
-                    .max-w-xs { max-width: 20rem !important; }
-                    .whitespace-normal { white-space: normal !important; }
-                    .break-words { word-break: break-word !important; }
-                    .mt-8 { margin-top: 2rem !important; }
-                    .pt-4 { padding-top: 1rem !important; }
-                    .border-t { border-top-width: 1px !important; border-color: #ccc !important; }
-                    .text-center { text-align: center !important; }
-                    .mt-1 { margin-top: 0.25rem !important; }
                     .no-print-in-report { display: none !important; }
                 }
             `);
@@ -2769,10 +2715,6 @@ const RelatoriosComponent = () => {
         printFrame.src = 'about:blank';
     };
 
-
-    // O JSX do seu componente RelatoriosComponent continua aqui...
-    // Certifique-se que os botões "Todos" e "Limpar" para funcionários
-    // estão chamando `handleSelectAllFuncionarios` e `handleClearAllFuncionarios` respectivamente.
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Relatório de Atividades</h2>
@@ -2787,7 +2729,6 @@ const RelatoriosComponent = () => {
                         </div>
                         <div className="max-h-40 overflow-y-auto border rounded-md p-2 bg-gray-50">
                             <div key="sem-resp-chk" className="flex items-center mb-1">
-                                {/* Certifique-se que este ID está correto e único se necessário */}
                                 <input type="checkbox" id="funcionarioChk-semResponsavel" name="funcionarioChkItem" value={SEM_RESPONSAVEL_VALUE} onChange={handleFuncionarioChange} checked={filtroFuncionarios.includes(SEM_RESPONSAVEL_VALUE)} className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"/>
                                 <label htmlFor="funcionarioChk-semResponsavel" className="ml-2 text-sm text-gray-700 italic">-- Sem Responsável --</label>
                             </div>
@@ -2799,7 +2740,6 @@ const RelatoriosComponent = () => {
                             ))}
                         </div>
                     </div>
-                    {/* ... restante do seu JSX para filtros de status e datas ... */}
                      <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Status da Tarefa:</label>
                          <div className="flex space-x-2 mb-2">
@@ -2850,7 +2790,6 @@ const RelatoriosComponent = () => {
                         </button>
                     </div>
                     <div id="printable-report-area-content" className="bg-white p-6 rounded-lg shadow-md">
-                       {/* ... Seu conteúdo de relatório ... */}
                         <div className="print-header text-center mb-6">
                             {LOGO_URL && <img src={LOGO_URL} alt="Logotipo da Empresa" className="mx-auto h-14 w-auto mb-4" onError={(e) => e.target.style.display='none'}/>}
                             <h1 className="text-2xl font-semibold text-gray-800">Relatório de Atividades</h1>
@@ -2907,7 +2846,7 @@ const RelatoriosComponent = () => {
 
 // Componente TarefasPendentes
 const TarefasPendentesComponent = () => {
-    const { userId, db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext); // auth é o correto
+    const { userId, db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext); 
     const [tarefasPendentes, setTarefasPendentes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isAlocarModalOpen, setIsAlocarModalOpen] = useState(false);
@@ -2915,38 +2854,13 @@ const TarefasPendentesComponent = () => {
 
     const basePath = `/artifacts/${appId}/public/data`;
 
-    // Funções utilitárias simuladas (substitua pelas reais)
-    const formatDate = (timestamp) => {
-        if (!timestamp) return 'N/A';
-        if (timestamp instanceof Timestamp) {
-            return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        }
-        if (typeof timestamp.seconds === 'number' && typeof timestamp.nanoseconds === 'number') {
-             return new Timestamp(timestamp.seconds, timestamp.nanoseconds).toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        }
-        return 'Data inválida';
-    };
-    const sincronizarTarefaComProgramacao = async (tarefaId, tarefaData, db, basePath) => {
-        console.log(`Sincronizando tarefa ${tarefaId} com programação.`);
-        // Implementação real aqui
-    };
-    const logAlteracaoTarefa = async (db, basePath, tarefaId, userId, userEmail, tipo, detalhes) => {
-        console.log(`LOG: TarefaID=${tarefaId}, User=${userEmail}, Tipo=${tipo}, Detalhes=${detalhes}`);
-        // Implementação real aqui
-    };
-    const LucideUserPlus = ({ size, className }) => <span className={className} style={{ fontSize: size }}>👤⁺</span>;
-    // const AlocarTarefaModal = ({isOpen, onClose, tarefaPendente, onAlocar}) => { /* ... */ };
-
-
     useEffect(() => {
         setLoading(true);
         const tarefasMapaRef = collection(db, `${basePath}/tarefas_mapa`);
-        const q = query(tarefasMapaRef, where("status", "==", "AGUARDANDO ALOCAÇÃO"));
+        const q = query(tarefasMapaRef, where("status", "==", "AGUARDANDO ALOCAÇÃO"), orderBy("createdAt", "asc"));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedPendentes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Ordenar por data de criação, mais antigas primeiro, para priorizar alocação
-            fetchedPendentes.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0));
             setTarefasPendentes(fetchedPendentes);
             setLoading(false);
         }, (error) => {
@@ -2977,33 +2891,31 @@ const TarefasPendentesComponent = () => {
     const handleSalvarAlocacao = async (tarefaId, dadosAlocacao) => {
         setLoading(true); 
         const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
-        const usuario = auth.currentUser; // Corrigido de authGlobal para auth
+        const usuario = auth.currentUser; 
         try {
             const dadosParaAtualizar = {
                 ...dadosAlocacao, 
                 status: "PROGRAMADA",
                 updatedAt: Timestamp.now(),
-                alocadoPor: usuario?.uid || 'sistema', // Opcional: rastrear quem alocou
-                alocadoEm: Timestamp.now(),      // Opcional: rastrear quando alocou
-                semanaProgramada: "", // Inicializa vazia
+                alocadoPor: usuario?.uid || 'sistema', 
+                alocadoEm: Timestamp.now(),     
+                semanaProgramada: "", 
             };
             
-            // Lógica para encontrar a semanaProgramada
             if (dadosAlocacao.dataInicio && dadosAlocacao.dataInicio instanceof Timestamp) {
                 const dataInicioJS = dadosAlocacao.dataInicio.toDate();
-                dataInicioJS.setUTCHours(0, 0, 0, 0); // Normaliza para o início do dia UTC
+                dataInicioJS.setUTCHours(0, 0, 0, 0);
 
                 const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
                 const todasSemanasSnap = await getDocs(todasSemanasQuery);
 
                 for (const semanaDocSnap of todasSemanasSnap.docs) {
                     const semana = semanaDocSnap.data();
-                    // Verifica se dataInicioSemana e dataFimSemana são Timestamps válidos
                     if (semana.dataInicioSemana instanceof Timestamp && semana.dataFimSemana instanceof Timestamp) {
                         const inicioSemanaJS = semana.dataInicioSemana.toDate();
                         inicioSemanaJS.setUTCHours(0,0,0,0);
                         const fimSemanaJS = semana.dataFimSemana.toDate();
-                        fimSemanaJS.setUTCHours(23,59,59,999); // Considera o dia todo
+                        fimSemanaJS.setUTCHours(23,59,59,999);
 
                         if (inicioSemanaJS.getTime() <= dataInicioJS.getTime() && fimSemanaJS.getTime() >= dataInicioJS.getTime()) {
                             dadosParaAtualizar.semanaProgramada = semana.nomeAba || semanaDocSnap.id;
@@ -3015,18 +2927,15 @@ const TarefasPendentesComponent = () => {
                 }
             }
 
-            // ---> Início da Modificação Solicitada <---
             if (!dadosParaAtualizar.semanaProgramada) {
                 alert("A tarefa foi alocada e salva no Mapa de Atividades, mas não existe uma semana criada na Programação Semanal para o período selecionado. Crie a semana correspondente para visualizá-la na programação.");
             }
-            // ---> Fim da Modificação Solicitada <---
 
             await updateDoc(tarefaDocRef, dadosParaAtualizar);
             
             const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
             if (tarefaAtualizadaSnap.exists()) {
                 const tarefaAtualizadaData = tarefaAtualizadaSnap.data();
-                // Passar a data completa da tarefa para sincronização
                 await sincronizarTarefaComProgramacao(tarefaId, {id: tarefaId, ...tarefaAtualizadaData}, db, basePath);
                 
                 const dataInicioLog = dadosParaAtualizar.dataInicio ? formatDate(dadosParaAtualizar.dataInicio) : 'N/A';
@@ -3093,7 +3002,6 @@ const TarefasPendentesComponent = () => {
                     onClose={handleFecharModalAlocacao}
                     tarefaPendente={tarefaParaAlocar}
                     onAlocar={handleSalvarAlocacao}
-                    // Passar listas auxiliares e funcionários para o modal, se necessário
                     listasAuxiliares={listasAuxiliares}
                     funcionarios={funcionarios}
                 />
@@ -3216,29 +3124,18 @@ const DashboardComponent = () => {
         porPrioridade: {},
         proximoPrazo: [],
         atrasadas: [],
-        porFuncionario: {} // Adicionado para tarefas por funcionário
+        porFuncionario: {}
     });
     const [loadingDashboard, setLoadingDashboard] = useState(true);
     const basePath = `/artifacts/${appId}/public/data`;
 
     useEffect(() => {
-        console.log("[Dashboard] useEffect triggered. Deps:", {
-            loadingAuth,
-            dbReady: !!db,
-            appIdReady: !!appId,
-            statusLength: listasAuxiliares.status ? listasAuxiliares.status.length : 0,
-            prioLength: listasAuxiliares.prioridades ? listasAuxiliares.prioridades.length : 0,
-            funcionariosLength: funcionarios ? funcionarios.length : 0
-        });
-
         const fetchDashboardData = async () => {
-            console.log("[Dashboard] fetchDashboardData: Iniciando busca...");
             setLoadingDashboard(true);
             try {
                 const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
                 const snapshot = await getDocs(tarefasRef);
                 const todasTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("[Dashboard] fetchDashboardData: Tarefas do mapa carregadas:", todasTarefas.length);
 
                 const porStatus = {};
                 (Array.isArray(listasAuxiliares.status) ? listasAuxiliares.status : []).forEach(s => porStatus[s] = 0);
@@ -3253,32 +3150,24 @@ const DashboardComponent = () => {
 
                 const proximoPrazo = [];
                 const atrasadas = [];
-
-                // Lógica para Tarefas por Funcionário
                 const porFuncionario = { "SEM_RESPONSAVEL": 0 };
-                // Assegura que 'funcionarios' é um array antes de tentar usar forEach
                 (Array.isArray(funcionarios) ? funcionarios : []).forEach(f => {
-                    if (f && f.id) { // Garante que o funcionário e seu id existem
+                    if (f && f.id) {
                        porFuncionario[f.id] = 0;
                     }
                 });
 
                 todasTarefas.forEach(tarefa => {
-                    // Contagem por Status
                     if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) {
                         porStatus[tarefa.status]++;
                     } else if (tarefa.status) {
                         porStatus[tarefa.status] = 1;
                     }
-
-                    // Contagem por Prioridade
                     if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) {
                         porPrioridade[tarefa.prioridade]++;
                     } else if (tarefa.prioridade) {
                         porPrioridade[tarefa.prioridade] = 1;
                     }
-
-                    // Lógica para Próximo Prazo e Atrasadas (não canceladas/concluídas)
                     if (tarefa.dataProvavelTermino && (tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA")) {
                         const dataTermino = tarefa.dataProvavelTermino.toDate();
                         dataTermino.setHours(0,0,0,0);
@@ -3289,15 +3178,13 @@ const DashboardComponent = () => {
                         }
                     }
 
-                    // Contagem por Funcionário (ignorar tarefas canceladas)
-                    if (tarefa.status === "CANCELADA") return; // Pula para a próxima tarefa
+                    if (tarefa.status === "CANCELADA") return;
 
                     if (tarefa.responsaveis && Array.isArray(tarefa.responsaveis) && tarefa.responsaveis.length > 0) {
                         tarefa.responsaveis.forEach(respId => {
                             if (porFuncionario.hasOwnProperty(respId)) {
                                 porFuncionario[respId]++;
                             } else {
-                                // Funcionário pode ter sido removido mas ainda consta em tarefas antigas
                                 porFuncionario[respId] = (porFuncionario[respId] || 0) + 1;
                             }
                         });
@@ -3308,53 +3195,21 @@ const DashboardComponent = () => {
 
                 proximoPrazo.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
                 atrasadas.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-
-                console.log("[Dashboard] fetchDashboardData: Stats calculados:", { porStatus, porPrioridade, proximoPrazo: proximoPrazo.length, atrasadas: atrasadas.length, porFuncionario });
-                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, porFuncionario }); // Atualiza o estado com porFuncionario
+                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, porFuncionario });
             } catch (error) {
-                console.error("[Dashboard] fetchDashboardData: Erro ao buscar dados:", error);
-                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], porFuncionario: {} }); // Reseta porFuncionario em caso de erro
+                console.error("[Dashboard] Erro ao buscar dados:", error);
+                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], porFuncionario: {} });
             } finally {
-                console.log("[Dashboard] fetchDashboardData: setLoadingDashboard(false)");
                 setLoadingDashboard(false);
             }
         };
 
-        if (!loadingAuth && db && appId) {
-            console.log("[Dashboard] useEffect: Condições atendidas (auth, db, appId). Verificando listasAuxiliares e funcionarios...");
-            if (listasAuxiliares && listasAuxiliares.status && listasAuxiliares.status.length > 0 &&
-                listasAuxiliares.prioridades && listasAuxiliares.prioridades.length > 0 &&
-                funcionarios // Adicionada verificação de funcionarios para cálculo de tarefas por responsável
-            ) {
-                console.log("[Dashboard] Listas auxiliares e funcionarios prontos, chamando fetchDashboardData.");
-                fetchDashboardData();
-            } else {
-                 console.log("[Dashboard] Listas auxiliares, prioridades ou funcionarios ainda não estão prontos ou estão vazios. Aguardando...");
-                 // Se funcionarios não estiver pronto, o card de tarefas por responsável pode não ser calculado corretamente na primeira vez.
-                 // Poderia-se optar por não chamar fetchDashboardData ou chamar e depois re-chamar quando funcionarios estiver disponível.
-                 // Por ora, ele vai tentar calcular com o que tiver (potencialmente lista de funcionarios vazia se ainda não carregou).
-                 // Uma alternativa é adicionar 'funcionarios' na lista de dependências do useEffect e tratar seu carregamento.
-                 // A lógica atual já depende de 'funcionarios' vindo do context e é usado no map do JSX, então é importante que esteja carregado.
-                 // Se `fetchDashboardData` for chamado antes de `funcionarios` estar populado, `porFuncionario` pode ser inicializado incorretamente.
-                 // A dependência de `funcionarios` foi adicionada ao array de dependências do useEffect.
-                 if (funcionarios && funcionarios.length > 0) { // Adiciona uma checagem mais específica para funcionarios aqui
-                    fetchDashboardData();
-                 } else if (!funcionarios) {
-                    console.log("[Dashboard] Lista de funcionarios ainda não disponível. Aguardando...");
-                 } else if (funcionarios.length === 0 && (listasAuxiliares.status.length > 0 && listasAuxiliares.prioridades.length > 0)){
-                    console.log("[Dashboard] Lista de funcionarios vazia, mas outras listas ok. Buscando dados, responsaveis podem ficar como SEM_RESPONSAVEL ou IDs.");
-                    fetchDashboardData(); // Permite buscar mesmo sem funcionários, mas o card de responsáveis pode não mostrar nomes
-                 }
-            }
+        if (!loadingAuth && db && appId && listasAuxiliares.status.length > 0 && listasAuxiliares.prioridades.length > 0 && funcionarios) {
+            fetchDashboardData();
         } else if (!loadingAuth) {
-            console.log("[Dashboard] useEffect: db ou appId não está pronto após autenticação. Não buscando dados.");
             setLoadingDashboard(false);
         }
-
-        return () => {
-           console.log("[Dashboard] Cleanup useEffect");
-        };
-    }, [db, appId, listasAuxiliares.status, listasAuxiliares.prioridades, funcionarios, loadingAuth]); // Adicionado 'funcionarios' às dependências
+    }, [db, appId, listasAuxiliares.status, listasAuxiliares.prioridades, funcionarios, loadingAuth]);
 
     const getPrioridadeColor = (prioridade) => {
         if (prioridade === "P4 - URGENTE") return "bg-red-500 text-white";
@@ -3372,28 +3227,19 @@ const DashboardComponent = () => {
         return "text-gray-600";
     };
 
-    // Simulação da função formatDate, substitua pela sua implementação real
-    const formatDate = (timestamp) => {
+    const formatDateDash = (timestamp) => {
         if (!timestamp || !timestamp.toDate) return 'Data inválida';
         return timestamp.toDate().toLocaleDateString('pt-BR');
     };
 
-    // Simulação dos ícones, substitua pela sua importação real (ex: lucide-react)
-    const LucideClock = ({ size, className }) => <span className={className} style={{ fontSize: size }}>⏰</span>;
-    const LucideAlertOctagon = ({ size, className }) => <span className={className} style={{ fontSize: size }}>⚠️</span>;
-    const LucideUsers = ({ size, className }) => <span className={className} style={{ fontSize: size }}>👥</span>;
-
-
-    if (loadingDashboard || loadingAuth) { // Considerar loadingAuth também
+    if (loadingDashboard || loadingAuth) {
         return <div className="p-6 text-center">Carregando dados do Dashboard...</div>;
     }
 
     return (
         <div className="p-6 bg-gray-100 min-h-full">
             <h2 className="text-3xl font-semibold text-gray-800 mb-8">Dashboard</h2>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                {/* Card Tarefas por Status */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Status</h3>
                     <ul className="space-y-2">
@@ -3405,8 +3251,6 @@ const DashboardComponent = () => {
                         ))}
                     </ul>
                 </div>
-
-                {/* Card Tarefas por Prioridade */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Prioridade</h3>
                     <ul className="space-y-2">
@@ -3418,22 +3262,17 @@ const DashboardComponent = () => {
                         ))}
                     </ul>
                 </div>
-
-                {/* Card Tarefas por Responsável */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
                         <LucideUsers size={22} className="mr-2 text-purple-600"/> Tarefas por Responsável
                     </h3>
                     {stats.porFuncionario && Object.keys(stats.porFuncionario).length > 0 ? (
                         <ul className="space-y-2 max-h-80 overflow-y-auto">
-                            {Object.entries(stats.porFuncionario).map(([funcId, count]) => {
+                            {Object.entries(stats.porFuncionario).sort(([, countA], [, countB]) => countB - countA).map(([funcId, count]) => {
                                 const funcionario = funcId === "SEM_RESPONSAVEL"
                                     ? { nome: "Sem Responsável Designado", id: "SEM_RESPONSAVEL" }
                                     : (Array.isArray(funcionarios) ? funcionarios.find(f => f.id === funcId) : null);
-
-                                // Não mostra funcionário com 0 tarefas, a menos que seja "SEM_RESPONSAVEL" e tenha 0 (ou se explicitamente desejado).
-                                // Para consistência, vamos mostrar SEM_RESPONSAVEL mesmo que seja 0, para indicar que a categoria existe.
-                                if (count === 0 && funcId !== "SEM_RESPONSAVEL" && !(funcionario && funcionario.nome === "Sem Responsável Designado")) return null;
+                                if (count === 0 && funcId !== "SEM_RESPONSAVEL") return null;
 
                                 return (
                                     <li key={funcId} className="flex justify-between items-center text-sm">
@@ -3450,7 +3289,6 @@ const DashboardComponent = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Card Tarefas com Prazo Próximo */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
@@ -3458,14 +3296,12 @@ const DashboardComponent = () => {
                             {stats.proximoPrazo.map(tarefa => (
                                 <li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300">
                                     <p className="font-semibold text-sm text-yellow-800">{tarefa.tarefa}</p>
-                                    <p className="text-xs text-yellow-700">Término: {formatDate(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
+                                    <p className="text-xs text-yellow-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
                                 </li>
                             ))}
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
                 </div>
-
-                {/* Card Tarefas Atrasadas */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
                      {stats.atrasadas.length > 0 ? (
@@ -3473,7 +3309,7 @@ const DashboardComponent = () => {
                             {stats.atrasadas.map(tarefa => (
                                 <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-300">
                                     <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
-                                    <p className="text-xs text-red-700">Término: {formatDate(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
+                                    <p className="text-xs text-red-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
                                 </li>
                             ))}
                         </ul>
@@ -3499,7 +3335,6 @@ function App() {
             case 'dashboard': return <DashboardComponent />;
             case 'mapa': return <MapaAtividadesComponent />;
             case 'programacao': return <ProgramacaoSemanalComponent />;
-            // Correção aqui: Alterado de AnotacoesPatioComponent para NovaTarefaRapidaComponent
             case 'anotacoes': return <NovaTarefaRapidaComponent />;
             case 'tarefasPendentes': return <TarefasPendentesComponent />;
             case 'config': return <ConfiguracoesComponent />;
@@ -3512,7 +3347,7 @@ function App() {
         <button
             onClick={() => setCurrentPage(page)}
             className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors duration-150 ease-in-out
-                        ${currentPage === page ? 'bg-blue-600 text-white shadow-md' : 'text-gray-700 hover:bg-blue-100 hover:text-blue-700'}`}
+                            ${currentPage === page ? 'bg-blue-600 text-white shadow-md' : 'text-gray-700 hover:bg-blue-100 hover:text-blue-700'}`}
         >
             {Icon && <Icon size={18} className="mr-2"/>}
             {children}
@@ -3530,7 +3365,6 @@ function App() {
                     <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>
                     <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>
                     <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>
-                    {/* A string 'anotacoes' no NavLink está correta e corresponde ao case no switch */}
                     <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Anotações Pátio</NavLink>
                     <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>
                     <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>
