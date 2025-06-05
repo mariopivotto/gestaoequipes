@@ -1,5 +1,5 @@
-// Versão: 2.0.0
-// Script completo e atualizado com a funcionalidade de alteração rápida de status.
+// Versão: 2.1.0
+// Script completo e atualizado. Alteração: inclui o status "EM OPERAÇÃO" na lógica de exibição da Programação Semanal.
 
 import React, { useState, useEffect, createContext, useContext, memo } from 'react';
 // Importe a instância do app Firebase já inicializada
@@ -115,7 +115,9 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
     await removerTarefaDaProgramacao(tarefaId, db, basePath);
 
-    if (tarefaData.status !== "PROGRAMADA" && tarefaData.status !== "CONCLUÍDA") {
+    // ALTERAÇÃO v2.1.0: Incluído "EM OPERAÇÃO" na lista de status que devem aparecer na programação.
+    const statusValidosParaProgramacao = ["PROGRAMADA", "CONCLUÍDA", "EM OPERAÇÃO"];
+    if (!statusValidosParaProgramacao.includes(tarefaData.status)) {
         return;
     }
 
@@ -299,6 +301,7 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
         if (algumaInstanciaProgramadaRelevanteEncontrada && todasInstanciasProgramadasConcluidas && tarefaPrincipal.status !== "CONCLUÍDA") {
             await updateDoc(tarefaMapaDocRef, { status: "CONCLUÍDA" });
         } else if ((!algumaInstanciaProgramadaRelevanteEncontrada || !todasInstanciasProgramadasConcluidas) && tarefaPrincipal.status === "CONCLUÍDA") {
+            // Se a tarefa no mapa está "CONCLUÍDA" mas na programação não está mais, volta para "PROGRAMADA"
             await updateDoc(tarefaMapaDocRef, { status: "PROGRAMADA" });
         }
 
@@ -309,12 +312,13 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 
 
 const GlobalProvider = ({ children }) => {
+    // ALTERAÇÃO v2.1.0: Adicionado "EM OPERAÇÃO" à lista de status iniciais.
     const DADOS_INICIAIS_CONFIG = {
         prioridades: ["P1 - CURTO PRAZO", "P2 - MÉDIO PRAZO", "P3 - LONGO PRAZO", "P4 - URGENTE"],
         areas: ["LADO 01", "LADO 02", "ANEXO A", "ANEXO B", "ANEXO C", "CANTEIRO CENTRAL", "LOJA", "OLIVEIRAS - ANT. REFEITORIO", "OLIVEIRAS - ESQUINA", "TERRENO - TEO (FRENTE ANT. REF.)", "PLANTÃO", "EXTERNO"],
         acoes: ["MANUTENÇÃO", "IRRIGAÇÃO", "PREVENÇÃO"],
         responsaveis: ["ALEX", "THIAGO", "BERNARD", "ADAIR", "ODAIR", "ENIVALDO", "MARCELO", "ROBERTO M.", "VALDIR (DUNA)", "GIOVANI (DIDIO)", "CARGA/DESCARGA"],
-        status: ["PREVISTA", "PROGRAMADA", "CONCLUÍDA", "AGUARDANDO ALOCAÇÃO", "CANCELADA"],
+        status: ["PREVISTA", "PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA", "AGUARDANDO ALOCAÇÃO", "CANCELADA"],
         turnos: ["MANHÃ", "TARDE", "DIA INTEIRO"]
     };
 
@@ -1384,10 +1388,12 @@ const MapaAtividadesComponent = () => {
         }).join(', ');
     };
     
+    // ALTERAÇÃO v2.1.0: Adicionada cor para o status "EM OPERAÇÃO".
     const getStatusColor = (status) => {
         if (status === "CANCELADA") return "bg-red-200";
         if (status === "CONCLUÍDA") return "bg-green-300";
         if (status === "PROGRAMADA") return "bg-blue-200";
+        if (status === "EM OPERAÇÃO") return "bg-cyan-200";
         if (status === "AGUARDANDO ALOCAÇÃO") return "bg-red-300";
         if (status === "PREVISTA") return "bg-yellow-200";
         return "bg-gray-100";
@@ -1785,10 +1791,11 @@ const ProgramacaoSemanalComponent = () => {
                 });
                 diaCorrenteNaSemana.setUTCDate(diaCorrenteNaSemana.getUTCDate() + 1);
             }
-
+            
+            // ALTERAÇÃO v2.1.0: Incluído "EM OPERAÇÃO" na query para buscar tarefas relevantes do mapa.
             const tarefasMapaQuery = query(
                 collection(db, `${basePath}/tarefas_mapa`),
-                where("status", "in", ["PROGRAMADA", "CONCLUÍDA"]) // Poderia ser "PROGRAMADA" apenas se o status "CONCLUÍDA" na programação for local
+                where("status", "in", ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"])
             );
             const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
 
@@ -3222,6 +3229,7 @@ const DashboardComponent = () => {
         if (status === "CANCELADA") return "text-red-600";
         if (status === "CONCLUÍDA") return "text-green-600";
         if (status === "PROGRAMADA") return "text-blue-600";
+        if (status === "EM OPERAÇÃO") return "text-cyan-600";
         if (status === "AGUARDANDO ALOCAÇÃO") return "text-orange-600";
         if (status === "PREVISTA") return "text-yellow-600";
         return "text-gray-600";
