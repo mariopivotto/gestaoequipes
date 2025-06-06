@@ -2,14 +2,15 @@
 // Script completo e atualizado.
 // Alteração: Cores da Programação Semanal simplificadas para usar as mesmas classes de cor do Mapa de Atividades, corrigindo a aplicação.
 
-import React, { useState, useEffect, createContext, useContext, memo } from 'react';
+import React, { useState, useEffect, createContext, useContext, memo, useRef } from 'react';
 // Importe a instância do app Firebase já inicializada
 // Garanta que o arquivo 'firebaseConfig.js' está na pasta 'src',
 // junto com este arquivo App.jsx.
 import firebaseAppInstance from './firebaseConfig'; 
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore'; 
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory } from 'lucide-react'; 
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle } from 'lucide-react'; 
+import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase usando a instância importada
 const firebaseApp = firebaseAppInstance;
@@ -350,7 +351,7 @@ const GlobalProvider = ({ children }) => {
     const [userId, setUserId] = useState(null);
     const [loadingAuth, setLoadingAuth] = useState(true);
     const [listasAuxiliares, setListasAuxiliares] = useState({
-    prioridades: [], areas: [], acoes: [], status: [], turnos: [], tarefas: []
+    prioridades: [], areas: [], acoes: [], status: [], turnos: [], tarefas: [], usuarios_notificacao: []
     });
     const [funcionarios, setFuncionarios] = useState([]);
     const [initialDataSeeded, setInitialDataSeeded] = useState(false);
@@ -468,7 +469,7 @@ const GlobalProvider = ({ children }) => {
         const basePath = `/artifacts/${appId}/public/data`;
         const unsubscribers = [];
 
-        const listaNames = ['prioridades', 'areas', 'acoes', 'status', 'turnos', 'tarefas'];
+        const listaNames = ['prioridades', 'areas', 'acoes', 'status', 'turnos', 'tarefas', 'usuarios_notificacao'];
         listaNames.forEach(name => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/${name}/items`));
             const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -875,7 +876,8 @@ const ConfiguracoesComponent = () => {
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Configurações Gerais</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                    {/* [NOVO] Adicionado o gerenciador para a nova lista de tarefas. */}
+                    {/* [NOVO] Gerenciador para a lista de usuários que recebem notificação. */}
+                    <ListaAuxiliarManager nomeLista="Usuários para Notificação" nomeSingular="E-mail do Usuário" collectionPathSegment="usuarios_notificacao" />
                     <ListaAuxiliarManager nomeLista="Tarefas (Descrições Fixas)" nomeSingular="Tarefa" collectionPathSegment="tarefas" />
                     <ListaAuxiliarManager nomeLista="Prioridades" nomeSingular="Prioridade" collectionPathSegment="prioridades" />
                     <ListaAuxiliarManager nomeLista="Áreas" nomeSingular="Área" collectionPathSegment="areas" />
@@ -888,8 +890,8 @@ const ConfiguracoesComponent = () => {
                 </div>
             </div>
         </div>
-    );
-};
+        );
+    };
 
 // Componente TarefaFormModal
 const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
@@ -1177,13 +1179,18 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
 
 
 // Componente MapaAtividades
+// Componente MapaAtividades
 const MapaAtividadesComponent = () => {
-    const { userId, db, appId, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext); 
-    const [todasTarefas, setTodasTarefas] = useState([]); 
-    const [tarefasExibidas, setTarefasExibidas] = useState([]); 
+    const { userId, db, appId, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext);
+    
+    // [NOVO] Referência para guardar a lista de tarefas anterior para comparação
+    const tarefasAnteriores = useRef([]);
+
+    const [todasTarefas, setTodasTarefas] = useState([]);
+    const [tarefasExibidas, setTarefasExibidas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingTarefa, setEditingTarefa] = useState(null); 
+    const [editingTarefa, setEditingTarefa] = useState(null);
     const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
     const [selectedTarefaIdParaHistorico, setSelectedTarefaIdParaHistorico] = useState(null);
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -1199,21 +1206,43 @@ const MapaAtividadesComponent = () => {
     const basePath = `/artifacts/${appId}/public/data`;
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
+    // [ALTERADO] useEffect principal agora com a lógica de notificação
     useEffect(() => {
         setLoading(true);
-        const q = query(tarefasCollectionRef, orderBy("createdAt", "desc")); 
+        const usuarioAtual = auth.currentUser;
+        const q = query(tarefasCollectionRef, orderBy("createdAt", "desc"));
+        
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+            // Lógica para detectar e notificar novas tarefas
+            if (tarefasAnteriores.current.length > 0 && usuarioAtual) {
+                const tarefasAtuaisIds = new Set(tarefasAnteriores.current.map(t => t.id));
+                const novaTarefa = fetchedTarefas.find(t => !tarefasAtuaisIds.has(t.id));
+    
+                if (novaTarefa) {
+                    const deveNotificar = listasAuxiliares.usuarios_notificacao.includes(usuarioAtual.email);
+                    const naoFoiCriador = novaTarefa.criadoPor !== usuarioAtual.uid;
+    
+                    if (deveNotificar && naoFoiCriador) {
+                        toast.success(`Nova tarefa criada: ${novaTarefa.tarefa}`);
+                    }
+                }
+            }
+            
             setTodasTarefas(fetchedTarefas);
+            tarefasAnteriores.current = fetchedTarefas; // Atualiza a referência para a próxima vez
             setLoading(false);
+    
         }, (error) => {
             console.error("Erro ao carregar tarefas do mapa: ", error);
             setLoading(false);
         });
+    
         return () => unsubscribe();
-    }, [userId, appId, db]); 
+    }, [userId, appId, db, listasAuxiliares, auth]); // Dependências atualizadas
 
-     useEffect(() => {
+    useEffect(() => {
         let tarefasProcessadas = [...todasTarefas];
 
         if (filtroResponsavel !== "TODOS") {
@@ -1296,7 +1325,6 @@ const MapaAtividadesComponent = () => {
     };
 
     const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
-        const usuario = authGlobal.currentUser;
         const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
 
         if (!tarefaOriginal) {
@@ -1312,7 +1340,7 @@ const MapaAtividadesComponent = () => {
         await updateDoc(tarefaDocRef, payload);
 
         const detalhesLog = `Status alterado de '${tarefaOriginal.status}' para '${novoStatus}' via alteração rápida.`;
-        await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Status Atualizado", detalhesLog);
+        await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Status Atualizado", detalhesLog);
 
         const tarefaAtualizadaParaSync = { ...tarefaOriginal, ...payload };
         await sincronizarTarefaComProgramacao(tarefaId, tarefaAtualizadaParaSync, db, basePath);
@@ -1321,7 +1349,7 @@ const MapaAtividadesComponent = () => {
 
     const handleSaveTarefa = async (tarefaData, tarefaIdParaSalvar) => { 
         let idDaTarefaSalva = tarefaIdParaSalvar;
-        const usuario = authGlobal.currentUser;
+        const usuario = auth.currentUser;
         try {
             if (tarefaIdParaSalvar) { 
                 const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaIdParaSalvar);
@@ -1370,11 +1398,6 @@ const MapaAtividadesComponent = () => {
                 const tarefaSalvaSnap = await getDoc(tarefaSalvaNoMapaRef);
                 if (tarefaSalvaSnap.exists()){
                     const dadosCompletosFirestore = {id: tarefaSalvaSnap.id, ...tarefaSalvaSnap.data()}; 
-                    if (!(dadosCompletosFirestore.dataInicio instanceof Timestamp) || !(dadosCompletosFirestore.dataProvavelTermino instanceof Timestamp)) {
-                        console.error("Erro CRÍTICO: Datas da tarefa não são Timestamps válidos após buscar do Firestore. Sincronização abortada.", dadosCompletosFirestore);
-                        alert("Erro interno crítico: As datas da tarefa não foram salvas/recuperadas como Timestamps. A programação pode não ser atualizada.");
-                        return; 
-                    }
                     await sincronizarTarefaComProgramacao(idDaTarefaSalva, dadosCompletosFirestore, db, basePath);
                 } else {
                     console.error("Tarefa recém salva não encontrada para sincronização:", idDaTarefaSalva);
@@ -1392,8 +1415,7 @@ const MapaAtividadesComponent = () => {
 
         if (window.confirm(`Tem certeza que deseja excluir a tarefa "${nomeTarefaExcluida}" do Mapa de Atividades? Ela também será removida da programação semanal.`)) {
             try {
-                const usuario = authGlobal.currentUser;
-                await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Excluída", `Tarefa "${nomeTarefaExcluida}" foi removida.`);
+                await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Tarefa Excluída", `Tarefa "${nomeTarefaExcluida}" foi removida.`);
                 
                 await removerTarefaDaProgramacao(tarefaId, db, basePath);
                 const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
@@ -1484,7 +1506,7 @@ const MapaAtividadesComponent = () => {
                         <div className="mt-1 flex rounded-md shadow-sm">
                              <input type="text" id="termoBusca" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Buscar por palavra na orientação..." className="block w-full p-2 border-gray-300 rounded-l-md focus:ring-blue-500 focus:border-blue-500"/>
                              <button onClick={() => setTermoBusca('')} className="bg-gray-200 p-2 rounded-r-md text-gray-500 hover:bg-gray-300">
-                                <LucideX size={18}/>
+                                 <LucideX size={18}/>
                              </button>
                         </div>
                     </div>
@@ -2181,8 +2203,6 @@ const TarefaPatioComponent = () => {
                     que será incluída no Mapa de Atividades para posterior alocação e programação.
                 </p>
             </div>
-
-
             <Modal isOpen={isModalOpen} onClose={handleCloseModal} title="Criar Nova Tarefa do Pátio">
                 <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
                     <div>
@@ -3142,17 +3162,94 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
 
 // Componente Dashboard
 const DashboardComponent = () => {
-    const { db, appId, listasAuxiliares, funcionarios, loadingAuth } = useContext(GlobalContext);
+    const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
         porStatus: {},
         porPrioridade: {},
         proximoPrazo: [],
         atrasadas: [],
+        pendentesAtrasadas: [],
         porFuncionario: {}
     });
     const [loadingDashboard, setLoadingDashboard] = useState(true);
     const basePath = `/artifacts/${appId}/public/data`;
 
+    // Estados e manipuladores para os modais
+    const [isTarefaModalOpen, setIsTarefaModalOpen] = useState(false);
+    const [isAlocarModalOpen, setIsAlocarModalOpen] = useState(false);
+    const [tarefaSelecionada, setTarefaSelecionada] = useState(null);
+
+    const handleAbrirTarefaModal = (tarefa) => {
+        setTarefaSelecionada(tarefa);
+        setIsTarefaModalOpen(true);
+    };
+
+    const handleFecharTarefaModal = () => {
+        setIsTarefaModalOpen(false);
+        setTarefaSelecionada(null);
+    };
+
+    const handleAbrirAlocarModal = (tarefa) => {
+        setTarefaSelecionada(tarefa);
+        setIsAlocarModalOpen(true);
+    };
+
+    const handleFecharAlocarModal = () => {
+        setIsAlocarModalOpen(false);
+        setTarefaSelecionada(null);
+    };
+
+    // Funções de salvamento para os modais
+    const handleSaveTarefaDashboard = async (tarefaData, tarefaId) => {
+        try {
+            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+            await setDoc(tarefaDocRef, tarefaData, { merge: true });
+            
+            const tarefaSalvaSnap = await getDoc(tarefaDocRef);
+            if (tarefaSalvaSnap.exists()) {
+                const dadosCompletos = { id: tarefaId, ...tarefaSalvaSnap.data() };
+                await sincronizarTarefaComProgramacao(tarefaId, dadosCompletos, db, basePath);
+                await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Tarefa Atualizada", "Tarefa atualizada via Dashboard.");
+            }
+        } catch (error) {
+            console.error("Erro ao salvar tarefa do dashboard:", error);
+            alert("Erro ao salvar tarefa: " + error.message);
+        }
+    };
+
+    const handleSalvarAlocacaoDashboard = async (tarefaId, dadosAlocacao) => {
+        try {
+            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+            const dadosParaAtualizar = {
+                ...dadosAlocacao,
+                status: "PROGRAMADA",
+                updatedAt: Timestamp.now(),
+                alocadoPor: auth.currentUser?.uid || 'sistema',
+                alocadoEm: Timestamp.now(),
+            };
+
+            await updateDoc(tarefaDocRef, dadosParaAtualizar);
+
+            setStats(prev => ({
+                ...prev,
+                pendentesAtrasadas: prev.pendentesAtrasadas.filter(t => t.id !== tarefaId)
+            }));
+
+            const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
+            if (tarefaAtualizadaSnap.exists()) {
+                const dadosCompletos = { id: tarefaId, ...tarefaAtualizadaSnap.data() };
+                await sincronizarTarefaComProgramacao(tarefaId, dadosCompletos, db, basePath);
+                await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Tarefa Alocada", "Tarefa alocada via Dashboard.");
+            }
+            
+            handleFecharAlocarModal();
+        } catch (error)
+        {
+            console.error("Erro ao alocar tarefa do dashboard:", error);
+            alert("Erro ao alocar tarefa: " + error.message);
+        }
+    };
+    
     useEffect(() => {
         const fetchDashboardData = async () => {
             setLoadingDashboard(true);
@@ -3163,66 +3260,63 @@ const DashboardComponent = () => {
 
                 const porStatus = {};
                 (Array.isArray(listasAuxiliares.status) ? listasAuxiliares.status : []).forEach(s => porStatus[s] = 0);
-
                 const porPrioridade = {};
                 (Array.isArray(listasAuxiliares.prioridades) ? listasAuxiliares.prioridades : []).forEach(p => porPrioridade[p] = 0);
+                const porFuncionario = { "SEM_RESPONSAVEL": 0 };
+                (Array.isArray(funcionarios) ? funcionarios : []).forEach(f => {
+                    if (f && f.id) porFuncionario[f.id] = 0;
+                });
 
                 const hoje = new Date();
-                hoje.setHours(0,0,0,0);
+                hoje.setHours(0, 0, 0, 0);
                 const daqui7Dias = new Date(hoje);
                 daqui7Dias.setDate(hoje.getDate() + 7);
 
                 const proximoPrazo = [];
                 const atrasadas = [];
-                const porFuncionario = { "SEM_RESPONSAVEL": 0 };
-                (Array.isArray(funcionarios) ? funcionarios : []).forEach(f => {
-                    if (f && f.id) {
-                       porFuncionario[f.id] = 0;
-                    }
-                });
+                const pendentesAtrasadas = [];
 
                 todasTarefas.forEach(tarefa => {
                     if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) {
                         porStatus[tarefa.status]++;
-                    } else if (tarefa.status) {
-                        porStatus[tarefa.status] = 1;
                     }
                     if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) {
                         porPrioridade[tarefa.prioridade]++;
-                    } else if (tarefa.prioridade) {
-                        porPrioridade[tarefa.prioridade] = 1;
                     }
-                    if (tarefa.dataProvavelTermino && (tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA")) {
+                    if (tarefa.status !== "CANCELADA") {
+                        if (tarefa.responsaveis && tarefa.responsaveis.length > 0) {
+                            tarefa.responsaveis.forEach(respId => {
+                                if (porFuncionario.hasOwnProperty(respId)) porFuncionario[respId]++;
+                            });
+                        } else {
+                            porFuncionario["SEM_RESPONSAVEL"]++;
+                        }
+                    }
+
+                    if (tarefa.dataProvavelTermino && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
                         const dataTermino = tarefa.dataProvavelTermino.toDate();
-                        dataTermino.setHours(0,0,0,0);
+                        dataTermino.setHours(0, 0, 0, 0);
+
                         if (dataTermino < hoje) {
-                            atrasadas.push(tarefa);
+                            if (tarefa.status === 'PROGRAMADA' || tarefa.status === 'EM OPERAÇÃO') {
+                                atrasadas.push(tarefa);
+                            } else if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') {
+                                pendentesAtrasadas.push(tarefa);
+                            }
                         } else if (dataTermino >= hoje && dataTermino <= daqui7Dias) {
                             proximoPrazo.push(tarefa);
                         }
                     }
-
-                    if (tarefa.status === "CANCELADA") return;
-
-                    if (tarefa.responsaveis && Array.isArray(tarefa.responsaveis) && tarefa.responsaveis.length > 0) {
-                        tarefa.responsaveis.forEach(respId => {
-                            if (porFuncionario.hasOwnProperty(respId)) {
-                                porFuncionario[respId]++;
-                            } else {
-                                porFuncionario[respId] = (porFuncionario[respId] || 0) + 1;
-                            }
-                        });
-                    } else {
-                        porFuncionario["SEM_RESPONSAVEL"]++;
-                    }
                 });
 
-                proximoPrazo.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-                atrasadas.sort((a,b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, porFuncionario });
+                proximoPrazo.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+                atrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+                pendentesAtrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+
+                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, pendentesAtrasadas, porFuncionario });
             } catch (error) {
                 console.error("[Dashboard] Erro ao buscar dados:", error);
-                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], porFuncionario: {} });
+                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], pendentesAtrasadas: [], porFuncionario: {} });
             } finally {
                 setLoadingDashboard(false);
             }
@@ -3313,7 +3407,7 @@ const DashboardComponent = () => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
@@ -3327,20 +3421,66 @@ const DashboardComponent = () => {
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
                 </div>
+                
+                {/* [ALTERADO] Quadro renomeado e com ação de alocação removida */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
-                     {stats.atrasadas.length > 0 ? (
+                    <h3 className="text-xl font-semibold text-orange-600 mb-4 flex items-center">
+                        <LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação
+                    </h3>
+                    {stats.pendentesAtrasadas.length > 0 ? (
                         <ul className="space-y-3 max-h-80 overflow-y-auto">
-                            {stats.atrasadas.map(tarefa => (
-                                <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-300">
-                                    <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
-                                    <p className="text-xs text-red-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
+                            {stats.pendentesAtrasadas.map(tarefa => (
+                                <li key={tarefa.id} className="p-3 border rounded-md bg-orange-50 border-orange-300">
+                                    <div>
+                                        <p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p>
+                                        <p className="text-xs text-orange-700">Prazo Sugerido: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
+                                    </div>
                                 </li>
                             ))}
                         </ul>
-                    ) : <p className="text-sm text-gray-500">Nenhuma tarefa atrasada.</p>}
+                    ) : <p className="text-sm text-gray-500">Nenhuma tarefa pendente com prazo expirado.</p>}
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-lg">
+                    <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
+                        {stats.atrasadas.length > 0 ? (
+                            <ul className="space-y-3 max-h-80 overflow-y-auto">
+                                {stats.atrasadas.map(tarefa => (
+                                    <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-300 flex justify-between items-center">
+                                        <div>
+                                            <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
+                                            <p className="text-xs text-red-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
+                                        </div>
+                                        <div className="flex space-x-2">
+                                            <button 
+                                                onClick={() => handleAbrirTarefaModal(tarefa)}
+                                                title="Reprogramar / Editar" 
+                                                className="p-2 text-gray-600 hover:bg-gray-200 rounded-full transition-colors"
+                                            >
+                                                <LucideCalendarDays size={18} />
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : <p className="text-sm text-gray-500">Nenhuma tarefa atrasada.</p>}
                 </div>
             </div>
+
+            <TarefaFormModal
+                isOpen={isTarefaModalOpen}
+                onClose={handleFecharTarefaModal}
+                tarefaExistente={tarefaSelecionada}
+                onSave={handleSaveTarefaDashboard}
+            />
+            <AlocarTarefaModal
+                isOpen={isAlocarModalOpen}
+                onClose={handleFecharAlocarModal}
+                tarefaPendente={tarefaSelecionada}
+                onAlocar={handleSalvarAlocacaoDashboard}
+                listasAuxiliares={listasAuxiliares}
+                funcionarios={funcionarios}
+            />
         </div>
     );
 };
@@ -3380,36 +3520,57 @@ function App() {
     ));
 
     return (
-        <div className="flex h-screen bg-gray-100 font-sans">
-            <aside className="w-64 bg-white shadow-lg flex flex-col p-4 space-y-2 border-r border-gray-200">
-                <div className="mb-4 p-2 text-center">
-                     <img src={LOGO_URL} alt="Logo Gramoterra" className="mx-auto h-12 w-auto mb-2" onError={(e) => e.target.style.display='none'}/>
-                    <h1 className="text-xl font-semibold text-gray-700">Gestor de Equipes</h1>
-                </div>
-                <nav className="flex-grow space-y-1">
-                    <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>
-                    <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>
-                    <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>
-                    <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>
-                    <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>
-                    <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>
-                    <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>
-                </nav>
-                <div className="mt-auto">
-                     <p className="text-xs text-gray-500 mb-2 px-2">Logado como: {currentUser.isAnonymous ? "Anônimo" : currentUser.email || currentUser.uid}</p>
-                    <button
-                        onClick={() => firebaseAuth.signOut()}
-                        className="w-full flex items-center justify-center px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors duration-150 ease-in-out"
-                    >
-                        <LucideLogOut size={18} className="mr-2"/> Sair
-                    </button>
-                </div>
-            </aside>
+        <>
+            {/* [NOVO] Componente que renderiza as notificações na tela */}
+            <Toaster
+                position="top-right"
+                toastOptions={{
+                    success: {
+                        duration: 5000,
+                        style: {
+                            background: '#1976D2', // Azul
+                            color: 'white',
+                            fontWeight: 'bold',
+                        },
+                        iconTheme: {
+                            primary: '#BBDEFB',
+                            secondary: '#1976D2',
+                        },
+                    },
+                }}
+            />
+            {/* [ALTERADO] O layout principal agora está dentro de um Fragmento <> */}
+            <div className="flex h-screen bg-gray-100 font-sans">
+                <aside className="w-64 bg-white shadow-lg flex flex-col p-4 space-y-2 border-r border-gray-200">
+                    <div className="mb-4 p-2 text-center">
+                        <img src={LOGO_URL} alt="Logo Gramoterra" className="mx-auto h-12 w-auto mb-2" onError={(e) => e.target.style.display='none'}/>
+                        <h1 className="text-xl font-semibold text-gray-700">Gestor de Equipes</h1>
+                    </div>
+                    <nav className="flex-grow space-y-1">
+                        <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>
+                        <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>
+                        <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>
+                        <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>
+                        <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>
+                        <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>
+                        <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>
+                    </nav>
+                    <div className="mt-auto">
+                        <p className="text-xs text-gray-500 mb-2 px-2">Logado como: {currentUser.isAnonymous ? "Anônimo" : currentUser.email || currentUser.uid}</p>
+                        <button
+                            onClick={() => firebaseAuth.signOut()}
+                            className="w-full flex items-center justify-center px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors duration-150 ease-in-out"
+                        >
+                            <LucideLogOut size={18} className="mr-2"/> Sair
+                        </button>
+                    </div>
+                </aside>
 
-            <main className="flex-1 overflow-y-auto">
-                <PageContent />
-            </main>
-        </div>
+                <main className="flex-1 overflow-y-auto">
+                    <PageContent />
+                </main>
+            </div>
+        </>
     );
 }
 
