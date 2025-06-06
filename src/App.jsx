@@ -48,6 +48,19 @@ const formatDate = (timestamp) => {
     }
     return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
 };
+const converterParaDate = (valor) => {
+    if (!valor) return null;
+    // Se já for um Timestamp do Firestore, converte para Date
+    if (valor instanceof Timestamp) {
+        return valor.toDate();
+    }
+    // Se for um objeto com as propriedades 'seconds' e 'nanoseconds' (formato comum)
+    if (typeof valor.seconds === 'number' && typeof valor.nanoseconds === 'number') {
+        return new Timestamp(valor.seconds, valor.nanoseconds).toDate();
+    }
+    // Se for qualquer outra coisa, é inválido para nosso caso
+    return null;
+};
 
 // ALTERAÇÃO v2.5.0: Função movida para o escopo global para ser reutilizada.
 const getStatusColor = (status) => {
@@ -323,19 +336,21 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 
 const GlobalProvider = ({ children }) => {
     const DADOS_INICIAIS_CONFIG = {
-        prioridades: ["P1 - CURTO PRAZO", "P2 - MÉDIO PRAZO", "P3 - LONGO PRAZO", "P4 - URGENTE"],
-        areas: ["LADO 01", "LADO 02", "ANEXO A", "ANEXO B", "ANEXO C", "CANTEIRO CENTRAL", "LOJA", "OLIVEIRAS - ANT. REFEITORIO", "OLIVEIRAS - ESQUINA", "TERRENO - TEO (FRENTE ANT. REF.)", "PLANTÃO", "EXTERNO"],
-        acoes: ["MANUTENÇÃO", "IRRIGAÇÃO", "PREVENÇÃO"],
-        responsaveis: ["ALEX", "THIAGO", "BERNARD", "ADAIR", "ODAIR", "ENIVALDO", "MARCELO", "ROBERTO M.", "VALDIR (DUNA)", "GIOVANI (DIDIO)", "CARGA/DESCARGA"],
-        status: ["PREVISTA", "PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA", "AGUARDANDO ALOCAÇÃO", "CANCELADA"],
-        turnos: ["MANHÃ", "TARDE", "DIA INTEIRO"]
-    };
+    prioridades: ["P1 - CURTO PRAZO", "P2 - MÉDIO PRAZO", "P3 - LONGO PRAZO", "P4 - URGENTE"],
+    areas: ["LADO 01", "LADO 02", "ANEXO A", "ANEXO B", "ANEXO C", "CANTEIRO CENTRAL", "LOJA", "OLIVEIRAS - ANT. REFEITORIO", "OLIVEIRAS - ESQUINA", "TERRENO - TEO (FRENTE ANT. REF.)", "PLANTÃO", "EXTERNO"],
+    acoes: ["MANUTENÇÃO", "IRRIGAÇÃO", "PREVENÇÃO", "CONSERTO", "PODA", "RECOLHIMENTO", "LIMPEZA"],
+    responsaveis: ["ALEX", "THIAGO", "BERNARD", "ADAIR", "ODAIR", "ENIVALDO", "MARCELO", "ROBERTO M.", "VALDIR (DUNA)", "GIOVANI (DIDIO)", "CARGA/DESCARGA"],
+    status: ["PREVISTA", "PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA", "AGUARDANDO ALOCAÇÃO", "CANCELADA"],
+    turnos: ["MANHÃ", "TARDE", "DIA INTEIRO"],
+    // [NOVO] Adicionada a lista de tarefas fixas.
+    tarefas: ["REALOCAÇÃO DE MUDAS","APLICAÇÃO DE DEFENSIVOS","NIVELAMENTO DE CANTEIROS","CLASSIFICAÇÃO DE MUDAS","OPERAÇÃO COM MUNCK","AVALIAÇÃO TÉCNICA","LIMPEZA DE CANTEIROS","RONDA GERAL"]
+};
 
     const [currentUser, setCurrentUser] = useState(null);
     const [userId, setUserId] = useState(null);
     const [loadingAuth, setLoadingAuth] = useState(true);
     const [listasAuxiliares, setListasAuxiliares] = useState({
-        prioridades: [], areas: [], acoes: [], status: [], turnos: []
+    prioridades: [], areas: [], acoes: [], status: [], turnos: [], tarefas: []
     });
     const [funcionarios, setFuncionarios] = useState([]);
     const [initialDataSeeded, setInitialDataSeeded] = useState(false);
@@ -388,6 +403,7 @@ const GlobalProvider = ({ children }) => {
                     { nomeCol: 'acoes', data: DADOS_INICIAIS_CONFIG.acoes },
                     { nomeCol: 'status', data: DADOS_INICIAIS_CONFIG.status },
                     { nomeCol: 'turnos', data: DADOS_INICIAIS_CONFIG.turnos },
+                    { nomeCol: 'tarefas', data: DADOS_INICIAIS_CONFIG.tarefas }, // [NOVO]
                 ];
                 const batchSeed = writeBatch(db);
 
@@ -452,7 +468,7 @@ const GlobalProvider = ({ children }) => {
         const basePath = `/artifacts/${appId}/public/data`;
         const unsubscribers = [];
 
-        const listaNames = ['prioridades', 'areas', 'acoes', 'status', 'turnos'];
+        const listaNames = ['prioridades', 'areas', 'acoes', 'status', 'turnos', 'tarefas'];
         listaNames.forEach(name => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/${name}/items`));
             const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -859,6 +875,8 @@ const ConfiguracoesComponent = () => {
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Configurações Gerais</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
+                    {/* [NOVO] Adicionado o gerenciador para a nova lista de tarefas. */}
+                    <ListaAuxiliarManager nomeLista="Tarefas (Descrições Fixas)" nomeSingular="Tarefa" collectionPathSegment="tarefas" />
                     <ListaAuxiliarManager nomeLista="Prioridades" nomeSingular="Prioridade" collectionPathSegment="prioridades" />
                     <ListaAuxiliarManager nomeLista="Áreas" nomeSingular="Área" collectionPathSegment="areas" />
                     <ListaAuxiliarManager nomeLista="Ações" nomeSingular="Ação" collectionPathSegment="acoes" />
@@ -954,7 +972,16 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
-                    <input type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
+                    {/* [ALTERADO] O campo de texto foi substituído por um seletor (dropdown). */}
+                    <select 
+                        value={tarefa} 
+                        onChange={(e) => setTarefa(e.target.value)} 
+                        required 
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    >
+                        <option value="">Selecione uma Tarefa...</option>
+                        {listasAuxiliares.tarefas.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -2160,7 +2187,17 @@ const TarefaPatioComponent = () => {
                 <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
                     <div>
                         <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
-                        <input id="tarefaDescricao" type="text" value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
+                        {/* [ALTERADO] O campo de texto foi substituído por um seletor (dropdown). */}
+                        <select
+                            id="tarefaDescricao"
+                            value={tarefa}
+                            onChange={(e) => setTarefa(e.target.value)}
+                            required
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
+                        >
+                            <option value="">Selecione uma Tarefa...</option>
+                            {(listasAuxiliares.tarefas || []).map(t => (<option key={t} value={t}>{t}</option>))}
+                        </select>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2788,7 +2825,7 @@ const RelatoriosComponent = () => {
                             <table className="min-w-full divide-y divide-gray-200 border">
                                 <thead className="bg-gray-100">
                                     <tr>
-                                        {["Responsável", "Tarefa", "Status", "Turno", "Prioridade", "Data Início", "Data Fim", "Área", "Ação"].map(header => (
+                                        {["Responsável", "Tarefa", "Orientação", "Área", "Status", "Prioridade", "Turno", "Data Início", "Data Término"].map(header => (
                                             <th key={header} scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider border-b">{header}</th>
                                         ))}
                                     </tr>
@@ -2801,13 +2838,13 @@ const RelatoriosComponent = () => {
                                             <tr key={task.id}>
                                                 <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{getResponsavelNomesParaRelatorio(task.responsaveis)}</td>
                                                 <td className="px-4 py-2 text-sm text-gray-800 border-b max-w-xs whitespace-normal break-words">{task.tarefa}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-700 border-b max-w-xs whitespace-normal break-words">{task.orientacao}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{task.area}</td>
                                                 <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{task.status}</td>
-                                                <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{task.turno || 'N/A'}</td>
                                                 <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{task.prioridade}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{task.turno || 'N/A'}</td>
                                                 <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{formatDateForDisplay(task.dataInicio)}</td>
                                                 <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{formatDateForDisplay(task.dataProvavelTermino)}</td>
-                                                <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{task.area}</td>
-                                                <td className="px-4 py-2 text-sm text-gray-700 border-b whitespace-nowrap">{task.acao}</td>
                                             </tr>
                                         ))
                                     )}
@@ -2870,72 +2907,77 @@ const TarefasPendentesComponent = () => {
         }).join(', ');
     };
 
-    const handleSalvarAlocacao = async (tarefaId, dadosAlocacao) => {
-        setLoading(true); 
-        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
-        const usuario = auth.currentUser; 
-        try {
-            const dadosParaAtualizar = {
-                ...dadosAlocacao, 
-                status: "PROGRAMADA",
-                updatedAt: Timestamp.now(),
-                alocadoPor: usuario?.uid || 'sistema', 
-                alocadoEm: Timestamp.now(),     
-                semanaProgramada: "", 
-            };
-            
-            if (dadosAlocacao.dataInicio && dadosAlocacao.dataInicio instanceof Timestamp) {
-                const dataInicioJS = dadosAlocacao.dataInicio.toDate();
-                dataInicioJS.setUTCHours(0, 0, 0, 0);
+const handleSalvarAlocacao = async (tarefaId, dadosAlocacao) => {
+    setLoading(true);
+    const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+    const usuario = auth.currentUser;
 
-                const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
-                const todasSemanasSnap = await getDocs(todasSemanasQuery);
+    try {
+        const dadosParaAtualizar = {
+            ...dadosAlocacao,
+            status: "PROGRAMADA",
+            updatedAt: Timestamp.now(),
+            alocadoPor: usuario?.uid || 'sistema',
+            alocadoEm: Timestamp.now(),
+            semanaProgramada: "", // Valor padrão
+        };
 
-                for (const semanaDocSnap of todasSemanasSnap.docs) {
-                    const semana = semanaDocSnap.data();
-                    if (semana.dataInicioSemana instanceof Timestamp && semana.dataFimSemana instanceof Timestamp) {
-                        const inicioSemanaJS = semana.dataInicioSemana.toDate();
-                        inicioSemanaJS.setUTCHours(0,0,0,0);
-                        const fimSemanaJS = semana.dataFimSemana.toDate();
-                        fimSemanaJS.setUTCHours(23,59,59,999);
+        const dataInicioAlocacao = dadosAlocacao.dataInicio;
 
-                        if (inicioSemanaJS.getTime() <= dataInicioJS.getTime() && fimSemanaJS.getTime() >= dataInicioJS.getTime()) {
-                            dadosParaAtualizar.semanaProgramada = semana.nomeAba || semanaDocSnap.id;
-                            break;
-                        }
-                    } else {
-                        console.warn(`Semana ${semanaDocSnap.id} com datas inválidas no Firestore.`);
+        if (dataInicioAlocacao instanceof Timestamp) {
+            const dataInicioTarefaStr = dataInicioAlocacao.toDate().toISOString().split('T')[0];
+            const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
+            const todasSemanasSnap = await getDocs(todasSemanasQuery);
+
+            for (const semanaDocSnap of todasSemanasSnap.docs) {
+                const semana = semanaDocSnap.data();
+                
+                // [CORREÇÃO] Usando a função auxiliar robusta para converter as datas
+                const inicioSemanaDate = converterParaDate(semana.dataInicioSemana);
+                const fimSemanaDate = converterParaDate(semana.dataFimSemana);
+
+                if (inicioSemanaDate && fimSemanaDate) {
+                    const inicioSemanaStr = inicioSemanaDate.toISOString().split('T')[0];
+                    const fimSemanaStr = fimSemanaDate.toISOString().split('T')[0];
+
+                    if (dataInicioTarefaStr >= inicioSemanaStr && dataInicioTarefaStr <= fimSemanaStr) {
+                        dadosParaAtualizar.semanaProgramada = semana.nomeAba || semanaDocSnap.id;
+                        break; 
                     }
                 }
             }
-
-            if (!dadosParaAtualizar.semanaProgramada) {
-                alert("A tarefa foi alocada e salva no Mapa de Atividades, mas não existe uma semana criada na Programação Semanal para o período selecionado. Crie a semana correspondente para visualizá-la na programação.");
-            }
-
-            await updateDoc(tarefaDocRef, dadosParaAtualizar);
-            
-            const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
-            if (tarefaAtualizadaSnap.exists()) {
-                const tarefaAtualizadaData = tarefaAtualizadaSnap.data();
-                await sincronizarTarefaComProgramacao(tarefaId, {id: tarefaId, ...tarefaAtualizadaData}, db, basePath);
-                
-                const dataInicioLog = dadosParaAtualizar.dataInicio ? formatDate(dadosParaAtualizar.dataInicio) : 'N/A';
-                const dataFimLog = dadosParaAtualizar.dataProvavelTermino ? formatDate(dadosParaAtualizar.dataProvavelTermino) : 'N/A';
-
-                await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Alocada", 
-                    `Alocada para: ${getResponsavelNomesParaLog(dadosParaAtualizar.responsaveis)}. Turno: ${dadosParaAtualizar.turno || 'N/A'}. Período: ${dataInicioLog} a ${dataFimLog}. Programada na semana: ${dadosParaAtualizar.semanaProgramada || 'Nenhuma'}`
-                );
-            }
-            
-            alert("Tarefa alocada com sucesso!");
-            handleFecharModalAlocacao();
-        } catch (error) {
-            console.error("Erro ao alocar tarefa:", error);
-            alert("Erro ao alocar tarefa: " + error.message);
         }
-        setLoading(false);
-    };
+
+        if (!dadosParaAtualizar.semanaProgramada && dadosAlocacao.dataInicio) {
+            alert("Atenção: A tarefa foi alocada, mas não há uma semana criada na Programação Semanal para o período selecionado. Crie a semana para visualizar a tarefa na programação.");
+        }
+
+        await updateDoc(tarefaDocRef, dadosParaAtualizar);
+
+        setTarefasPendentes(prevPendentes => prevPendentes.filter(t => t.id !== tarefaId));
+
+        const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
+        if (tarefaAtualizadaSnap.exists()) {
+            const dadosCompletosParaSync = { id: tarefaId, ...tarefaAtualizadaSnap.data() };
+            
+            await sincronizarTarefaComProgramacao(tarefaId, dadosCompletosParaSync, db, basePath);
+
+            const dataInicioLog = dadosParaAtualizar.dataInicio ? formatDate(dadosParaAtualizar.dataInicio) : 'N/A';
+            const dataFimLog = dadosParaAtualizar.dataProvavelTermino ? formatDate(dadosParaAtualizar.dataProvavelTermino) : 'N/A';
+
+            await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Alocada",
+                `Alocada para: ${getResponsavelNomesParaLog(dadosParaAtualizar.responsaveis)}. Turno: ${dadosParaAtualizar.turno || 'N/A'}. Período: ${dataInicioLog} a ${dataFimLog}. Programada na semana: ${dadosParaAtualizar.semanaProgramada || 'Nenhuma'}`
+            );
+        }
+
+        alert("Tarefa alocada com sucesso!");
+        handleFecharModalAlocacao();
+    } catch (error) {
+        console.error("Erro ao alocar tarefa:", error);
+        alert("Erro ao alocar tarefa: " + error.message);
+    }
+    setLoading(false);
+};
     
 
     if (loading && tarefasPendentes.length === 0) return <div className="p-6 text-center">Carregando tarefas pendentes...</div>;
