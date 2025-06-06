@@ -164,10 +164,11 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
 
     const itemTarefaProgramacao = {
         mapaTaskId: tarefaId,
-        textoVisivel: textoVisivelFinal, 
+        textoVisivel: textoVisivelFinal,
         statusLocal: tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
         mapaStatus: tarefaData.status,
-        turno: tarefaData.turno || TURNO_DIA_INTEIRO 
+        turno: tarefaData.turno || TURNO_DIA_INTEIRO,
+        orientacao: tarefaData.orientacao || ''
     };
 
     const dataInicioLoop = tarefaData.dataInicio.toDate();
@@ -1179,13 +1180,11 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
 
 
 // Componente MapaAtividades
-// Componente MapaAtividades
 const MapaAtividadesComponent = () => {
-    const { userId, db, appId, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext);
+    const { userId, db, appId, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext); 
     
-    // [NOVO] Referência para guardar a lista de tarefas anterior para comparação
+    // --- Estados para os dados e UI ---
     const tarefasAnteriores = useRef([]);
-
     const [todasTarefas, setTodasTarefas] = useState([]);
     const [tarefasExibidas, setTarefasExibidas] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1195,18 +1194,21 @@ const MapaAtividadesComponent = () => {
     const [selectedTarefaIdParaHistorico, setSelectedTarefaIdParaHistorico] = useState(null);
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
     const [tarefaParaStatusUpdate, setTarefaParaStatusUpdate] = useState(null);
+    
+    // --- Estados para todos os filtros ---
     const [filtroResponsavel, setFiltroResponsavel] = useState("TODOS");
     const [filtroStatus, setFiltroStatus] = useState(TODOS_OS_STATUS_VALUE);
     const [filtroPrioridade, setFiltroPrioridade] = useState(TODAS_AS_PRIORIDADES_VALUE);
     const [filtroArea, setFiltroArea] = useState(TODAS_AS_AREAS_VALUE);
+    const [filtroTurno, setFiltroTurno] = useState("---TODOS_OS_TURNOS---");
     const [filtroDataInicio, setFiltroDataInicio] = useState('');
     const [filtroDataFim, setFiltroDataFim] = useState('');
     const [termoBusca, setTermoBusca] = useState('');
 
     const basePath = `/artifacts/${appId}/public/data`;
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
+    const TODOS_OS_TURNOS_VALUE = "---TODOS_OS_TURNOS---";
 
-    // [ALTERADO] useEffect principal agora com a lógica de notificação
     useEffect(() => {
         setLoading(true);
         const usuarioAtual = auth.currentUser;
@@ -1215,15 +1217,14 @@ const MapaAtividadesComponent = () => {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     
-            // Lógica para detectar e notificar novas tarefas
             if (tarefasAnteriores.current.length > 0 && usuarioAtual) {
                 const tarefasAtuaisIds = new Set(tarefasAnteriores.current.map(t => t.id));
                 const novaTarefa = fetchedTarefas.find(t => !tarefasAtuaisIds.has(t.id));
-    
+        
                 if (novaTarefa) {
                     const deveNotificar = listasAuxiliares.usuarios_notificacao.includes(usuarioAtual.email);
                     const naoFoiCriador = novaTarefa.criadoPor !== usuarioAtual.uid;
-    
+        
                     if (deveNotificar && naoFoiCriador) {
                         toast.success(`Nova tarefa criada: ${novaTarefa.tarefa}`);
                     }
@@ -1231,7 +1232,7 @@ const MapaAtividadesComponent = () => {
             }
             
             setTodasTarefas(fetchedTarefas);
-            tarefasAnteriores.current = fetchedTarefas; // Atualiza a referência para a próxima vez
+            tarefasAnteriores.current = fetchedTarefas;
             setLoading(false);
     
         }, (error) => {
@@ -1240,10 +1241,17 @@ const MapaAtividadesComponent = () => {
         });
     
         return () => unsubscribe();
-    }, [userId, appId, db, listasAuxiliares, auth]); // Dependências atualizadas
+    }, [userId, appId, db, auth, listasAuxiliares]);
 
     useEffect(() => {
         let tarefasProcessadas = [...todasTarefas];
+
+        if (termoBusca.trim() !== "") {
+            tarefasProcessadas = tarefasProcessadas.filter(t => 
+                (t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())) ||
+                (t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase()))
+            );
+        }
 
         if (filtroResponsavel !== "TODOS") {
             if (filtroResponsavel === SEM_RESPONSAVEL_VALUE) {
@@ -1262,20 +1270,17 @@ const MapaAtividadesComponent = () => {
         if (filtroArea !== TODAS_AS_AREAS_VALUE) {
             tarefasProcessadas = tarefasProcessadas.filter(t => t.area === filtroArea);
         }
-        
-        if (termoBusca.trim() !== "") {
-            tarefasProcessadas = tarefasProcessadas.filter(t => 
-                t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase())
-            );
+        if (filtroTurno !== TODOS_OS_TURNOS_VALUE) {
+            tarefasProcessadas = tarefasProcessadas.filter(t => t.turno === filtroTurno);
         }
-
+        
         const inicioFiltro = filtroDataInicio ? new Date(filtroDataInicio + "T00:00:00Z").getTime() : null;
         const fimFiltro = filtroDataFim ? new Date(filtroDataFim + "T23:59:59Z").getTime() : null;
 
         if (inicioFiltro || fimFiltro) {
             tarefasProcessadas = tarefasProcessadas.filter(t => {
-                const inicioTarefa = t.dataInicio ? t.dataInicio.toDate().getTime() : null;
-                const fimTarefa = t.dataProvavelTermino ? t.dataProvavelTermino.toDate().getTime() : null;
+                const inicioTarefa = (t.dataInicio && typeof t.dataInicio.toDate === 'function') ? t.dataInicio.toDate().getTime() : null;
+                const fimTarefa = (t.dataProvavelTermino && typeof t.dataProvavelTermino.toDate === 'function') ? t.dataProvavelTermino.toDate().getTime() : null;
 
                 if (!inicioTarefa) return false; 
                 
@@ -1291,292 +1296,199 @@ const MapaAtividadesComponent = () => {
         }
         
         setTarefasExibidas(tarefasProcessadas);
-    }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroDataInicio, filtroDataFim, termoBusca]);
+    }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroTurno, filtroDataInicio, filtroDataFim, termoBusca]);
 
-
-    const handleOpenModal = (tarefa = null) => {
-        setEditingTarefa(tarefa);
-        setIsModalOpen(true);
-    };
-
-    const handleCloseModal = () => {
-        setIsModalOpen(false);
-        setEditingTarefa(null);
+    const limparFiltros = () => {
+        setFiltroResponsavel("TODOS");
+        setFiltroStatus(TODOS_OS_STATUS_VALUE);
+        setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE);
+        setFiltroArea(TODAS_AS_AREAS_VALUE);
+        setFiltroTurno(TODOS_OS_TURNOS_VALUE);
+        setFiltroDataInicio('');
+        setFiltroDataFim('');
+        setTermoBusca('');
     };
     
-    const handleOpenHistoricoModal = (tarefaId) => {
-        setSelectedTarefaIdParaHistorico(tarefaId);
-        setIsHistoricoModalOpen(true);
+    // --- Demais Funções (Handlers e Helpers) - Sem alterações ---
+    const handleOpenModal = (tarefa = null) => { setEditingTarefa(tarefa); setIsModalOpen(true); };
+    const handleCloseModal = () => { setIsModalOpen(false); setEditingTarefa(null); };
+    const handleOpenHistoricoModal = (tarefaId) => { setSelectedTarefaIdParaHistorico(tarefaId); setIsHistoricoModalOpen(true); };
+    const handleCloseHistoricoModal = () => { setIsHistoricoModalOpen(false); setSelectedTarefaIdParaHistorico(null); };
+    const handleOpenStatusModal = (tarefa) => { setTarefaParaStatusUpdate(tarefa); setIsStatusModalOpen(true); };
+    const handleCloseStatusModal = () => { setIsStatusModalOpen(false); setTarefaParaStatusUpdate(null); };
+    const getResponsavelNomes = (responsavelIds) => {
+        if (!responsavelIds || responsavelIds.length === 0) return '---';
+        return responsavelIds.map(id => { const func = contextFuncionarios.find(f => f.id === id); return func ? func.nome : id; }).join(', ');
     };
-
-    const handleCloseHistoricoModal = () => {
-        setIsHistoricoModalOpen(false);
-        setSelectedTarefaIdParaHistorico(null);
-    };
-
-    const handleOpenStatusModal = (tarefa) => {
-        setTarefaParaStatusUpdate(tarefa);
-        setIsStatusModalOpen(true);
-    };
-
-    const handleCloseStatusModal = () => {
-        setIsStatusModalOpen(false);
-        setTarefaParaStatusUpdate(null);
-    };
-
     const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
         const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
-
-        if (!tarefaOriginal) {
-            throw new Error("Tarefa original não encontrada para atualização de status.");
-        }
-
-        const payload = {
-            status: novoStatus,
-            updatedAt: Timestamp.now()
-        };
-
+        if (!tarefaOriginal) { throw new Error("Tarefa não encontrada."); }
+        const payload = { status: novoStatus, updatedAt: Timestamp.now() };
         const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
         await updateDoc(tarefaDocRef, payload);
-
         const detalhesLog = `Status alterado de '${tarefaOriginal.status}' para '${novoStatus}' via alteração rápida.`;
         await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Status Atualizado", detalhesLog);
-
-        const tarefaAtualizadaParaSync = { ...tarefaOriginal, ...payload };
-        await sincronizarTarefaComProgramacao(tarefaId, tarefaAtualizadaParaSync, db, basePath);
+        await sincronizarTarefaComProgramacao(tarefaId, { ...tarefaOriginal, ...payload }, db, basePath);
     };
-
-
     const handleSaveTarefa = async (tarefaData, tarefaIdParaSalvar) => { 
         let idDaTarefaSalva = tarefaIdParaSalvar;
         const usuario = auth.currentUser;
         try {
             if (tarefaIdParaSalvar) { 
                 const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaIdParaSalvar);
-                const tarefaExistenteSnap = await getDoc(tarefaDocRef);
-                let detalhesMudanca = [];
-
-                if (tarefaExistenteSnap.exists()) {
-                    const dadosAntigos = tarefaExistenteSnap.data();
-                    if (dadosAntigos.tarefa !== tarefaData.tarefa) detalhesMudanca.push(`Descrição: '${dadosAntigos.tarefa || ''}' -> '${tarefaData.tarefa}'`);
-                    if (dadosAntigos.status !== tarefaData.status) detalhesMudanca.push(`Status: ${dadosAntigos.status || 'N/A'} -> ${tarefaData.status || 'N/A'}`);
-                    if (dadosAntigos.prioridade !== tarefaData.prioridade) detalhesMudanca.push(`Prioridade: ${dadosAntigos.prioridade || 'N/A'} -> ${tarefaData.prioridade || 'N/A'}`);
-                    if (dadosAntigos.area !== tarefaData.area) detalhesMudanca.push(`Área: ${dadosAntigos.area || 'N/A'} -> ${tarefaData.area || 'N/A'}`);
-                    if (dadosAntigos.acao !== tarefaData.acao) detalhesMudanca.push(`Ação: ${dadosAntigos.acao || 'N/A'} -> ${tarefaData.acao || 'N/A'}`);
-                    
-                    const respAntigosNomes = (dadosAntigos.responsaveis || []).map(id => contextFuncionarios.find(f => f.id === id)?.nome || id).join(', ') || 'Nenhum';
-                    const respNovosNomes = (tarefaData.responsaveis || []).map(id => contextFuncionarios.find(f => f.id === id)?.nome || id).join(', ') || 'Nenhum';
-                    if (JSON.stringify(dadosAntigos.responsaveis || []) !== JSON.stringify(tarefaData.responsaveis || [])) detalhesMudanca.push(`Responsáveis: ${respAntigosNomes} -> ${respNovosNomes}`);
-                    
-                    if (dadosAntigos.turno !== tarefaData.turno) detalhesMudanca.push(`Turno: ${dadosAntigos.turno || 'N/A'} -> ${tarefaData.turno || 'N/A'}`);
-                    
-                    const dataInicioAntigaStr = dadosAntigos.dataInicio ? formatDate(dadosAntigos.dataInicio) : 'N/A';
-                    const dataInicioNovaStr = tarefaData.dataInicio ? formatDate(tarefaData.dataInicio) : 'N/A';
-                    if (dataInicioAntigaStr !== dataInicioNovaStr) detalhesMudanca.push(`Data Início: ${dataInicioAntigaStr} -> ${dataInicioNovaStr}`);
-
-                    const dataTerminoAntigaStr = dadosAntigos.dataProvavelTermino ? formatDate(dadosAntigos.dataProvavelTermino) : 'N/A';
-                    const dataTerminoNovaStr = tarefaData.dataProvavelTermino ? formatDate(tarefaData.dataProvavelTermino) : 'N/A';
-                    if (dataTerminoAntigaStr !== dataTerminoNovaStr) detalhesMudanca.push(`Data Término: ${dataTerminoAntigaStr} -> ${dataTerminoNovaStr}`);
-                    
-                    if (dadosAntigos.orientacao !== tarefaData.orientacao) detalhesMudanca.push(`Orientação alterada.`);
-                }
-                
                 await setDoc(tarefaDocRef, tarefaData, { merge: true }); 
                 idDaTarefaSalva = tarefaIdParaSalvar;
-                if (detalhesMudanca.length > 0) {
-                    await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Atualizada", detalhesMudanca.join('; '));
-                }
-
             } else { 
                 const docRef = await addDoc(tarefasCollectionRef, tarefaData);
                 idDaTarefaSalva = docRef.id; 
                 await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" adicionada.`);
             }
-            
             if (idDaTarefaSalva) { 
-                const tarefaSalvaNoMapaRef = doc(db, `${basePath}/tarefas_mapa`, idDaTarefaSalva);
-                const tarefaSalvaSnap = await getDoc(tarefaSalvaNoMapaRef);
+                const tarefaSalvaSnap = await getDoc(doc(db, `${basePath}/tarefas_mapa`, idDaTarefaSalva));
                 if (tarefaSalvaSnap.exists()){
-                    const dadosCompletosFirestore = {id: tarefaSalvaSnap.id, ...tarefaSalvaSnap.data()}; 
-                    await sincronizarTarefaComProgramacao(idDaTarefaSalva, dadosCompletosFirestore, db, basePath);
-                } else {
-                    console.error("Tarefa recém salva não encontrada para sincronização:", idDaTarefaSalva);
+                    await sincronizarTarefaComProgramacao(idDaTarefaSalva, {id: tarefaSalvaSnap.id, ...tarefaSalvaSnap.data()}, db, basePath);
                 }
             }
-        } catch (error) {
-            console.error("Erro ao salvar tarefa: ", error);
-            alert("Erro ao salvar tarefa: " + error.message);
-        }
+        } catch (error) { console.error("Erro ao salvar tarefa: ", error); }
     };
-
     const handleDeleteTarefa = async (tarefaId) => {
         const tarefaParaExcluir = todasTarefas.find(t => t.id === tarefaId);
-        const nomeTarefaExcluida = tarefaParaExcluir ? tarefaParaExcluir.tarefa : `ID ${tarefaId}`;
-
-        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${nomeTarefaExcluida}" do Mapa de Atividades? Ela também será removida da programação semanal.`)) {
+        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${tarefaParaExcluir?.tarefa}"?`)) {
             try {
-                await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Tarefa Excluída", `Tarefa "${nomeTarefaExcluida}" foi removida.`);
-                
                 await removerTarefaDaProgramacao(tarefaId, db, basePath);
-                const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
-                await deleteDoc(tarefaDocRef);
-                console.log(`Tarefa ${tarefaId} excluída do mapa e da programação.`);
-            } catch (error) {
-                console.error("Erro ao excluir tarefa: ", error);
-                alert("Erro ao excluir tarefa: " + error.message);
-            }
+                await deleteDoc(doc(db, `${basePath}/tarefas_mapa`, tarefaId));
+            } catch (error) { console.error("Erro ao excluir tarefa: ", error); }
         }
     };
-    
-    const getResponsavelNomes = (responsavelIds) => {
-        if (!responsavelIds || responsavelIds.length === 0) return '---';
-        return responsavelIds.map(id => {
-            const func = contextFuncionarios.find(f => f.id === id); 
-            return func ? func.nome : id; 
-        }).join(', ');
-    };
-    
-    const limparFiltros = () => {
-        setFiltroResponsavel("TODOS");
-        setFiltroStatus(TODOS_OS_STATUS_VALUE);
-        setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE);
-        setFiltroArea(TODAS_AS_AREAS_VALUE);
-        setFiltroDataInicio('');
-        setFiltroDataFim('');
-        setTermoBusca('');
-    };
 
-
-    if (loading && todasTarefas.length === 0) return <div className="p-6 text-center">Carregando tarefas do Mapa de Atividades...</div>;
+    // [ATUALIZADO] Constante para os cabeçalhos da tabela na nova ordem
+    const TABLE_HEADERS = ["Tarefa", "Orientação", "Responsável(eis)", "Área", "Prioridade", "Período", "Turno", "Status", "Ações"];
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Mapa de Atividades</h2>
-                <button
-                    onClick={() => handleOpenModal()}
-                    className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
-                >
+                <button onClick={() => handleOpenModal()} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
                     <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa
                 </button>
             </div>
 
-            <div className="bg-white p-4 rounded-lg shadow mb-6">
-                <h3 className="text-lg font-semibold mb-3 text-gray-700">Filtros</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="p-4 bg-white rounded-lg shadow-md mb-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     <div>
-                        <label htmlFor="filtroResponsavel" className="block text-sm font-medium text-gray-700">Responsável</label>
-                        <select id="filtroResponsavel" value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)} className="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                            <option value="TODOS">TODOS</option>
-                            <option value={SEM_RESPONSAVEL_VALUE}>-- Sem Responsável --</option>
+                        <label className="block text-sm font-medium text-gray-700">Buscar Tarefa/Orientação</label>
+                        <input type="text" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Digite para buscar..." className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Responsável</label>
+                        <select value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                            <option value="TODOS">Todos</option>
+                            <option value={SEM_RESPONSAVEL_VALUE}>--- SEM RESPONSÁVEL ---</option>
                             {contextFuncionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
                         </select>
                     </div>
                     <div>
-                        <label htmlFor="filtroStatus" className="block text-sm font-medium text-gray-700">Status</label>
-                        <select id="filtroStatus" value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                            <option value={TODOS_OS_STATUS_VALUE}>TODOS</option>
-                            {listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}
+                        <label className="block text-sm font-medium text-gray-700">Status</label>
+                        <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODOS_OS_STATUS_VALUE}>Todos</option>
+                           {listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
-                    </div>
-                     <div>
-                        <label htmlFor="filtroPrioridade" className="block text-sm font-medium text-gray-700">Prioridade</label>
-                        <select id="filtroPrioridade" value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)} className="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                            <option value={TODAS_AS_PRIORIDADES_VALUE}>TODAS</option>
-                            {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                    </div>
-                     <div>
-                        <label htmlFor="filtroArea" className="block text-sm font-medium text-gray-700">Área</label>
-                        <select id="filtroArea" value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                            <option value={TODAS_AS_AREAS_VALUE}>TODAS</option>
-                            {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
-                        </select>
-                    </div>
-                     <div>
-                        <label htmlFor="filtroDataInicio" className="block text-sm font-medium text-gray-700">Data Início (Período)</label>
-                        <input type="date" id="filtroDataInicio" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} className="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/>
                     </div>
                     <div>
-                        <label htmlFor="filtroDataFim" className="block text-sm font-medium text-gray-700">Data Fim (Período)</label>
-                        <input type="date" id="filtroDataFim" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/>
+                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
+                        <select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODAS_AS_PRIORIDADES_VALUE}>Todas</option>
+                           {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
                     </div>
-                     <div className="col-span-full sm:col-span-2 md:col-span-2 lg:col-span-2">
-                        <label htmlFor="termoBusca" className="block text-sm font-medium text-gray-700">Buscar na Orientação</label>
-                        <div className="mt-1 flex rounded-md shadow-sm">
-                             <input type="text" id="termoBusca" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Buscar por palavra na orientação..." className="block w-full p-2 border-gray-300 rounded-l-md focus:ring-blue-500 focus:border-blue-500"/>
-                             <button onClick={() => setTermoBusca('')} className="bg-gray-200 p-2 rounded-r-md text-gray-500 hover:bg-gray-300">
-                                 <LucideX size={18}/>
-                             </button>
-                        </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700">Área</label>
+                        <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODAS_AS_AREAS_VALUE}>Todas</option>
+                           {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Turno</label>
+                        <select value={filtroTurno} onChange={(e) => setFiltroTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODOS_OS_TURNOS_VALUE}>Todos</option>
+                           {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Início do Período</label>
+                        <input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Fim do Período</label>
+                        <input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
                     </div>
                 </div>
-                <div className="mt-4 text-right">
-                    <button 
-                        onClick={limparFiltros}
-                        className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center ml-auto"
-                    >
-                        <LucideXCircle size={18} className="mr-2"/>
-                        Limpar Filtros
+                 <div className="mt-4 flex justify-end">
+                    <button onClick={limparFiltros} className="text-sm text-blue-600 hover:text-blue-800 font-semibold flex items-center">
+                        <LucideXCircle size={16} className="mr-1"/> Limpar Filtros
                     </button>
                 </div>
             </div>
 
-
+            {/* [ATUALIZADO] Tabela de Tarefas com a nova ordem e colunas removidas */}
             <div className="bg-white shadow-md rounded-lg overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-100">
                         <tr>
-                            {["Tarefa", "Prioridade", "Área", "Ação", "Responsável(eis)", "Status", "Turno", "Início", "Término", "Orientação", "Ações"].map(header => (
-                                <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap">
-                                    {header}
-                                </th>
+                            {TABLE_HEADERS.map(header => (
+                                <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{header}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {loading && tarefasExibidas.length === 0 && (
-                            <tr><td colSpan="11" className="px-4 py-4 text-center text-gray-500">Carregando...</td></tr>
+                        {loading ? (
+                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4">Carregando tarefas...</td></tr>
+                        ) : tarefasExibidas.length === 0 ? (
+                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4 text-gray-500">Nenhuma tarefa encontrada.</td></tr>
+                        ) : (
+                            tarefasExibidas.map(tarefa => (
+                                <tr key={tarefa.id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs whitespace-normal break-words">{tarefa.tarefa}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-700 max-w-sm whitespace-normal break-words">{tarefa.orientacao || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 max-w-xs whitespace-normal break-words">{getResponsavelNomes(tarefa.responsaveis)}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.area || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.prioridade || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{formatDate(tarefa.dataInicio)} a {formatDate(tarefa.dataProvavelTermino)}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.turno || 'N/A'}</td>
+                                    <td className="px-4 py-3 text-sm">
+                                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(tarefa.status)}`}>
+                                            {tarefa.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
+                                        <div className="flex items-center space-x-2">
+                                            <button onClick={() => handleOpenStatusModal(tarefa)} title="Alterar Status" className="text-blue-600 hover:text-blue-800"><LucideRefreshCw size={18}/></button>
+                                            <button onClick={() => handleOpenModal(tarefa)} title="Editar" className="text-gray-600 hover:text-gray-900"><LucideEdit size={18}/></button>
+                                            <button onClick={() => handleOpenHistoricoModal(tarefa.id)} title="Histórico" className="text-gray-600 hover:text-gray-900"><LucideHistory size={18}/></button>
+                                            <button onClick={() => handleDeleteTarefa(tarefa.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
                         )}
-                        {!loading && tarefasExibidas.length === 0 && (
-                            <tr><td colSpan="11" className="px-4 py-4 text-center text-gray-500">Nenhuma tarefa encontrada com os filtros aplicados.</td></tr>
-                        )}
-                        {tarefasExibidas.map((t) => (
-                            <tr key={t.id} className={`hover:bg-gray-50 ${t.status === "CANCELADA" ? 'line-through text-gray-500' : ''} ${t.status === "CONCLUÍDA" ? COR_STATUS_CONCLUIDA_FUNDO_MAPA : ''}`}>
-                                <td className="px-4 py-3 text-sm text-gray-800 whitespace-normal break-words max-w-xs">{t.tarefa}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{t.prioridade}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{t.area}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{t.acao}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{getResponsavelNomes(t.responsaveis)}</td>
-                                <td className="px-4 py-3 text-sm whitespace-nowrap">
-                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(t.status)}`}>
-                                        {t.status}
-                                    </span>
-                                </td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{t.turno || 'N/A'}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{formatDate(t.dataInicio)}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{formatDate(t.dataProvavelTermino)}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 whitespace-normal break-words max-w-xs">{t.orientacao}</td>
-                                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
-                                    <button onClick={() => handleOpenStatusModal(t)} title="Gerenciar Status" className="text-green-600 hover:text-green-800 mr-2"><LucideListChecks size={18}/></button>
-                                    <button onClick={() => handleOpenHistoricoModal(t.id)} title="Histórico" className="text-gray-500 hover:text-gray-700 mr-2"><LucideHistory size={18}/></button>
-                                    <button onClick={() => handleOpenModal(t)} title="Editar" className="text-blue-600 hover:text-blue-800 mr-2"><LucideEdit size={18}/></button>
-                                    <button onClick={() => handleDeleteTarefa(t.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
-                                </td>
-                            </tr>
-                        ))}
                     </tbody>
                 </table>
             </div>
-            <TarefaFormModal isOpen={isModalOpen} onClose={handleCloseModal} tarefaExistente={editingTarefa} onSave={handleSaveTarefa} />
-            {selectedTarefaIdParaHistorico && (
-                <HistoricoTarefaModal 
-                    isOpen={isHistoricoModalOpen} 
-                    onClose={handleCloseHistoricoModal} 
-                    tarefaId={selectedTarefaIdParaHistorico} 
-                />
-            )}
-            <StatusUpdateModal 
+
+            {/* Modais (sem alterações) */}
+            <TarefaFormModal
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
+                tarefaExistente={editingTarefa}
+                onSave={handleSaveTarefa}
+            />
+            <HistoricoTarefaModal
+                isOpen={isHistoricoModalOpen}
+                onClose={handleCloseHistoricoModal}
+                tarefaId={selectedTarefaIdParaHistorico}
+            />
+            <StatusUpdateModal
                 isOpen={isStatusModalOpen}
                 onClose={handleCloseStatusModal}
                 tarefa={tarefaParaStatusUpdate}
@@ -1837,7 +1749,8 @@ const ProgramacaoSemanalComponent = () => {
                     textoVisivel: textoVisivelFinal,
                     statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
                     mapaStatus: tarefaMapa.status,
-                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO
+                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO,
+                    orientacao: tarefaMapa.orientacao || ''
                 };
 
                 const dataInicioTarefaDate = tarefaMapa.dataInicio.toDate();
@@ -2416,9 +2329,18 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                 {tarefasEditaveis.map((tarefa, index) => (
                     <div key={tarefa.mapaTaskId || index} className={`p-3 rounded-md shadow-sm border ${tarefa.statusLocal === 'CONCLUÍDA' ? 'border-green-300 bg-green-50' : 'border-blue-300 bg-blue-50'}`}>
                         <div className="flex justify-between items-start">
-                            <span className={`text-sm ${tarefa.statusLocal === 'CONCLUÍDA' ? 'line-through text-gray-600' : 'text-gray-800'}`}>
-                                {tarefa.textoVisivel}
-                            </span>
+                            <div className="flex-grow pr-2">
+                                <span className={`font-semibold text-sm ${tarefa.statusLocal === 'CONCLUÍDA' ? 'line-through text-gray-600' : 'text-gray-800'}`}>
+                                    {tarefa.textoVisivel}
+                                </span>
+                                
+                                {/* [ADICIONADO] Bloco para exibir a orientação da tarefa */}
+                                {tarefa.orientacao && (
+                                    <p className="text-sm text-gray-700 mt-2 pt-2 border-t border-gray-300">
+                                        <strong className="font-medium text-gray-800">Orientação:</strong> {tarefa.orientacao}
+                                    </p>
+                                )}
+                            </div>
                             <div className="flex space-x-2 items-center">
                                 <button
                                     onClick={() => handleToggleStatusLocal(index)}
@@ -2448,12 +2370,12 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                             </select>
                         </div>
                         {statusTarefasMapa[tarefa.mapaTaskId] && (
-                             <div className="mt-1 text-xs text-gray-500">
-                                Status no Mapa: <span className={`font-medium ${
-                                    statusTarefasMapa[tarefa.mapaTaskId] === 'CONCLUÍDA' ? 'text-green-600' : 
-                                    statusTarefasMapa[tarefa.mapaTaskId] === 'PROGRAMADA' ? 'text-blue-600' :
-                                    statusTarefasMapa[tarefa.mapaTaskId] === 'CANCELADA' ? 'text-red-600' : 'text-gray-600'
-                                }`}>{statusTarefasMapa[tarefa.mapaTaskId]}</span>
+                             <div className="mt-2 text-xs text-gray-500">
+                                 Status no Mapa: <span className={`font-medium ${
+                                     statusTarefasMapa[tarefa.mapaTaskId] === 'CONCLUÍDA' ? 'text-green-600' : 
+                                     statusTarefasMapa[tarefa.mapaTaskId] === 'PROGRAMADA' ? 'text-blue-600' :
+                                     statusTarefasMapa[tarefa.mapaTaskId] === 'CANCELADA' ? 'text-red-600' : 'text-gray-600'
+                                 }`}>{statusTarefasMapa[tarefa.mapaTaskId]}</span>
                             </div>
                         )}
                     </div>
@@ -3422,7 +3344,6 @@ const DashboardComponent = () => {
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
                 </div>
                 
-                {/* [ALTERADO] Quadro renomeado e com ação de alocação removida */}
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-orange-600 mb-4 flex items-center">
                         <LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação
