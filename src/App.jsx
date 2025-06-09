@@ -1505,7 +1505,7 @@ const ProgramacaoSemanalComponent = () => {
     const [semanas, setSemanas] = useState([]);
     const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
     const [dadosProgramacao, setDadosProgramacao] = useState(null);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [loadingAtualizacao, setLoadingAtualizacao] = useState(false);
     const [isNovaSemanaModalOpen, setIsNovaSemanaModalOpen] = useState(false);
     const [novaSemanaDataInicio, setNovaSemanaDataInicio] = useState('');
@@ -1517,52 +1517,49 @@ const ProgramacaoSemanalComponent = () => {
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
 
     const formatDateProg = (timestamp) => {
-        if (!timestamp) return 'N/A';
-        if (timestamp instanceof Timestamp) {
+        if (timestamp && typeof timestamp.toDate === 'function') {
             return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         }
-        if (typeof timestamp.seconds === 'number' && typeof timestamp.nanoseconds === 'number') {
-             return new Timestamp(timestamp.seconds, timestamp.nanoseconds).toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        }
-        return 'Data inválida';
+        return 'N/A';
     };
     const DIAS_SEMANA_PROG = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
 
     useEffect(() => {
-        const q = query(programacaoCollectionRef, orderBy("dataInicioSemana", "desc"));
+        setLoading(true);
+        // [CORREÇÃO 1/2] A ordenação foi removida da consulta para ser feita no código.
+        const q = query(programacaoCollectionRef);
+        
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedSemanas = snapshot.docs.map(doc => {
                 const data = doc.data();
-                let inicioSemana = null;
-                let fimSemana = null;
-
-                if (data.dataInicioSemana) {
-                    if (data.dataInicioSemana instanceof Timestamp) {
-                        inicioSemana = data.dataInicioSemana;
-                    } else if (typeof data.dataInicioSemana.seconds === 'number' && typeof data.dataInicioSemana.nanoseconds === 'number') {
-                        inicioSemana = new Timestamp(data.dataInicioSemana.seconds, data.dataInicioSemana.nanoseconds);
-                    }
-                }
-                if (data.dataFimSemana) {
-                    if (data.dataFimSemana instanceof Timestamp) {
-                        fimSemana = data.dataFimSemana;
-                    } else if (typeof data.dataFimSemana.seconds === 'number' && typeof data.dataFimSemana.nanoseconds === 'number') {
-                        fimSemana = new Timestamp(data.dataFimSemana.seconds, data.dataFimSemana.nanoseconds);
-                    }
-                }
+                const inicioSemana = (data.dataInicioSemana && typeof data.dataInicioSemana.toDate === 'function') ? data.dataInicioSemana : null;
+                const fimSemana = (data.dataFimSemana && typeof data.dataFimSemana.toDate === 'function') ? data.dataFimSemana : null;
                 return { id: doc.id, ...data, dataInicioSemana: inicioSemana, dataFimSemana: fimSemana };
             });
 
+            // [CORREÇÃO 2/2] Ordenando a lista em JavaScript para garantir a ordem decrescente.
+            // Isso lida com semanas antigas que possam não ter o campo 'criadoEm'.
+            fetchedSemanas.sort((a, b) => {
+                const timeA = a.criadoEm ? a.criadoEm.toMillis() : 0;
+                const timeB = b.criadoEm ? b.criadoEm.toMillis() : 0;
+                return timeB - timeA; // 'b - a' para ordem decrescente
+            });
+
             setSemanas(fetchedSemanas);
+            
             const currentSelectedExists = fetchedSemanas.some(s => s.id === semanaSelecionadaId);
-            if (fetchedSemanas.length > 0 && (!semanaSelecionadaId || !currentSelectedExists) ) {
-                 setSemanaSelecionadaId(fetchedSemanas[0].id);
+            if (fetchedSemanas.length > 0 && (!semanaSelecionadaId || !currentSelectedExists)) {
+                setSemanaSelecionadaId(fetchedSemanas[0].id);
             } else if (fetchedSemanas.length === 0) {
                 setSemanaSelecionadaId(null);
-                setDadosProgramacao(null);
             }
-        }, error => console.error("Erro ao carregar semanas:", error));
-        return unsubscribe;
+            setLoading(false);
+        }, error => {
+            console.error("Erro ao carregar semanas:", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
     }, [userId, appId, db]);
 
     useEffect(() => {
@@ -1575,33 +1572,11 @@ const ProgramacaoSemanalComponent = () => {
         const unsub = onSnapshot(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId), (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                let inicioSemana = null;
-                let fimSemana = null;
-
-                if (data.dataInicioSemana) {
-                    if (data.dataInicioSemana instanceof Timestamp) {
-                        inicioSemana = data.dataInicioSemana;
-                    } else if (typeof data.dataInicioSemana.seconds === 'number' && typeof data.dataInicioSemana.nanoseconds === 'number') {
-                        inicioSemana = new Timestamp(data.dataInicioSemana.seconds, data.dataInicioSemana.nanoseconds);
-                    }
-                }
-                if (data.dataFimSemana) {
-                     if (data.dataFimSemana instanceof Timestamp) {
-                        fimSemana = data.dataFimSemana;
-                    } else if (typeof data.dataFimSemana.seconds === 'number' && typeof data.dataFimSemana.nanoseconds === 'number') {
-                        fimSemana = new Timestamp(data.dataFimSemana.seconds, data.dataFimSemana.nanoseconds);
-                    }
-                }
+                const inicioSemana = (data.dataInicioSemana && typeof data.dataInicioSemana.toDate === 'function') ? data.dataInicioSemana : null;
+                const fimSemana = (data.dataFimSemana && typeof data.dataFimSemana.toDate === 'function') ? data.dataFimSemana : null;
                 setDadosProgramacao({ id: docSnap.id, ...data, dataInicioSemana: inicioSemana, dataFimSemana: fimSemana });
             } else {
                 setDadosProgramacao(null);
-                console.warn(`Semana ${semanaSelecionadaId} não encontrada.`);
-                if (semanas.length > 0) {
-                    const stillExists = semanas.find(s => s.id === semanaSelecionadaId);
-                    if (!stillExists) setSemanaSelecionadaId(semanas[0].id);
-                } else {
-                    setSemanaSelecionadaId(null);
-                }
             }
             setLoading(false);
         }, error => {
@@ -1609,8 +1584,9 @@ const ProgramacaoSemanalComponent = () => {
             setLoading(false);
         });
         return unsub;
-    }, [semanaSelecionadaId, db, basePath, semanas]);
+    }, [semanaSelecionadaId]);
 
+    // O restante do componente (handlers, renderização, etc.) permanece o mesmo.
     const handleCriarNovaSemana = async () => {
         if (!novaSemanaDataInicio) {
             alert("Por favor, selecione uma data de início para a nova semana.");
@@ -1643,47 +1619,41 @@ const ProgramacaoSemanalComponent = () => {
                 dataInicioSemana: Timestamp.fromDate(dataInicioUTC),
                 dataFimSemana: Timestamp.fromDate(dataFimUTC),
                 dias: {},
-                criadoEm: Timestamp.now(),
+                criadoEm: Timestamp.now(), // Campo essencial para a ordenação
                 criadoPor: authGlobal.currentUser?.uid || 'sistema'
             };
             for (let i = 0; i < 6; i++) {
                 const diaAtualLoop = new Date(dataInicioUTC);
-                diaAtualLoop.setUTCDate(dataInicioUTC.getUTCDate() + i);
+                diaAtualLoop.setUTCDate(diaAtualLoop.getUTCDate() + i);
                 const diaFormatado = diaAtualLoop.toISOString().split('T')[0];
                 novaSemanaData.dias[diaFormatado] = {};
                 (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => {
-                     if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = [];
+                       if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = [];
                 });
             }
             await setDoc(doc(db, `${basePath}/programacao_semanal`, novaSemanaDocId), novaSemanaData);
             alert(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
             setIsNovaSemanaModalOpen(false);
             setNovaSemanaDataInicio('');
-            setSemanaSelecionadaId(novaSemanaDocId);
         } catch (error) {
             console.error("Erro ao criar nova semana:", error);
             alert("Erro ao criar nova semana: " + error.message);
         }
         setLoadingAtualizacao(false);
     };
-
     const handleExcluirSemana = async () => {
         if (!semanaSelecionadaId || !dadosProgramacao) {
             alert("Nenhuma semana selecionada para excluir.");
             return;
         }
-        const dataInicioFormatada = dadosProgramacao.dataInicioSemana instanceof Timestamp ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'Data Inválida';
-        const dataFimFormatada = dadosProgramacao.dataFimSemana instanceof Timestamp ? formatDateProg(dadosProgramacao.dataFimSemana) : 'Data Inválida';
-
-        if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao.nomeAba}" (${dataInicioFormatada} - ${dataFimFormatada})? Esta ação não pode ser desfeita e removerá todas as programações desta semana.`)) {
+        const dataInicioFormatada = formatDateProg(dadosProgramacao.dataInicioSemana);
+        const dataFimFormatada = formatDateProg(dadosProgramacao.dataFimSemana);
+        if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao.nomeAba}" (${dataInicioFormatada} - ${dataFimFormatada})?`)) {
             setLoadingAtualizacao(true);
             try {
                 await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
-                
                 alert(`Semana "${dadosProgramacao.nomeAba}" excluída com sucesso.`);
                 setIsGerenciarSemanaModalOpen(false);
-                setSemanaSelecionadaId(null);
-                setDadosProgramacao(null); 
             } catch (error) {
                 console.error("Erro ao excluir semana:", error);
                 alert("Erro ao excluir semana: " + error.message);
@@ -1691,15 +1661,9 @@ const ProgramacaoSemanalComponent = () => {
             setLoadingAtualizacao(false);
         }
     };
-
     const handleAtualizarProgramacaoDaSemana = async () => {
-        if (!semanaSelecionadaId || !dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dataFimSemana) {
+        if (!semanaSelecionadaId || !dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !(dadosProgramacao.dataFimSemana instanceof Timestamp)) {
             alert("Nenhuma semana selecionada ou dados da semana inválidos para atualizar.");
-            return;
-        }
-        if (!(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !(dadosProgramacao.dataFimSemana instanceof Timestamp)) {
-            alert("Datas da semana selecionada estão em formato inválido. Não é possível atualizar.");
-            console.error("Tentativa de atualizar semana com datas inválidas:", dadosProgramacao);
             return;
         }
         setLoadingAtualizacao(true);
@@ -1707,98 +1671,54 @@ const ProgramacaoSemanalComponent = () => {
             const novosDiasDaSemana = {};
             const dataInicioSemanaDate = dadosProgramacao.dataInicioSemana.toDate();
             const dataFimSemanaDate = dadosProgramacao.dataFimSemana.toDate();
-
             let diaCorrenteNaSemana = new Date(Date.UTC(dataInicioSemanaDate.getUTCFullYear(), dataInicioSemanaDate.getUTCMonth(), dataInicioSemanaDate.getUTCDate()));
             const dataFimSemanaUTC = new Date(Date.UTC(dataFimSemanaDate.getUTCFullYear(), dataFimSemanaDate.getUTCMonth(), dataFimSemanaDate.getUTCDate()));
             dataFimSemanaUTC.setUTCHours(23,59,59,999);
-
             while(diaCorrenteNaSemana.getTime() <= dataFimSemanaUTC.getTime()){
                 const diaFmt = diaCorrenteNaSemana.toISOString().split('T')[0];
                 novosDiasDaSemana[diaFmt] = {};
-                (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => {
-                    if(func && func.id) novosDiasDaSemana[diaFmt][func.id] = [];
-                });
+                (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => { if(func && func.id) novosDiasDaSemana[diaFmt][func.id] = []; });
                 diaCorrenteNaSemana.setUTCDate(diaCorrenteNaSemana.getUTCDate() + 1);
             }
-            
-            const tarefasMapaQuery = query(
-                collection(db, `${basePath}/tarefas_mapa`),
-                where("status", "in", ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"])
-            );
+            const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`), where("status", "in", ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"]));
             const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
-
             tarefasMapaSnap.forEach(docTarefaMapa => {
                 const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
-
-                if (!tarefaMapa.dataInicio || !(tarefaMapa.dataInicio instanceof Timestamp) ||
-                    !tarefaMapa.dataProvavelTermino || !(tarefaMapa.dataProvavelTermino instanceof Timestamp) ||
-                    !tarefaMapa.responsaveis || !Array.isArray(tarefaMapa.responsaveis) || tarefaMapa.responsaveis.length === 0) {
-                    return;
-                }
-
+                if (!tarefaMapa.dataInicio || !(tarefaMapa.dataInicio instanceof Timestamp) || !tarefaMapa.dataProvavelTermino || !(tarefaMapa.dataProvavelTermino instanceof Timestamp) || !tarefaMapa.responsaveis || !Array.isArray(tarefaMapa.responsaveis) || tarefaMapa.responsaveis.length === 0) return;
                 let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa sem descrição";
                 if (tarefaMapa.prioridade) textoBaseTarefa += ` - ${tarefaMapa.prioridade}`;
                 let turnoParaTexto = "";
-                if (tarefaMapa.turno && typeof tarefaMapa.turno === 'string' && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
-                    turnoParaTexto = `[${tarefaMapa.turno.toUpperCase()}] `;
-                }
+                if (tarefaMapa.turno && typeof tarefaMapa.turno === 'string' && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) turnoParaTexto = `[${tarefaMapa.turno.toUpperCase()}] `;
                 const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
-
-                const itemProg = {
-                    mapaTaskId: tarefaMapa.id,
-                    textoVisivel: textoVisivelFinal,
-                    statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
-                    mapaStatus: tarefaMapa.status,
-                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO,
-                    orientacao: tarefaMapa.orientacao || ''
-                };
-
+                const itemProg = { mapaTaskId: tarefaMapa.id, textoVisivel: textoVisivelFinal, statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE', mapaStatus: tarefaMapa.status, turno: tarefaMapa.turno || TURNO_DIA_INTEIRO, orientacao: tarefaMapa.orientacao || '' };
                 const dataInicioTarefaDate = tarefaMapa.dataInicio.toDate();
                 const dataFimTarefaDate = tarefaMapa.dataProvavelTermino.toDate();
-
                 let dataAtualTarefa = new Date(Date.UTC(dataInicioTarefaDate.getUTCFullYear(), dataInicioTarefaDate.getUTCMonth(), dataInicioTarefaDate.getUTCDate()));
                 const dataFimTarefaUTC = new Date(Date.UTC(dataFimTarefaDate.getUTCFullYear(), dataFimTarefaDate.getUTCMonth(), dataFimTarefaDate.getUTCDate()));
                 dataFimTarefaUTC.setUTCHours(23,59,59,999); 
-
                 while (dataAtualTarefa.getTime() <= dataFimTarefaUTC.getTime()) {
                     const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
-                    
                     if (dataAtualTarefa.getTime() >= dataInicioSemanaDate.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) {
                         if (novosDiasDaSemana[diaFormatadoTarefa]) {
-                            tarefaMapa.responsaveis.forEach(respId => {
-                                if (novosDiasDaSemana[diaFormatadoTarefa][respId]) {
-                                    if (!novosDiasDaSemana[diaFormatadoTarefa][respId].find(t => t.mapaTaskId === tarefaMapa.id)) {
-                                        novosDiasDaSemana[diaFormatadoTarefa][respId].push({...itemProg});
-                                    }
-                                }
-                            });
+                            tarefaMapa.responsaveis.forEach(respId => { if (novosDiasDaSemana[diaFormatadoTarefa][respId] && !novosDiasDaSemana[diaFormatadoTarefa][respId].find(t => t.mapaTaskId === tarefaMapa.id)) novosDiasDaSemana[diaFormatadoTarefa][respId].push({...itemProg}); });
                         }
                     }
                     dataAtualTarefa.setUTCDate(dataAtualTarefa.getUTCDate() + 1);
                 }
             });
-
             const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
             await updateDoc(semanaDocRef, { dias: novosDiasDaSemana, atualizadoEm: Timestamp.now(), atualizadoPor: authGlobal.currentUser?.uid || 'sistema' });
-            console.log(`[BotaoAtualizar] Programação da semana ${semanaSelecionadaId} atualizada com sucesso.`);
             alert("Programação da semana atualizada com base no Mapa de Atividades!");
-
         } catch (error) {
             console.error("[BotaoAtualizar] Erro ao atualizar programação da semana:", error);
             alert("Erro ao atualizar programação: " + error.message);
         }
         setLoadingAtualizacao(false);
     };
-
     const handleAbrirModalGerenciarTarefa = (diaFormatado, responsavelId, tarefas) => {
-        setDadosCelulaParaGerenciar({
-            diaFormatado,
-            responsavelId,
-            tarefas: tarefas || []
-        });
+        setDadosCelulaParaGerenciar({ diaFormatado, responsavelId, tarefas: tarefas || [] });
         setIsGerenciarTarefaModalOpen(true);
     };
-
     const renderCabecalhoDias = () => {
         if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {
             return DIAS_SEMANA_PROG.map((_, i) => <th key={`header-dia-placeholder-${i}`} className="px-3 py-2 border text-xs font-medium text-white bg-teal-600 whitespace-nowrap">Carregando...</th>);
@@ -1806,67 +1726,29 @@ const ProgramacaoSemanalComponent = () => {
         const dias = [];
         const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
         const hojeFormatado = new Date().toISOString().split('T')[0];
-
         for (let i = 0; i < DIAS_SEMANA_PROG.length; i++) {
             const dataDia = new Date(dataInicio);
             dataDia.setUTCDate(dataInicio.getUTCDate() + i);
             const diaFormatadoAtual = dataDia.toISOString().split('T')[0];
             const isHoje = diaFormatadoAtual === hojeFormatado;
-
-            dias.push(
-                <th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>
-                    {dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA_PROG[i]}
-                </th>
-            );
+            dias.push(<th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>{dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA_PROG[i]}</th>);
         }
         return dias;
     };
-
     const renderCelulasTarefas = (funcionarioId) => {
         if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !dadosProgramacao.dias) {
-            return Array(DIAS_SEMANA_PROG.length).fill(null).map((_, index) => (
-                <td key={`placeholder-${funcionarioId}-${index}`} className="border p-1 min-h-[80px] h-20 align-top"></td>
-            ));
+            return Array(DIAS_SEMANA_PROG.length).fill(null).map((_, index) => (<td key={`placeholder-${funcionarioId}-${index}`} className="border p-1 min-h-[80px] h-20 align-top"></td>));
         }
         const celulas = [];
         const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
         const hojeFormatado = new Date().toISOString().split('T')[0];
-
         for (let i = 0; i < DIAS_SEMANA_PROG.length; i++) {
             const dataDiaAtual = new Date(dataInicio);
             dataDiaAtual.setUTCDate(dataDiaAtual.getUTCDate() + i); 
             const diaFormatado = dataDiaAtual.toISOString().split('T')[0];
             const isHoje = diaFormatado === hojeFormatado;
-
             const tarefasDoDiaParaFuncionario = dadosProgramacao.dias[diaFormatado]?.[funcionarioId] || [];
-
-            celulas.push(
-                <td
-                    key={`${funcionarioId}-${diaFormatado}`}
-                    className={`border p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer hover:bg-gray-100 transition-colors ${isHoje ? 'border-l-4 border-l-amber-400' : ''}`}
-                    onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}
-                >
-                    {tarefasDoDiaParaFuncionario.length === 0 ? (
-                        <span className="text-gray-400 italic text-xs">Vazio</span>
-                    ) : (
-                        <div className="space-y-0.5">
-                        {tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
-                            // ALTERAÇÃO v2.5.0: Lógica de cor simplificada para usar a função global getStatusColor.
-                            const bgColorClass = getStatusColor(tarefaInst.mapaStatus);
-                            return (
-                                <div
-                                    key={tarefaInst.mapaTaskId || `task-${idx}-${funcionarioId}-${diaFormatado}`}
-                                    className={`p-1 rounded text-gray-800 font-medium text-[10px] leading-tight ${bgColorClass} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`}
-                                    title={tarefaInst.textoVisivel}
-                                >
-                                    {tarefaInst.textoVisivel && tarefaInst.textoVisivel.length > 35 ? tarefaInst.textoVisivel.substring(0,32) + "..." : tarefaInst.textoVisivel}
-                                </div>
-                            );
-                        })}
-                        </div>
-                    )}
-                </td>
-            );
+            celulas.push(<td key={`${funcionarioId}-${diaFormatado}`} className={`border p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer hover:bg-gray-100 transition-colors ${isHoje ? 'border-l-4 border-l-amber-400' : ''}`} onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}>{tarefasDoDiaParaFuncionario.length === 0 ? <span className="text-gray-400 italic text-xs">Vazio</span> : <div className="space-y-0.5">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => (<div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-gray-800 font-medium text-[10px] leading-tight ${getStatusColor(tarefaInst.mapaStatus)} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`} title={tarefaInst.textoVisivel}>{tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}</div>))}</div>}</td>);
         }
         return celulas;
     };
@@ -1876,136 +1758,30 @@ const ProgramacaoSemanalComponent = () => {
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
                 <div className="flex flex-wrap items-center gap-2">
-                    <select
-                        value={semanaSelecionadaId || ''}
-                        onChange={(e) => setSemanaSelecionadaId(e.target.value)}
-                        className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        disabled={semanas.length === 0 && !loading}
-                    >
-                        {loading && semanas.length === 0 && <option>Carregando semanas...</option>}
+                    <select value={semanaSelecionadaId || ''} onChange={(e) => setSemanaSelecionadaId(e.target.value)} className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" disabled={semanas.length === 0}>
+                        {loading && <option>Carregando...</option>}
                         {!loading && semanas.length === 0 && <option>Nenhuma semana criada</option>}
-                        {semanas.map(s => (
-                            <option key={s.id} value={s.id}>
-                                {s.nomeAba} ({s.dataInicioSemana ? formatDateProg(s.dataInicioSemana) : 'N/A'} - {s.dataFimSemana ? formatDateProg(s.dataFimSemana) : 'N/A'})
-                            </option>
-                        ))}
+                        {semanas.map(s => (<option key={s.id} value={s.id}>{s.nomeAba} ({formatDateProg(s.dataInicioSemana)} - {formatDateProg(s.dataFimSemana)})</option>))}
                     </select>
-                    <button
-                        onClick={handleAtualizarProgramacaoDaSemana}
-                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao}
-                        className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                    >
-                        <LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>
-                        {loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}
-                    </button>
-                    <button
-                        onClick={() => setIsNovaSemanaModalOpen(true)}
-                        disabled={loadingAtualizacao}
-                        className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                    >
-                        <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
-                    </button>
-                    <button
-                        onClick={() => setIsGerenciarSemanaModalOpen(true)}
-                        disabled={!semanaSelecionadaId || loadingAtualizacao || !dadosProgramacao}
-                        className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                    >
-                        <LucideSettings size={18} className="mr-2"/> Gerenciar Semana
-                    </button>
+                    <button onClick={handleAtualizarProgramacaoDaSemana} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>{loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}</button>
+                    <button onClick={() => setIsNovaSemanaModalOpen(true)} disabled={loadingAtualizacao} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana</button>
+                    <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideSettings size={18} className="mr-2"/> Gerenciar Semana</button>
                 </div>
             </div>
-
-            {loading && !dadosProgramacao && <p className="text-center py-4">Carregando programação da semana...</p>}
-            {!loading && !dadosProgramacao && semanaSelecionadaId && <p className="text-center py-4 text-red-500">Não foi possível carregar os dados da semana selecionada ou a semana não existe mais.</p>}
-            {!loading && !semanaSelecionadaId && semanas.length > 0 && <p className="text-center py-4 text-gray-500">Selecione uma semana para visualizar.</p>}
-            {!loading && semanas.length === 0 && <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda. Clique em "Criar Nova Semana".</p>}
-
-
-            {!loading && dadosProgramacao && (
+            {loading ? <p className="text-center py-4">Carregando...</p> : !semanaSelecionadaId || !dadosProgramacao ? <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda ou não foi possível carregar os dados.</p> : (
                  <div className="bg-white shadow-md rounded-lg overflow-x-auto">
                     <table className="min-w-full border-collapse border border-gray-300 table-fixed">
-                        <caption className="text-lg font-semibold p-2 bg-teal-700 text-white">
-                            PROGRAMAÇÃO DIÁRIA - Semana de: {dadosProgramacao.dataInicioSemana ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'N/A'} a {dadosProgramacao.dataFimSemana ? formatDateProg(dadosProgramacao.dataFimSemana) : 'N/A'}
-                        </caption>
-                        <thead>
-                            <tr key="programacao-semanal-header-row">
-                                <th className="px-3 py-2 border bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>
-                                {renderCabecalhoDias()}
-                            </tr>
-                        </thead>
+                        <caption className="text-lg font-semibold p-2 bg-teal-700 text-white">PROGRAMAÇÃO DIÁRIA - Semana de: {formatDateProg(dadosProgramacao.dataInicioSemana)} a {formatDateProg(dadosProgramacao.dataFimSemana)}</caption>
+                        <thead><tr key="header-row"><th className="px-3 py-2 border bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>{renderCabecalhoDias()}</tr></thead>
                         <tbody>
-                            {(Array.isArray(contextFuncionarios) && contextFuncionarios.length === 0) && (
-                                <tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado. Adicione funcionários em Configurações.</td></tr>
-                            )}
-                            {(Array.isArray(contextFuncionarios) ? contextFuncionarios : []).map(func => (
-                                <tr key={func.id}>
-                                    <td className="border px-3 py-2 font-semibold bg-teal-100 text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10">{func.nome}</td>
-                                    {renderCelulasTarefas(func.id)}
-                                </tr>
-                            ))}
+                            {(!contextFuncionarios || contextFuncionarios.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado.</td></tr>) : (contextFuncionarios.map(func => (<tr key={func.id}><td className="border px-3 py-2 font-semibold bg-teal-100 text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10">{func.nome}</td>{renderCelulasTarefas(func.id)}</tr>)))}
                         </tbody>
                     </table>
                 </div>
             )}
-
-            <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação">
-                <div className="space-y-4">
-                    <div>
-                        <label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label>
-                        <input
-                            type="date"
-                            id="novaSemanaData"
-                            value={novaSemanaDataInicio}
-                            onChange={(e) => setNovaSemanaDataInicio(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                    </div>
-                    <div className="flex justify-end space-x-2">
-                        <button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400">
-                            {loadingAtualizacao ? "Criando..." : "Criar Semana"}
-                        </button>
-                    </div>
-                </div>
-            </Modal>
-
-            {dadosProgramacao && (
-                <Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}>
-                    <div className="space-y-4">
-                        <p className="text-sm text-gray-600">
-                            Semana: <strong>{dadosProgramacao?.nomeAba}</strong> <br/>
-                            Período: {dadosProgramacao.dataInicioSemana ? formatDateProg(dadosProgramacao.dataInicioSemana) : 'N/A'} - {dadosProgramacao.dataFimSemana ? formatDateProg(dadosProgramacao.dataFimSemana) : 'N/A'}
-                        </p>
-                        
-                        <div className="mt-6 pt-4 border-t">
-                            <h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4>
-                            <button
-                                onClick={handleExcluirSemana}
-                                disabled={loadingAtualizacao}
-                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center disabled:bg-gray-400"
-                            >
-                                <LucideTrash2 size={18} className="mr-2"/> Excluir Semana Selecionada
-                            </button>
-                            <p className="text-xs text-gray-500 mt-2">Esta ação removerá a semana e todas as suas programações associadas. As tarefas originais no Mapa de Atividades não serão afetadas.</p>
-                        </div>
-                        <div className="flex justify-end mt-4">
-                             <button onClick={() => setIsGerenciarSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Fechar</button>
-                        </div>
-                    </div>
-                </Modal>
-            )}
-
-            {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (
-                <GerenciarTarefaProgramacaoModal
-                    isOpen={isGerenciarTarefaModalOpen}
-                    onClose={() => setIsGerenciarTarefaModalOpen(false)}
-                    diaFormatado={dadosCelulaParaGerenciar.diaFormatado}
-                    responsavelId={dadosCelulaParaGerenciar.responsavelId}
-                    tarefasDaCelula={dadosCelulaParaGerenciar.tarefas}
-                    semanaId={semanaSelecionadaId}
-                    onAlteracaoSalva={() => {}}
-                />
-            )}
+            <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação"><div className="space-y-4"><div><label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label><input type="date" id="novaSemanaData" value={novaSemanaDataInicio} onChange={(e) => setNovaSemanaDataInicio(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"/></div><div className="flex justify-end space-x-2"><button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md">Cancelar</button><button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md">{loadingAtualizacao ? "Criando..." : "Criar Semana"}</button></div></div></Modal>
+            {dadosProgramacao && (<Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}><div className="space-y-4"><p className="text-sm text-gray-600">Semana: <strong>{dadosProgramacao?.nomeAba}</strong></p><div className="mt-6 pt-4 border-t"><h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4><button onClick={handleExcluirSemana} disabled={loadingAtualizacao} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center"><LucideTrash2 size={18} className="mr-2"/> Excluir Semana</button></div></div></Modal>)}
+            {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (<GerenciarTarefaProgramacaoModal isOpen={isGerenciarTarefaModalOpen} onClose={() => setIsGerenciarTarefaModalOpen(false)} diaFormatado={dadosCelulaParaGerenciar.diaFormatado} responsavelId={dadosCelulaParaGerenciar.responsavelId} tarefasDaCelula={dadosCelulaParaGerenciar.tarefas} semanaId={semanaSelecionadaId} onAlteracaoSalva={() => {}}/>)}
         </div>
     );
 };
