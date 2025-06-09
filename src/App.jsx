@@ -1814,6 +1814,12 @@ const TarefaPatioComponent = () => {
 
     const handleOpenModal = () => {
         resetFormulario();
+        
+        // [AJUSTE] Define a data de início como a data atual, no formato YYYY-MM-DD
+        const hoje = new Date();
+        const dataFormatada = hoje.toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'}).split('/').reverse().join('-');
+        setDataInicio(dataFormatada);
+
         setIsModalOpen(true);
     };
 
@@ -1896,7 +1902,6 @@ const TarefaPatioComponent = () => {
                 <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
                     <div>
                         <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
-                        {/* [ALTERADO] O campo de texto foi substituído por um seletor (dropdown). */}
                         <select
                             id="tarefaDescricao"
                             value={tarefa}
@@ -1927,7 +1932,8 @@ const TarefaPatioComponent = () => {
                         </div>
                         <div>
                             <label htmlFor="tarefaDataInicio" className="block text-sm font-medium text-gray-700">Data da inclusão da tarefa <span className="text-red-500">*</span></label>
-                            <input id="tarefaDataInicio" type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
+                            {/* [AJUSTE] Campo desabilitado para o usuário não poder alterar a data, que é sempre a de hoje. */}
+                            <input id="tarefaDataInicio" type="date" value={dataInicio} required disabled className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed"/>
                         </div>
                     </div>
 
