@@ -1,6 +1,5 @@
 // Versão: 2.5.0
 // Script completo e atualizado.
-// Alteração: Cores da Programação Semanal simplificadas para usar as mesmas classes de cor do Mapa de Atividades, corrigindo a aplicação.
 
 import React, { useState, useEffect, createContext, useContext, memo, useRef } from 'react';
 // Importe a instância do app Firebase já inicializada
