@@ -10,8 +10,8 @@ import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassw
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore';
 // [NOVO v2.7.0] Adicionadas importações do Firebase Storage
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
-// [NOVO v2.7.0] Adicionado o ícone LucidePaperclip
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideEye, LucideFilter, LucideUsers, LucideListChecks, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip } from 'lucide-react';
+// [MODIFICADO v3.1.1] Adicionados os ícones LucideAlertTriangle e LucideMousePointerClick
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase usando a instância importada
@@ -339,8 +339,8 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 3.0.2
-// Componente GlobalProvider (MODIFICADO para carregar todas as permissões)
+// Versão: 3.0.8
+// Componente GlobalProvider (CORRIGIDO)
 const GlobalProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(null);
     const [userId, setUserId] = useState(null);
@@ -383,14 +383,11 @@ const GlobalProvider = ({ children }) => {
             }, error => console.error(`Erro ao carregar ${name}:`, error));
             unsubscribers.push(unsubscribe);
         });
-        
-        // [MODIFICADO v3.0.2] Adiciona a permissão de ação à lista de chaves a serem carregadas
+
         const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa'];
-        
         chavesDePermissao.forEach(chave => {
             const collectionPath = `${basePath}/listas_auxiliares/permissoes_${chave}/items`;
             const q = query(collection(db, collectionPath));
-            
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 const emailsPermitidos = snapshot.docs.map(doc => doc.data().nome.toLowerCase());
                 setPermissoes(prev => ({ ...prev, [chave]: emailsPermitidos }));
@@ -407,9 +404,7 @@ const GlobalProvider = ({ children }) => {
         }, error => console.error("Erro ao carregar funcionários:", error));
         unsubscribers.push(unsubscribeFuncionarios);
 
-        return () => {
-            unsubscribers.forEach(unsub => unsub());
-        };
+        return () => { unsubscribers.forEach(unsub => unsub()); };
     }, [userId, appId, db]);
 
     if (loadingAuth) {
@@ -1248,8 +1243,8 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
     );
 };
 
-// Versão: 3.0.3
-// [NOVO] Componente para o Modal de Tratamento de Tarefas Atrasadas
+// Versão: 3.0.8
+// Componente para o Modal de Tratamento de Tarefas Atrasadas
 const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) => {
     const [justificativa, setJustificativa] = useState('');
     const [planoAcao, setPlanoAcao] = useState('');
@@ -1258,12 +1253,10 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
 
     useEffect(() => {
         if (tarefa?.dataProvavelTermino?.seconds) {
-            // Sugere a nova data como 7 dias a partir de hoje
             const hoje = new Date();
             hoje.setDate(hoje.getDate() + 7);
             setNovaData(hoje.toISOString().split('T')[0]);
         }
-        // Limpa os campos ao abrir
         setJustificativa('');
         setPlanoAcao('');
     }, [tarefa, isOpen]);
@@ -1302,57 +1295,25 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
 
                 <div>
                     <label htmlFor="justificativa" className="block text-sm font-medium text-gray-700">Justificativa do Atraso</label>
-                    <textarea
-                        id="justificativa"
-                        value={justificativa}
-                        onChange={(e) => setJustificativa(e.target.value)}
-                        rows="3"
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Ex: Aguardando chegada de material, equipe alocada em outra frente prioritária, etc."
-                    />
+                    <textarea id="justificativa" value={justificativa} onChange={(e) => setJustificativa(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm" placeholder="Ex: Aguardando chegada de material..."/>
                 </div>
                 <div>
                     <label htmlFor="planoAcao" className="block text-sm font-medium text-gray-700">Plano de Ação</label>
-                    <textarea
-                        id="planoAcao"
-                        value={planoAcao}
-                        onChange={(e) => setPlanoAcao(e.target.value)}
-                        rows="3"
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Ex: Realizar a tarefa assim que o material chegar, iniciar na próxima segunda-feira, etc."
-                    />
+                    <textarea id="planoAcao" value={planoAcao} onChange={(e) => setPlanoAcao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm" placeholder="Ex: Iniciar na próxima segunda-feira..."/>
                 </div>
                 <div>
                     <label htmlFor="novaData" className="block text-sm font-medium text-gray-700">Reprogramar para Nova Data de Término</label>
-                    <input
-                        id="novaData"
-                        type="date"
-                        value={novaData}
-                        onChange={(e) => setNovaData(e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <input id="novaData" type="date" value={novaData} onChange={(e) => setNovaData(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm"/>
                 </div>
 
                 <div className="pt-5 flex justify-between items-center space-x-2">
-                    <button 
-                        type="button" 
-                        onClick={() => handleSave('cancelar')} 
-                        disabled={loading}
-                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-400 flex items-center"
-                    >
+                    <button type="button" onClick={() => handleSave('cancelar')} disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-400 flex items-center">
                         <LucideXCircle size={16} className="mr-2" />
                         Cancelar Tarefa
                     </button>
                     <div className="flex space-x-2">
-                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
-                            Fechar
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => handleSave('reprogramar')}
-                            disabled={loading}
-                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center"
-                        >
+                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Fechar</button>
+                        <button type="button" onClick={() => handleSave('reprogramar')} disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center">
                             {loading ? 'Salvando...' : 'Salvar e Reprogramar'}
                              <LucideArrowRightCircle size={16} className="ml-2" />
                         </button>
@@ -3171,8 +3132,8 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
-// Versão: 2.9.9
-// [NOVO] Componente para a tela inicial de Boas-Vindas
+// Versão: 3.0.8
+// Componente para a tela inicial de Boas-Vindas
 const WelcomeComponent = () => {
     return (
         <div className="flex flex-col justify-center items-center h-full bg-gray-50 text-center p-6">
@@ -3194,10 +3155,44 @@ const WelcomeComponent = () => {
     );
 };
 
-// Versão: 3.0.4
-// Componente Dashboard (COMPLETO E RESTAURADO)
+// Versão: 3.1.1
+// [NOVO] Modal de Alerta para Tarefas Atrasadas
+const AlertaAtrasoModal = ({ isOpen, onClose, numeroDeTarefas, onVerTarefasClick }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4 transition-opacity duration-300">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 text-center transform transition-all duration-300 scale-100">
+                <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 mb-6">
+                    <LucideAlertTriangle size={48} className="text-red-500" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-800 mb-2">Atenção!</h3>
+                <p className="text-gray-600 mb-6">
+                    Você possui <strong className="text-red-600 font-bold">{numeroDeTarefas}</strong> tarefas atrasadas que requerem sua ação imediata.
+                </p>
+                <div className="flex flex-col sm:flex-row justify-center gap-3">
+                    <button
+                        onClick={onVerTarefasClick}
+                        className="w-full sm:w-auto bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                        Ver Tarefas Atrasadas
+                    </button>
+                    <button
+                        onClick={onClose}
+                        className="w-full sm:w-auto bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
+                    >
+                        Entendido
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Versão: 3.1.1
+// Componente Dashboard (MODIFICADO para o fluxo "Foco e Ação")
 const DashboardComponent = () => {
-    const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
+    const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
         porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], pendentesAtrasadas: [], porFuncionario: {}
     });
@@ -3206,6 +3201,10 @@ const DashboardComponent = () => {
 
     const [isTratarAtrasoModalOpen, setIsTratarAtrasoModalOpen] = useState(false);
     const [tarefaSelecionada, setTarefaSelecionada] = useState(null);
+    const [alertaAtrasoVisivel, setAlertaAtrasoVisivel] = useState(false);
+    const [notificacaoAtrasoMostrada, setNotificacaoAtrasoMostrada] = useState(false);
+    const [highlightAtrasadas, setHighlightAtrasadas] = useState(false);
+    const atrasadasCardRef = useRef(null);
 
     const handleOpenTratarAtrasoModal = (tarefa) => {
         setTarefaSelecionada(tarefa);
@@ -3254,131 +3253,135 @@ const DashboardComponent = () => {
                 }
                 toast.success("Tarefa reprogramada com sucesso!");
             }
-            setStats(prev => ({
-                ...prev,
-                atrasadas: prev.atrasadas.filter(t => t.id !== tarefaId)
-            }));
+            setStats(prev => ({ ...prev, atrasadas: prev.atrasadas.filter(t => t.id !== tarefaId) }));
         } catch (error) {
             console.error("Erro ao salvar tratamento de atraso:", error);
             toast.error("Falha ao salvar alterações.");
         }
     };
 
-    useEffect(() => {
-        const fetchDashboardData = async () => {
-            if (!auth || !db || !appId || !listasAuxiliares.status || listasAuxiliares.status.length === 0 || !funcionarios) {
-                setLoadingDashboard(false);
-                return;
-            }
-            setLoadingDashboard(true);
-            try {
-                const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
-                const snapshot = await getDocs(tarefasRef);
-                const todasTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                const porStatus = {};
-                listasAuxiliares.status.forEach(s => porStatus[s] = 0);
-                const porPrioridade = {};
-                listasAuxiliares.prioridades.forEach(p => porPrioridade[p] = 0);
-                const porFuncionario = {};
-                funcionarios.forEach(f => {
-                    if (f && f.id) porFuncionario[f.id] = {count: 0, nome: f.nome};
-                });
-                porFuncionario["SEM_RESPONSAVEL"] = {count: 0, nome: "Sem Responsável Designado"};
-
-                const hoje = new Date();
-                hoje.setHours(0, 0, 0, 0);
-                const daqui7Dias = new Date(hoje);
-                daqui7Dias.setDate(hoje.getDate() + 7);
-
-                const proximoPrazo = [];
-                const atrasadas = [];
-                const pendentesAtrasadas = [];
-
-                todasTarefas.forEach(tarefa => {
-                    if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) {
-                        porStatus[tarefa.status]++;
-                    }
-                    if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) {
-                        porPrioridade[tarefa.prioridade]++;
-                    }
-                    if (tarefa.status !== "CANCELADA") {
-                        if (tarefa.responsaveis && tarefa.responsaveis.length > 0) {
-                            tarefa.responsaveis.forEach(respId => {
-                                if (porFuncionario[respId]) porFuncionario[respId].count++;
-                            });
-                        } else {
-                            porFuncionario["SEM_RESPONSAVEL"].count++;
-                        }
-                    }
-
-                    if (tarefa.dataProvavelTermino?.toDate && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
-                        const dataTermino = tarefa.dataProvavelTermino.toDate();
-                        dataTermino.setHours(0, 0, 0, 0);
-
-                        if (dataTermino < hoje) {
-                            if (tarefa.status === 'PROGRAMADA' || tarefa.status === 'EM OPERAÇÃO') {
-                                atrasadas.push(tarefa);
-                            }
-                        } else if (dataTermino >= hoje && dataTermino <= daqui7Dias) {
-                            proximoPrazo.push(tarefa);
-                        }
-                    }
-                     if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') {
-                        pendentesAtrasadas.push(tarefa);
-                    }
-                });
-
-                proximoPrazo.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-                atrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-                pendentesAtrasadas.sort((a, b) => a.createdAt.toMillis() - b.createdAt.toMillis());
-
-                setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, pendentesAtrasadas, porFuncionario });
-            } catch (error) {
-                console.error("[Dashboard] Erro ao buscar dados:", error);
-            } finally {
-                setLoadingDashboard(false);
-            }
-        };
-
-        fetchDashboardData();
-    }, [auth, db, appId, listasAuxiliares, funcionarios]);
+    const handleVerTarefasAtrasadas = () => {
+        setAlertaAtrasoVisivel(false);
+        atrasadasCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightAtrasadas(true);
+        setTimeout(() => setHighlightAtrasadas(false), 2500);
+        setTimeout(() => {
+            toast.custom((t) => (
+                <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} bg-gray-800 text-white shadow-lg rounded-lg pointer-events-auto flex items-center px-4 py-2`}>
+                    <LucideMousePointerClick size={18} className="mr-3 text-cyan-400" />
+                    <span>Clique no ícone <LucideArrowRightCircle className="inline-block mx-1" size={18}/> para tratar uma pendência.</span>
+                </div>
+            ), { duration: 5000, position: 'bottom-center' });
+        }, 1000);
+    };
     
+    useEffect(() => {
+        if (loadingAuth || !db || !appId || !listasAuxiliares.status?.length || !funcionarios) {
+            return;
+        }
+
+        const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
+        const q = query(tarefasRef);
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setLoadingDashboard(true);
+            const todasTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            const porStatus = {};
+            listasAuxiliares.status.forEach(s => porStatus[s] = 0);
+            const porPrioridade = {};
+            listasAuxiliares.prioridades.forEach(p => porPrioridade[p] = 0);
+            const porFuncionario = {};
+            funcionarios.forEach(f => { if (f?.id) porFuncionario[f.id] = {count: 0, nome: f.nome}; });
+            porFuncionario["SEM_RESPONSAVEL"] = {count: 0, nome: "Sem Responsável Designado"};
+
+            const hoje = new Date();
+            hoje.setHours(0, 0, 0, 0);
+            const daqui7Dias = new Date(hoje);
+            daqui7Dias.setDate(hoje.getDate() + 7);
+
+            const proximoPrazo = [], atrasadas = [], pendentesAtrasadas = [];
+
+            todasTarefas.forEach(tarefa => {
+                if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) porStatus[tarefa.status]++;
+                if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) porPrioridade[tarefa.prioridade]++;
+                if (tarefa.status !== "CANCELADA") {
+                    if (tarefa.responsaveis?.length > 0) {
+                        tarefa.responsaveis.forEach(id => { if (porFuncionario[id]) porFuncionario[id].count++; });
+                    } else {
+                        porFuncionario["SEM_RESPONSAVEL"].count++;
+                    }
+                }
+                if (tarefa.dataProvavelTermino?.toDate && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
+                    const dataTermino = tarefa.dataProvavelTermino.toDate();
+                    dataTermino.setHours(0, 0, 0, 0);
+                    if (dataTermino < hoje) {
+                        if (tarefa.status === 'PROGRAMADA' || tarefa.status === 'EM OPERAÇÃO') {
+                            atrasadas.push(tarefa);
+                        }
+                    } else if (dataTermino <= daqui7Dias) {
+                        proximoPrazo.push(tarefa);
+                    }
+                }
+                if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') {
+                    pendentesAtrasadas.push(tarefa);
+                }
+            });
+
+            proximoPrazo.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+            atrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+            pendentesAtrasadas.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0));
+
+            setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, pendentesAtrasadas, porFuncionario });
+
+            if (atrasadas.length > 0 && !notificacaoAtrasoMostrada) {
+                setAlertaAtrasoVisivel(true);
+                setNotificacaoAtrasoMostrada(true);
+            }
+            setLoadingDashboard(false);
+        }, (error) => {
+            console.error("[Dashboard] Erro ao buscar dados:", error);
+            setLoadingDashboard(false);
+        });
+        
+        return () => unsubscribe();
+    }, [loadingAuth, listasAuxiliares, funcionarios, notificacaoAtrasoMostrada]);
+
     const getPrioridadeColor = (prioridade) => {
         if (prioridade === "P4 - URGENTE") return "bg-red-500 text-white";
         if (prioridade === "P1 - CURTO PRAZO") return "bg-orange-400 text-white";
         if (prioridade === "P2 - MÉDIO PRAZO") return "bg-yellow-400 text-black";
         return "bg-gray-200 text-gray-700";
     };
-
     const getStatusColorText = (status) => {
         if (status === "CANCELADA") return "text-red-600";
         if (status === "CONCLUÍDA") return "text-green-600";
+        if (status === "AGUARDANDO ALOCAÇÃO") return "text-orange-500";
         return "text-gray-600";
     };
-    
     const formatDateDash = (timestamp) => {
         if (!timestamp || !timestamp.toDate) return 'Data inválida';
         return timestamp.toDate().toLocaleDateString('pt-BR');
     };
 
-    if (loadingDashboard) {
+    if (loadingAuth || loadingDashboard) {
         return <div className="p-6 text-center">Carregando dados do Dashboard...</div>;
     }
 
     return (
         <div className="p-6 bg-gray-100 min-h-full">
+            <AlertaAtrasoModal 
+                isOpen={alertaAtrasoVisivel}
+                onClose={() => setAlertaAtrasoVisivel(false)}
+                numeroDeTarefas={stats.atrasadas.length}
+                onVerTarefasClick={handleVerTarefasAtrasadas}
+            />
             <h2 className="text-3xl font-semibold text-gray-800 mb-8">Dashboard</h2>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Status</h3>
                     <ul className="space-y-2">
                         {Object.entries(stats.porStatus).sort(([,countA], [,countB]) => countB - countA).map(([status, count]) => (
-                            <li key={status} className="flex justify-between items-center text-sm">
-                                <span className={`font-medium ${getStatusColorText(status)}`}>{status}</span>
-                                <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-semibold">{count}</span>
-                            </li>
+                            <li key={status} className="flex justify-between items-center text-sm"><span className={`font-medium ${getStatusColorText(status)}`}>{status}</span><span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-semibold">{count}</span></li>
                         ))}
                     </ul>
                 </div>
@@ -3386,92 +3389,56 @@ const DashboardComponent = () => {
                     <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Prioridade</h3>
                     <ul className="space-y-2">
                          {Object.entries(stats.porPrioridade).map(([prioridade, count]) => (
-                            <li key={prioridade} className="flex justify-between items-center text-sm">
-                                <span className={`font-medium px-2 py-0.5 rounded-full text-xs ${getPrioridadeColor(prioridade)}`}>{prioridade}</span>
-                                <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-semibold">{count}</span>
-                            </li>
+                            <li key={prioridade} className="flex justify-between items-center text-sm"><span className={`font-medium px-2 py-0.5 rounded-full text-xs ${getPrioridadeColor(prioridade)}`}>{prioridade}</span><span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-semibold">{count}</span></li>
                         ))}
                     </ul>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
-                        <LucideUsers size={22} className="mr-2 text-purple-600"/> Tarefas por Responsável
-                    </h3>
-                    <ul className="space-y-2 max-h-80 overflow-y-auto">
+                    <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><LucideUsers size={22} className="mr-2 text-purple-600"/> Tarefas por Responsável</h3>
+                    <ul className="space-y-2 max-h-80 overflow-y-auto pr-2">
                         {Object.values(stats.porFuncionario).sort((a, b) => b.count - a.count).map(({nome, count}, index) => (
-                             count > 0 && <li key={nome + index} className="flex justify-between items-center text-sm">
-                                <span className="font-medium text-gray-700">{nome}</span>
-                                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-200 text-purple-700">{count}</span>
-                            </li>
+                             count > 0 && <li key={nome + index} className="flex justify-between items-center text-sm"><span className="font-medium text-gray-700">{nome}</span><span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-200 text-purple-700">{count}</span></li>
                         ))}
                     </ul>
                 </div>
             </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
                         <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                            {stats.proximoPrazo.map(tarefa => (
-                                <li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300">
-                                    <p className="font-semibold text-sm text-yellow-800">{tarefa.tarefa}</p>
-                                    <p className="text-xs text-yellow-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className="font-bold">{tarefa.status}</span></p>
-                                </li>
-                            ))}
+                            {stats.proximoPrazo.map(tarefa => (<li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300"><p className="font-semibold text-sm text-yellow-800">{tarefa.tarefa}</p><p className="text-xs text-yellow-700 mt-1">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className="font-bold">{tarefa.status}</span></p></li>))}
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
                 </div>
-                
                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-orange-600 mb-4 flex items-center">
-                        <LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação
-                    </h3>
+                    <h3 className="text-xl font-semibold text-orange-600 mb-4 flex items-center"><LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação</h3>
                     {stats.pendentesAtrasadas.length > 0 ? (
                         <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                            {stats.pendentesAtrasadas.map(tarefa => (
-                                <li key={tarefa.id} className="p-3 border rounded-md bg-orange-50 border-orange-300">
-                                    <p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p>
-                                    <p className="text-xs text-orange-700">Criada em: {formatDateDash(tarefa.createdAt)}</p>
-                                </li>
-                            ))}
+                            {stats.pendentesAtrasadas.map(tarefa => (<li key={tarefa.id} className="p-3 border rounded-md bg-orange-50 border-orange-300"><p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p><p className="text-xs text-orange-700">Criada em: {formatDateDash(tarefa.createdAt)}</p></li>))}
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa aguardando alocação.</p>}
                 </div>
-
-                <div className="bg-white p-6 rounded-lg shadow-lg">
+                <div ref={atrasadasCardRef} className={`bg-white p-6 rounded-lg shadow-lg scroll-mt-6 transition-all duration-300 ${highlightAtrasadas ? 'ring-4 ring-offset-4 ring-red-500' : 'ring-0'}`}>
                     <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
-                        {stats.atrasadas.length > 0 ? (
-                            <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                                {stats.atrasadas.map(tarefa => {
-                                    const diasAtraso = calculateDaysOverdue(tarefa.dataProvavelTermino);
-                                    return (
-                                    <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-200 flex justify-between items-center">
-                                        <div>
-                                            <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
-                                            <p className="text-xs text-red-700 mt-1">
-                                                Atrasada há <strong>{diasAtraso}</strong> dia(s) - Status: <span className="font-semibold">{tarefa.status}</span>
-                                            </p>
-                                            <p className="text-xs text-red-700 mt-1">
-                                                Responsáveis: <span className="font-semibold">{getResponsavelNomes(tarefa.responsaveis)}</span>
-                                            </p>
-                                        </div>
-                                        <div className="flex space-x-2">
-                                            <button
-                                                onClick={() => handleOpenTratarAtrasoModal(tarefa)}
-                                                title="Tratar Atraso"
-                                                className="p-2 text-red-600 bg-red-100 hover:bg-red-200 rounded-full transition-colors"
-                                            >
-                                                <LucideArrowRightCircle size={18} />
-                                            </button>
-                                        </div>
-                                    </li>
-                                )})}
-                            </ul>
-                        ) : <p className="text-sm text-gray-500">Nenhuma tarefa atrasada.</p>}
+                    {stats.atrasadas.length > 0 ? (
+                        <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                            {stats.atrasadas.map(tarefa => {
+                                const diasAtraso = calculateDaysOverdue(tarefa.dataProvavelTermino);
+                                return (
+                                <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-200 flex justify-between items-center">
+                                    <div>
+                                        <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
+                                        <p className="text-xs text-red-700 mt-1">Atrasada há <strong>{diasAtraso}</strong> dia(s) - Status: <span className="font-semibold">{tarefa.status}</span></p>
+                                        <p className="text-xs text-red-700 mt-1">Responsáveis: <span className="font-semibold">{getResponsavelNomes(tarefa.responsaveis)}</span></p>
+                                    </div>
+                                    <button onClick={() => handleOpenTratarAtrasoModal(tarefa)} title="Tratar Atraso" className="p-2 text-red-600 bg-red-100 hover:bg-red-200 rounded-full transition-colors"><LucideArrowRightCircle size={18} /></button>
+                                </li>
+                            )})}
+                        </ul>
+                    ) : <p className="text-sm text-gray-500">Nenhuma tarefa atrasada.</p>}
                 </div>
             </div>
-
             <TratarAtrasoModal
                 isOpen={isTratarAtrasoModalOpen}
                 onClose={handleCloseTratarAtrasoModal}
