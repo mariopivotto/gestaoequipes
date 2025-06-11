@@ -1167,132 +1167,197 @@ const HistoricoTarefaModal = ({ isOpen, onClose, tarefaId }) => {
     // ...código sem alterações...
 };
 
-// Componente para Modal de Atualização Rápida de Status (sem alterações)
+// Versão: 2.9.2
+// Componente para Modal de Atualização Rápida de Status (COMPLETO)
 const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
-    // ...código sem alterações...
+    const { listasAuxiliares } = useContext(GlobalContext);
+    const [novoStatus, setNovoStatus] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        // Define o status inicial no estado do modal sempre que uma nova tarefa é passada
+        if (tarefa) {
+            setNovoStatus(tarefa.status || '');
+        }
+    }, [tarefa]);
+
+    const handleSave = async () => {
+        // Verifica se houve de fato uma mudança de status
+        if (!tarefa || !novoStatus || novoStatus === tarefa.status) {
+            onClose(); // Simplesmente fecha se não houver mudança
+            return;
+        }
+        setLoading(true);
+        try {
+            // Chama a função passada por props para salvar a alteração
+            await onStatusSave(tarefa.id, novoStatus);
+        } catch (error) {
+            console.error("Erro ao salvar status:", error);
+            toast.error("Erro ao salvar o status.");
+        } finally {
+            setLoading(false);
+            onClose(); // Fecha o modal após a operação
+        }
+    };
+
+    // Não renderiza nada se o modal não estiver aberto ou se a tarefa não for válida
+    if (!isOpen || !tarefa) return null;
+
+    // Filtra a lista de status para não mostrar o status atual como opção de mudança
+    const statusOptions = listasAuxiliares.status.filter(s => s !== tarefa.status);
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`Alterar Status: ${tarefa.tarefa}`} width="max-w-md">
+            <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                    Status Atual: <span className="font-bold">{tarefa.status}</span>
+                </p>
+                <div>
+                    <label htmlFor="select-novo-status" className="block text-sm font-medium text-gray-700">Selecione o Novo Status</label>
+                    <select
+                        id="select-novo-status"
+                        value={novoStatus}
+                        onChange={(e) => setNovoStatus(e.target.value)}
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    >
+                        {/* A primeira opção é sempre o status atual */}
+                        <option value={tarefa.status}>{tarefa.status}</option>
+                        {statusOptions.map(s => (
+                             <option key={s} value={s}>{s}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="pt-4 flex justify-end space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                    <button type="button" onClick={handleSave} disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400">
+                        {loading ? 'Salvando...' : 'Salvar Status'}
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
 };
 
-// [ALTERADO v2.7.0] Componente MapaAtividadesComponent atualizado para gerenciar anexos.
+// Versão: 2.9.2
+// Componente MapaAtividadesComponent (MODIFICADO)
 const MapaAtividadesComponent = () => {
-    const { userId, db, appId, storage, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext); 
-    
-    const tarefasAnteriores = useRef([]);
-    const [todasTarefas, setTodasTarefas] = useState([]);
-    const [tarefasExibidas, setTarefasExibidas] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingTarefa, setEditingTarefa] = useState(null);
-    const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
-    const [selectedTarefaIdParaHistorico, setSelectedTarefaIdParaHistorico] = useState(null);
-    const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
-    const [tarefaParaStatusUpdate, setTarefaParaStatusUpdate] = useState(null);
-    // [NOVO v2.7.0] Estados para o modal de visualização de imagens
+    const { userId, db, appId, storage, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext);
+
+    const tarefasAnteriores = useRef([]);
+    const [todasTarefas, setTodasTarefas] = useState([]);
+    const [tarefasExibidas, setTarefasExibidas] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingTarefa, setEditingTarefa] = useState(null);
+    const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
+    const [selectedTarefaIdParaHistorico, setSelectedTarefaIdParaHistorico] = useState(null);
+    const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+    const [tarefaParaStatusUpdate, setTarefaParaStatusUpdate] = useState(null);
     const [isImagensModalOpen, setIsImagensModalOpen] = useState(false);
     const [imagensParaVer, setImagensParaVer] = useState([]);
-    
-    const [filtroResponsavel, setFiltroResponsavel] = useState("TODOS");
-    const [filtroStatus, setFiltroStatus] = useState(TODOS_OS_STATUS_VALUE);
-    const [filtroPrioridade, setFiltroPrioridade] = useState(TODAS_AS_PRIORIDADES_VALUE);
-    const [filtroArea, setFiltroArea] = useState(TODAS_AS_AREAS_VALUE);
-    const [filtroTurno, setFiltroTurno] = useState("---TODOS_OS_TURNOS---");
-    const [filtroDataInicio, setFiltroDataInicio] = useState('');
-    const [filtroDataFim, setFiltroDataFim] = useState('');
-    const [termoBusca, setTermoBusca] = useState('');
 
-    const basePath = `/artifacts/${appId}/public/data`;
-    const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
-    const TODOS_OS_TURNOS_VALUE = "---TODOS_OS_TURNOS---";
+    const [filtroResponsavel, setFiltroResponsavel] = useState("TODOS");
+    const [filtroStatus, setFiltroStatus] = useState(TODOS_OS_STATUS_VALUE);
+    const [filtroPrioridade, setFiltroPrioridade] = useState(TODAS_AS_PRIORIDADES_VALUE);
+    const [filtroArea, setFiltroArea] = useState(TODAS_AS_AREAS_VALUE);
+    const [filtroTurno, setFiltroTurno] = useState("---TODOS_OS_TURNOS---");
+    const [filtroDataInicio, setFiltroDataInicio] = useState('');
+    const [filtroDataFim, setFiltroDataFim] = useState('');
+    const [termoBusca, setTermoBusca] = useState('');
 
-    useEffect(() => {
-        setLoading(true);
-        const usuarioAtual = auth.currentUser;
-        const q = query(tarefasCollectionRef, orderBy("createdAt", "desc"));
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    
-            if (tarefasAnteriores.current.length > 0 && usuarioAtual) {
-                const tarefasAtuaisIds = new Set(tarefasAnteriores.current.map(t => t.id));
-                const novaTarefa = fetchedTarefas.find(t => !tarefasAtuaisIds.has(t.id));
-        
-                if (novaTarefa) {
-                    const deveNotificar = listasAuxiliares.usuarios_notificacao.includes(usuarioAtual.email);
-                    const naoFoiCriador = novaTarefa.criadoPor !== usuarioAtual.uid;
-        
-                    if (deveNotificar && naoFoiCriador) {
-                        toast.success(`Nova tarefa criada: ${novaTarefa.tarefa}`);
-                    }
-                }
-            }
-            
-            setTodasTarefas(fetchedTarefas);
-            tarefasAnteriores.current = fetchedTarefas;
-            setLoading(false);
-    
-        }, (error) => {
-            console.error("Erro ao carregar tarefas do mapa: ", error);
-            setLoading(false);
-        });
-    
-        return () => unsubscribe();
-    }, [userId, appId, db, auth, listasAuxiliares]);
+    const basePath = `/artifacts/${appId}/public/data`;
+    const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
+    const TODOS_OS_TURNOS_VALUE = "---TODOS_OS_TURNOS---";
 
-    useEffect(() => {
-        let tarefasProcessadas = [...todasTarefas];
+    useEffect(() => {
+        setLoading(true);
+        const usuarioAtual = auth.currentUser;
+        const q = query(tarefasCollectionRef, orderBy("createdAt", "desc"));
 
-        if (termoBusca.trim() !== "") {
-            tarefasProcessadas = tarefasProcessadas.filter(t => 
-                (t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())) ||
-                (t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase()))
-            );
-        }
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        if (filtroResponsavel !== "TODOS") {
-            if (filtroResponsavel === SEM_RESPONSAVEL_VALUE) {
-                tarefasProcessadas = tarefasProcessadas.filter(t => !t.responsaveis || t.responsaveis.length === 0);
-            } else {
-                tarefasProcessadas = tarefasProcessadas.filter(t => t.responsaveis && t.responsaveis.includes(filtroResponsavel));
-            }
-        }
+            if (tarefasAnteriores.current.length > 0 && usuarioAtual) {
+                const tarefasAtuaisIds = new Set(tarefasAnteriores.current.map(t => t.id));
+                const novaTarefa = fetchedTarefas.find(t => !tarefasAtuaisIds.has(t.id));
 
-        if (filtroStatus !== TODOS_OS_STATUS_VALUE) {
-            tarefasProcessadas = tarefasProcessadas.filter(t => t.status === filtroStatus);
-        }
-        if (filtroPrioridade !== TODAS_AS_PRIORIDADES_VALUE) {
-            tarefasProcessadas = tarefasProcessadas.filter(t => t.prioridade === filtroPrioridade);
-        }
-        if (filtroArea !== TODAS_AS_AREAS_VALUE) {
-            tarefasProcessadas = tarefasProcessadas.filter(t => t.area === filtroArea);
-        }
-        if (filtroTurno !== TODOS_OS_TURNOS_VALUE) {
-            tarefasProcessadas = tarefasProcessadas.filter(t => t.turno === filtroTurno);
-        }
-        
-        const inicioFiltro = filtroDataInicio ? new Date(filtroDataInicio + "T00:00:00Z").getTime() : null;
-        const fimFiltro = filtroDataFim ? new Date(filtroDataFim + "T23:59:59Z").getTime() : null;
+                if (novaTarefa) {
+                    const deveNotificar = listasAuxiliares.usuarios_notificacao.includes(usuarioAtual.email);
+                    const naoFoiCriador = novaTarefa.criadoPor !== usuarioAtual.uid;
 
-        if (inicioFiltro || fimFiltro) {
-            tarefasProcessadas = tarefasProcessadas.filter(t => {
-                const inicioTarefa = (t.dataInicio && typeof t.dataInicio.toDate === 'function') ? t.dataInicio.toDate().getTime() : null;
-                const fimTarefa = (t.dataProvavelTermino && typeof t.dataProvavelTermino.toDate === 'function') ? t.dataProvavelTermino.toDate().getTime() : null;
+                    if (deveNotificar && naoFoiCriador) {
+                        toast.success(`Nova tarefa criada: ${novaTarefa.tarefa}`);
+                    }
+                }
+            }
 
-                if (!inicioTarefa) return false; 
-                
-                const comecaAntesOuDuranteFiltro = inicioTarefa <= (fimFiltro || Infinity);
-                const terminaDepoisOuDuranteFiltro = fimTarefa ? fimTarefa >= (inicioFiltro || 0) : true; 
-                
-                if (!fimTarefa || inicioTarefa === fimTarefa) {
-                    return inicioTarefa >= (inicioFiltro || 0) && inicioTarefa <= (fimFiltro || Infinity);
-                }
+            setTodasTarefas(fetchedTarefas);
+            tarefasAnteriores.current = fetchedTarefas;
+            setLoading(false);
 
-                return comecaAntesOuDuranteFiltro && terminaDepoisOuDuranteFiltro;
-            });
-        }
-        
-        setTarefasExibidas(tarefasProcessadas);
-    }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroTurno, filtroDataInicio, filtroDataFim, termoBusca]);
+        }, (error) => {
+            console.error("Erro ao carregar tarefas do mapa: ", error);
+            setLoading(false);
+        });
 
-    // [NOVO v2.7.0] Funções para controlar o modal de imagens
+        return () => unsubscribe();
+    }, [userId, appId, db, auth, listasAuxiliares]);
+
+    useEffect(() => {
+        let tarefasProcessadas = [...todasTarefas];
+
+        if (termoBusca.trim() !== "") {
+            tarefasProcessadas = tarefasProcessadas.filter(t =>
+                (t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())) ||
+                (t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase()))
+            );
+        }
+
+        if (filtroResponsavel !== "TODOS") {
+            if (filtroResponsavel === SEM_RESPONSAVEL_VALUE) {
+                tarefasProcessadas = tarefasProcessadas.filter(t => !t.responsaveis || t.responsaveis.length === 0);
+            } else {
+                tarefasProcessadas = tarefasProcessadas.filter(t => t.responsaveis && t.responsaveis.includes(filtroResponsavel));
+            }
+        }
+
+        if (filtroStatus !== TODOS_OS_STATUS_VALUE) {
+            tarefasProcessadas = tarefasProcessadas.filter(t => t.status === filtroStatus);
+        }
+        if (filtroPrioridade !== TODAS_AS_PRIORIDADES_VALUE) {
+            tarefasProcessadas = tarefasProcessadas.filter(t => t.prioridade === filtroPrioridade);
+        }
+        if (filtroArea !== TODAS_AS_AREAS_VALUE) {
+            tarefasProcessadas = tarefasProcessadas.filter(t => t.area === filtroArea);
+        }
+        if (filtroTurno !== TODOS_OS_TURNOS_VALUE) {
+            tarefasProcessadas = tarefasProcessadas.filter(t => t.turno === filtroTurno);
+        }
+
+        const inicioFiltro = filtroDataInicio ? new Date(filtroDataInicio + "T00:00:00Z").getTime() : null;
+        const fimFiltro = filtroDataFim ? new Date(filtroDataFim + "T23:59:59Z").getTime() : null;
+
+        if (inicioFiltro || fimFiltro) {
+            tarefasProcessadas = tarefasProcessadas.filter(t => {
+                const inicioTarefa = (t.dataInicio && typeof t.dataInicio.toDate === 'function') ? t.dataInicio.toDate().getTime() : null;
+                const fimTarefa = (t.dataProvavelTermino && typeof t.dataProvavelTermino.toDate === 'function') ? t.dataProvavelTermino.toDate().getTime() : null;
+
+                if (!inicioTarefa) return false;
+
+                const comecaAntesOuDuranteFiltro = inicioTarefa <= (fimFiltro || Infinity);
+                const terminaDepoisOuDuranteFiltro = fimTarefa ? fimTarefa >= (inicioFiltro || 0) : true;
+
+                if (!fimTarefa || inicioTarefa === fimTarefa) {
+                    return inicioTarefa >= (inicioFiltro || 0) && inicioTarefa <= (fimFiltro || Infinity);
+                }
+
+                return comecaAntesOuDuranteFiltro && terminaDepoisOuDuranteFiltro;
+            });
+        }
+
+        setTarefasExibidas(tarefasProcessadas);
+    }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroTurno, filtroDataInicio, filtroDataFim, termoBusca]);
+
     const handleOpenImagensModal = (urls) => {
         setImagensParaVer(urls);
         setIsImagensModalOpen(true);
@@ -1302,195 +1367,185 @@ const MapaAtividadesComponent = () => {
         setImagensParaVer([]);
     };
 
-    const limparFiltros = () => {
-        setFiltroResponsavel("TODOS");
-        setFiltroStatus(TODOS_OS_STATUS_VALUE);
-        setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE);
-        setFiltroArea(TODAS_AS_AREAS_VALUE);
-        setFiltroTurno(TODOS_OS_TURNOS_VALUE);
-        setFiltroDataInicio('');
-        setFiltroDataFim('');
-        setTermoBusca('');
-    };
-    
-    const handleOpenModal = (tarefa = null) => { setEditingTarefa(tarefa); setIsModalOpen(true); };
-    const handleCloseModal = () => { setIsModalOpen(false); setEditingTarefa(null); };
-    const handleOpenHistoricoModal = (tarefaId) => { setSelectedTarefaIdParaHistorico(tarefaId); setIsHistoricoModalOpen(true); };
-    const handleCloseHistoricoModal = () => { setIsHistoricoModalOpen(false); setSelectedTarefaIdParaHistorico(null); };
-    const handleOpenStatusModal = (tarefa) => { setTarefaParaStatusUpdate(tarefa); setIsStatusModalOpen(true); };
-    const handleCloseStatusModal = () => { setIsStatusModalOpen(false); setTarefaParaStatusUpdate(null); };
-    const getResponsavelNomes = (responsavelIds) => {
-        if (!responsavelIds || responsavelIds.length === 0) return '---';
-        return responsavelIds.map(id => { const func = contextFuncionarios.find(f => f.id === id); return func ? func.nome : id; }).join(', ');
-    };
-    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
-        const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
-        if (!tarefaOriginal) { throw new Error("Tarefa não encontrada."); }
-        const payload = { status: novoStatus, updatedAt: Timestamp.now() };
-        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
-        await updateDoc(tarefaDocRef, payload);
-        const detalhesLog = `Status alterado de '${tarefaOriginal.status}' para '${novoStatus}' via alteração rápida.`;
-        await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Status Atualizado", detalhesLog);
-        await sincronizarTarefaComProgramacao(tarefaId, { ...tarefaOriginal, ...payload }, db, basePath);
-    };
+    const limparFiltros = () => {
+        setFiltroResponsavel("TODOS");
+        setFiltroStatus(TODOS_OS_STATUS_VALUE);
+        setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE);
+        setFiltroArea(TODAS_AS_AREAS_VALUE);
+        setFiltroTurno(TODOS_OS_TURNOS_VALUE);
+        setFiltroDataInicio('');
+        setFiltroDataFim('');
+        setTermoBusca('');
+    };
 
-    // [ALTERADO v2.7.0] handleSaveTarefa agora gerencia o upload de arquivos
-    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaIdParaSalvar) => { 
-        let idDaTarefaSalva = tarefaIdParaSalvar;
-        const usuario = auth.currentUser;
-        try {
-            // Passo 1: Garante que temos um ID para a tarefa (essencial para o caminho no Storage)
-            if (!idDaTarefaSalva) { 
+    const handleOpenModal = (tarefa = null) => { setEditingTarefa(tarefa); setIsModalOpen(true); };
+    const handleCloseModal = () => { setIsModalOpen(false); setEditingTarefa(null); };
+    const handleOpenHistoricoModal = (tarefaId) => { setSelectedTarefaIdParaHistorico(tarefaId); setIsHistoricoModalOpen(true); };
+    const handleCloseHistoricoModal = () => { setIsHistoricoModalOpen(false); setSelectedTarefaIdParaHistorico(null); };
+    const handleOpenStatusModal = (tarefa) => { setTarefaParaStatusUpdate(tarefa); setIsStatusModalOpen(true); };
+    const handleCloseStatusModal = () => { setIsStatusModalOpen(false); setTarefaParaStatusUpdate(null); };
+    const getResponsavelNomes = (responsavelIds) => {
+        if (!responsavelIds || responsavelIds.length === 0) return '---';
+        return responsavelIds.map(id => { const func = contextFuncionarios.find(f => f.id === id); return func ? func.nome : id; }).join(', ');
+    };
+    
+    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
+        const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
+        if (!tarefaOriginal) { throw new Error("Tarefa não encontrada."); }
+        const payload = { status: novoStatus, updatedAt: Timestamp.now() };
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        await updateDoc(tarefaDocRef, payload);
+        const detalhesLog = `Status alterado de '${tarefaOriginal.status}' para '${novoStatus}' via alteração rápida.`;
+        await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Status Atualizado", detalhesLog);
+        await sincronizarTarefaComProgramacao(tarefaId, { ...tarefaOriginal, ...payload }, db, basePath);
+    };
+
+    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaIdParaSalvar) => {
+        let idDaTarefaSalva = tarefaIdParaSalvar;
+        const usuario = auth.currentUser;
+        try {
+            if (!idDaTarefaSalva) {
                 const novoDocRef = doc(tarefasCollectionRef);
-                idDaTarefaSalva = novoDocRef.id;
-            }
+                idDaTarefaSalva = novoDocRef.id;
+            }
 
-            // Passo 2: Faz o upload dos novos anexos para o Firebase Storage
             const urlsDosNovosAnexos = [];
             if (novosAnexos && novosAnexos.length > 0) {
                 for (const anexo of novosAnexos) {
-                    // Cria um caminho único para o arquivo no Storage
                     const caminhoStorage = `${basePath}/imagens_tarefas/${idDaTarefaSalva}/${Date.now()}_${anexo.name}`;
                     const storageRef = ref(storage, caminhoStorage);
-                    
                     const uploadTask = await uploadBytesResumable(storageRef, anexo);
                     const downloadURL = await getDownloadURL(uploadTask.ref);
                     urlsDosNovosAnexos.push(downloadURL);
                 }
             }
 
-            // Passo 3: Prepara o objeto final com as URLs das imagens
             const dadosFinaisDaTarefa = {
                 ...tarefaData,
                 imagens: [...(tarefaData.imagens || []), ...urlsDosNovosAnexos]
             };
             
-            // Passo 4: Salva os dados da tarefa no Firestore
             const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, idDaTarefaSalva);
-            if (tarefaIdParaSalvar) { // Tarefa existente
-                await setDoc(tarefaDocRef, dadosFinaisDaTarefa, { merge: true }); 
-            } else { // Nova tarefa
-                await setDoc(tarefaDocRef, dadosFinaisDaTarefa);
-                await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" adicionada.`);
-            }
+            if (tarefaIdParaSalvar) {
+                await setDoc(tarefaDocRef, dadosFinaisDaTarefa, { merge: true });
+            } else {
+                await setDoc(tarefaDocRef, dadosFinaisDaTarefa);
+                await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" adicionada.`);
+            }
 
-            // Passo 5: Sincroniza com a programação semanal
-            await sincronizarTarefaComProgramacao(idDaTarefaSalva, dadosFinaisDaTarefa, db, basePath);
+            await sincronizarTarefaComProgramacao(idDaTarefaSalva, dadosFinaisDaTarefa, db, basePath);
 
-        } catch (error) { 
-            console.error("Erro ao salvar tarefa e fazer upload de imagens: ", error); 
+        } catch (error) {
+            console.error("Erro ao salvar tarefa e fazer upload de imagens: ", error);
             alert("Ocorreu um erro ao salvar a tarefa. Verifique o console para detalhes.");
         }
-    };
+    };
 
-    const handleDeleteTarefa = async (tarefaId) => {
-        const tarefaParaExcluir = todasTarefas.find(t => t.id === tarefaId);
-        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${tarefaParaExcluir?.tarefa}"?`)) {
-            try {
-                // Opcional: Excluir imagens do Storage ao apagar a tarefa (requer mais lógica)
-                // if (tarefaParaExcluir.imagens && tarefaParaExcluir.imagens.length > 0) {
-                //     for (const url of tarefaParaExcluir.imagens) {
-                //         const imageRef = ref(storage, url);
-                //         await deleteObject(imageRef);
-                //     }
-                // }
-                await removerTarefaDaProgramacao(tarefaId, db, basePath);
-                await deleteDoc(doc(db, `${basePath}/tarefas_mapa`, tarefaId));
+    const handleDeleteTarefa = async (tarefaId) => {
+        const tarefaParaExcluir = todasTarefas.find(t => t.id === tarefaId);
+        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${tarefaParaExcluir?.tarefa}"?`)) {
+            try {
+                await removerTarefaDaProgramacao(tarefaId, db, basePath);
+                await deleteDoc(doc(db, `${basePath}/tarefas_mapa`, tarefaId));
                 toast.success("Tarefa excluída com sucesso!");
-            } catch (error) { 
-                console.error("Erro ao excluir tarefa: ", error); 
+            } catch (error) {
+                console.error("Erro ao excluir tarefa: ", error);
                 toast.error("Erro ao excluir a tarefa.");
             }
-        }
-    };
+        }
+    };
 
-    const TABLE_HEADERS = ["Tarefa", "Orientação", "Responsável(eis)", "Área", "Prioridade", "Período", "Turno", "Status", "Ações"];
+    const TABLE_HEADERS = ["Tarefa", "Orientação", "Responsável(eis)", "Área", "Prioridade", "Período", "Turno", "Status", "Ações"];
 
-    return (
-        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                <h2 className="text-2xl font-semibold text-gray-800">Mapa de Atividades</h2>
-                <button onClick={() => handleOpenModal()} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
-                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa
-                </button>
-            </div>
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <h2 className="text-2xl font-semibold text-gray-800">Mapa de Atividades</h2>
+                <button onClick={() => handleOpenModal()} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
+                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa
+                </button>
+            </div>
 
-            <div className="p-4 bg-white rounded-lg shadow-md mb-6">
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Buscar Tarefa/Orientação</label>
-                        <input type="text" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Digite para buscar..." className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Responsável</label>
-                        <select value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
-                            <option value="TODOS">Todos</option>
-                            <option value={SEM_RESPONSAVEL_VALUE}>--- SEM RESPONSÁVEL ---</option>
-                            {contextFuncionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Status</label>
-                        <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
-                           <option value={TODOS_OS_STATUS_VALUE}>Todos</option>
-                           {listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
-                        <select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
-                           <option value={TODAS_AS_PRIORIDADES_VALUE}>Todas</option>
-                           {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                    </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Área</label>
-                        <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
-                           <option value={TODAS_AS_AREAS_VALUE}>Todas</option>
-                           {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Turno</label>
-                        <select value={filtroTurno} onChange={(e) => setFiltroTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
-                           <option value={TODOS_OS_TURNOS_VALUE}>Todos</option>
-                           {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Início do Período</label>
-                        <input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Fim do Período</label>
-                        <input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
-                    </div>
-                </div>
-                 <div className="mt-4 flex justify-end">
-                    <button onClick={limparFiltros} className="text-sm text-blue-600 hover:text-blue-800 font-semibold flex items-center">
-                        <LucideXCircle size={16} className="mr-1"/> Limpar Filtros
-                    </button>
-                </div>
-            </div>
+            <div className="p-4 bg-white rounded-lg shadow-md mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Buscar Tarefa/Orientação</label>
+                        <input type="text" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Digite para buscar..." className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Responsável</label>
+                        <select value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                            <option value="TODOS">Todos</option>
+                            <option value={SEM_RESPONSAVEL_VALUE}>--- SEM RESPONSÁVEL ---</option>
+                            {contextFuncionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Status</label>
+                        <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODOS_OS_STATUS_VALUE}>Todos</option>
+                           {listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
+                        <select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODAS_AS_PRIORIDADES_VALUE}>Todas</option>
+                           {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Área</label>
+                        <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODAS_AS_AREAS_VALUE}>Todas</option>
+                           {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Turno</label>
+                        <select value={filtroTurno} onChange={(e) => setFiltroTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                           <option value={TODOS_OS_TURNOS_VALUE}>Todos</option>
+                           {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Início do Período</label>
+                        <input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Fim do Período</label>
+                        <input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                    </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                    <button onClick={limparFiltros} className="text-sm text-blue-600 hover:text-blue-800 font-semibold flex items-center">
+                        <LucideXCircle size={16} className="mr-1"/> Limpar Filtros
+                    </button>
+                </div>
+            </div>
 
-            <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-100">
-                        <tr>
-                            {TABLE_HEADERS.map(header => (
-                                <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{header}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {loading ? (
-                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4">Carregando tarefas...</td></tr>
-                        ) : tarefasExibidas.length === 0 ? (
-                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4 text-gray-500">Nenhuma tarefa encontrada.</td></tr>
-                        ) : (
-                            tarefasExibidas.map(tarefa => (
-                                <tr key={tarefa.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs whitespace-normal break-words">
+            <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-100">
+                        <tr>
+                            {TABLE_HEADERS.map(header => (
+                                <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{header}</th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {loading ? (
+                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4">Carregando tarefas...</td></tr>
+                        ) : tarefasExibidas.length === 0 ? (
+                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4 text-gray-500">Nenhuma tarefa encontrada.</td></tr>
+                        ) : (
+                            tarefasExibidas.map(tarefa => {
+                                // [MODIFICADO v2.9.2] Apenas tarefas 'AGUARDANDO ALOCAÇÃO' desabilitam o botão.
+                                const isStatusChangeDisabled = tarefa.status === 'AGUARDANDO ALOCAÇÃO';
+                                
+                                return (
+                                <tr key={tarefa.id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs whitespace-normal break-words">
                                         <div className="flex items-center">
                                             <span>{tarefa.tarefa}</span>
                                             {tarefa.imagens && tarefa.imagens.length > 0 && (
@@ -1500,57 +1555,64 @@ const MapaAtividadesComponent = () => {
                                             )}
                                         </div>
                                     </td>
-                                    <td className="px-4 py-3 text-sm text-gray-700 max-w-sm whitespace-normal break-words">{tarefa.orientacao || '-'}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-800 max-w-xs whitespace-normal break-words">{getResponsavelNomes(tarefa.responsaveis)}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.area || '-'}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.prioridade || '-'}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{formatDate(tarefa.dataInicio)} a {formatDate(tarefa.dataProvavelTermino)}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.turno || 'N/A'}</td>
-                                    <td className="px-4 py-3 text-sm">
-                                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(tarefa.status)}`}>
-                                            {tarefa.status}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
-                                        <div className="flex items-center space-x-2">
-                                            <button onClick={() => handleOpenStatusModal(tarefa)} title="Alterar Status" className="text-blue-600 hover:text-blue-800"><LucideRefreshCw size={18}/></button>
-                                            <button onClick={() => handleOpenModal(tarefa)} title="Editar" className="text-gray-600 hover:text-gray-900"><LucideEdit size={18}/></button>
-                                            <button onClick={() => handleOpenHistoricoModal(tarefa.id)} title="Histórico" className="text-gray-600 hover:text-gray-900"><LucideHistory size={18}/></button>
-                                            <button onClick={() => handleDeleteTarefa(tarefa.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
+                                    <td className="px-4 py-3 text-sm text-gray-700 max-w-sm whitespace-normal break-words">{tarefa.orientacao || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 max-w-xs whitespace-normal break-words">{getResponsavelNomes(tarefa.responsaveis)}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.area || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.prioridade || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{formatDate(tarefa.dataInicio)} a {formatDate(tarefa.dataProvavelTermino)}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.turno || 'N/A'}</td>
+                                    <td className="px-4 py-3 text-sm">
+                                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(tarefa.status)}`}>
+                                            {tarefa.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
+                                        <div className="flex items-center space-x-2">
+                                            <button
+                                                onClick={() => !isStatusChangeDisabled && handleOpenStatusModal(tarefa)}
+                                                title={isStatusChangeDisabled ? "Aloque esta tarefa primeiro" : "Alterar Status"}
+                                                disabled={isStatusChangeDisabled}
+                                                className={isStatusChangeDisabled ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:text-blue-800'}
+                                            >
+                                                <LucideRefreshCw size={18}/>
+                                            </button>
+                                            <button onClick={() => handleOpenModal(tarefa)} title="Editar" className="text-gray-600 hover:text-gray-900"><LucideEdit size={18}/></button>
+                                            <button onClick={() => handleOpenHistoricoModal(tarefa.id)} title="Histórico" className="text-gray-600 hover:text-gray-900"><LucideHistory size={18}/></button>
+                                            <button onClick={() => handleDeleteTarefa(tarefa.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                )
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
 
-            <TarefaFormModal
-                isOpen={isModalOpen}
-                onClose={handleCloseModal}
-                tarefaExistente={editingTarefa}
-                onSave={handleSaveTarefa}
-            />
-            {/* [NOVO v2.7.0] Renderiza o novo modal de imagens */}
+            <TarefaFormModal
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
+                tarefaExistente={editingTarefa}
+                onSave={handleSaveTarefa}
+            />
             <ImagensTarefaModal
                 isOpen={isImagensModalOpen}
                 onClose={handleCloseImagensModal}
                 imageUrls={imagensParaVer}
             />
-            <HistoricoTarefaModal
-                isOpen={isHistoricoModalOpen}
-                onClose={handleCloseHistoricoModal}
-                tarefaId={selectedTarefaIdParaHistorico}
-            />
-            <StatusUpdateModal
-                isOpen={isStatusModalOpen}
-                onClose={handleCloseStatusModal}
-                tarefa={tarefaParaStatusUpdate}
-                onStatusSave={handleQuickStatusUpdate}
-            />
-        </div>
-    );
+            <HistoricoTarefaModal
+                isOpen={isHistoricoModalOpen}
+                onClose={handleCloseHistoricoModal}
+                tarefaId={selectedTarefaIdParaHistorico}
+            />
+            <StatusUpdateModal
+                isOpen={isStatusModalOpen}
+                onClose={handleCloseStatusModal}
+                tarefa={tarefaParaStatusUpdate}
+                onStatusSave={handleQuickStatusUpdate}
+            />
+        </div>
+    );
 };
 
 
@@ -2099,50 +2161,62 @@ const TarefaPatioComponent = () => {
 };
 
 
-// Componente Modal para Gerenciar Tarefas da Célula da Programação
+// Versão: 2.9.0
+// Componente Modal para Gerenciar Tarefas da Célula da Programação (MODIFICADO)
 const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, responsavelId, tarefasDaCelula, semanaId, onAlteracaoSalva }) => {
-    const { db, appId, funcionarios, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext); 
+    const { db, appId, funcionarios, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [statusTarefasMapa, setStatusTarefasMapa] = useState({}); 
+    
+    // [NOVO v2.9.0] Estado para armazenar os dados completos das tarefas, incluindo imagens.
+    const [dadosCompletosTarefas, setDadosCompletosTarefas] = useState({});
 
     useEffect(() => {
-        if (tarefasDaCelula) {
-            const tarefasComTurnoPadrao = tarefasDaCelula.map(t => ({
+        if (isOpen && tarefasDaCelula && tarefasDaCelula.length > 0) {
+            const tarefasCopiadas = JSON.parse(JSON.stringify(tarefasDaCelula.map(t => ({
                 ...t,
-                turno: t.turno || TURNO_DIA_INTEIRO 
-            }));
-            const tarefasCopiadas = JSON.parse(JSON.stringify(tarefasComTurnoPadrao));
+                turno: t.turno || TURNO_DIA_INTEIRO
+            }))));
             setTarefasEditaveis(tarefasCopiadas);
 
-            const fetchStatusMapa = async () => {
-                const statusMap = {};
+            // [NOVO v2.9.0] Função para buscar os dados completos da tarefa no Mapa.
+            const fetchDadosCompletos = async () => {
                 const basePath = `/artifacts/${appId}/public/data`;
+                const novasTarefasCompletas = {};
+                
                 for (const tarefaProg of tarefasCopiadas) {
                     if (tarefaProg.mapaTaskId) {
-                        const tarefaMapaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaProg.mapaTaskId);
-                        const tarefaMapaSnap = await getDoc(tarefaMapaRef);
-                        if (tarefaMapaSnap.exists()) {
-                            statusMap[tarefaProg.mapaTaskId] = tarefaMapaSnap.data().status;
+                        try {
+                            const tarefaMapaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaProg.mapaTaskId);
+                            const tarefaMapaSnap = await getDoc(tarefaMapaRef);
+                            if (tarefaMapaSnap.exists()) {
+                                novasTarefasCompletas[tarefaProg.mapaTaskId] = tarefaMapaSnap.data();
+                            }
+                        } catch(error) {
+                            console.error(`Erro ao buscar dados completos da tarefa ${tarefaProg.mapaTaskId}:`, error);
                         }
                     }
                 }
-                setStatusTarefasMapa(statusMap);
+                setDadosCompletosTarefas(novasTarefasCompletas);
             };
-            if(isOpen) fetchStatusMapa();
+
+            fetchDadosCompletos();
+        } else {
+             // Limpa o estado ao fechar o modal
+            setDadosCompletosTarefas({});
         }
     }, [tarefasDaCelula, isOpen, appId, db]);
 
     const responsavelNome = funcionarios.find(f => f.id === responsavelId)?.nome || responsavelId;
-    const dataExibicao = diaFormatado ? new Date(diaFormatado + "T00:00:00Z").toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : 'Data Inválida'; 
+    const dataExibicao = diaFormatado ? new Date(diaFormatado + "T00:00:00Z").toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Data Inválida';
 
-    const handleToggleStatusLocal = async (indexTarefa) => {
+    const handleToggleStatusLocal = (indexTarefa) => {
         const novasTarefas = [...tarefasEditaveis];
         const tarefa = novasTarefas[indexTarefa];
         tarefa.statusLocal = tarefa.statusLocal === 'CONCLUÍDA' ? 'PENDENTE' : 'CONCLUÍDA';
         setTarefasEditaveis(novasTarefas);
     };
-    
+
     const handleMarcarTodasComo = (novoStatusLocal) => {
         const novasTarefas = tarefasEditaveis.map(tarefa => ({
             ...tarefa,
@@ -2154,7 +2228,6 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
     const handleTurnoChange = (indexTarefa, novoTurno) => {
         const novasTarefas = [...tarefasEditaveis];
         const tarefa = novasTarefas[indexTarefa];
-        
         let textoBase = tarefa.textoVisivel;
         const regexTurno = /^\[(MANHÃ|TARDE)\]\s*/;
         textoBase = textoBase.replace(regexTurno, '');
@@ -2168,20 +2241,18 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
         setTarefasEditaveis(novasTarefas);
     };
 
-
     const handleRemoverTarefaDaCelula = (indexTarefa) => {
         if (window.confirm("Remover esta tarefa apenas deste dia/responsável na programação?")) {
             const novasTarefas = tarefasEditaveis.filter((_, idx) => idx !== indexTarefa);
             setTarefasEditaveis(novasTarefas);
         }
     };
-    
+
     const handleSalvarAlteracoes = async () => {
         setLoading(true);
         const basePath = `/artifacts/${appId}/public/data`;
         const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaId);
-        const mapaTaskIdsAlterados = new Set(tarefasEditaveis.map(t => t.mapaTaskId)); 
-        const usuario = authGlobal.currentUser;
+        const mapaTaskIdsAlterados = new Set(tarefasEditaveis.map(t => t.mapaTaskId));
 
         try {
             const semanaDocSnap = await getDoc(semanaDocRef);
@@ -2189,12 +2260,12 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                 throw new Error("Documento da semana não encontrado.");
             }
             const semanaData = semanaDocSnap.data();
-            
+
             if (semanaData.dias && semanaData.dias[diaFormatado]) {
                 semanaData.dias[diaFormatado][responsavelId] = tarefasEditaveis;
             } else {
-                if(!semanaData.dias) semanaData.dias = {};
-                if(!semanaData.dias[diaFormatado]) semanaData.dias[diaFormatado] = {};
+                if (!semanaData.dias) semanaData.dias = {};
+                if (!semanaData.dias[diaFormatado]) semanaData.dias[diaFormatado] = {};
                 semanaData.dias[diaFormatado][responsavelId] = tarefasEditaveis;
             }
 
@@ -2202,12 +2273,12 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
             console.log("Alterações na programação salvas com sucesso.");
 
             for (const taskId of mapaTaskIdsAlterados) {
-                if (taskId) { 
+                if (taskId) {
                     await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
                 }
             }
 
-            if(onAlteracaoSalva) onAlteracaoSalva(); 
+            if (onAlteracaoSalva) onAlteracaoSalva();
             onClose();
         } catch (error) {
             console.error("Erro ao salvar alterações na programação: ", error);
@@ -2216,87 +2287,112 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
         setLoading(false);
     };
 
-
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Gerenciar Tarefas - ${responsavelNome} (${dataExibicao})`} width="max-w-xl"> 
+        <Modal isOpen={isOpen} onClose={onClose} title={`Gerenciar Tarefas - ${responsavelNome} (${dataExibicao})`} width="max-w-3xl">
             <div className="mb-4 flex justify-start space-x-2">
-                <button 
+                <button
                     onClick={() => handleMarcarTodasComo('CONCLUÍDA')}
                     className="bg-green-500 text-white px-3 py-1.5 text-xs rounded hover:bg-green-600 flex items-center"
                 >
-                    <LucideCheckSquare size={14} className="mr-1"/> Marcar Todas Concluídas
+                    <LucideCheckSquare size={14} className="mr-1" /> Marcar Todas Concluídas
                 </button>
-                <button 
+                <button
                     onClick={() => handleMarcarTodasComo('PENDENTE')}
                     className="bg-yellow-500 text-white px-3 py-1.5 text-xs rounded hover:bg-yellow-600 flex items-center"
                 >
-                     <LucideSquare size={14} className="mr-1"/> Marcar Todas Pendentes
+                    <LucideSquare size={14} className="mr-1" /> Marcar Todas Pendentes
                 </button>
             </div>
             <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-2">
                 {tarefasEditaveis.length === 0 && <p className="text-gray-500">Nenhuma tarefa nesta célula.</p>}
-                {tarefasEditaveis.map((tarefa, index) => (
-                    <div key={tarefa.mapaTaskId || index} className={`p-3 rounded-md shadow-sm border ${tarefa.statusLocal === 'CONCLUÍDA' ? 'border-green-300 bg-green-50' : 'border-blue-300 bg-blue-50'}`}>
-                        <div className="flex justify-between items-start">
-                            <div className="flex-grow pr-2">
-                                <span className={`font-semibold text-sm ${tarefa.statusLocal === 'CONCLUÍDA' ? 'line-through text-gray-600' : 'text-gray-800'}`}>
-                                    {tarefa.textoVisivel}
-                                </span>
+                {tarefasEditaveis.map((tarefa, index) => {
+                    // [NOVO v2.9.0] Busca os dados completos da tarefa para acessar as imagens.
+                    const tarefaCompleta = dadosCompletosTarefas[tarefa.mapaTaskId];
+                    const imagens = tarefaCompleta?.imagens || [];
+
+                    return (
+                        <div key={tarefa.mapaTaskId || index} className={`p-3 rounded-md shadow-sm border ${tarefa.statusLocal === 'CONCLUÍDA' ? 'border-green-300 bg-green-50' : 'border-blue-300 bg-blue-50'}`}>
+                            <div className="flex justify-between items-start">
+                                <div className="flex-grow pr-2">
+                                    <span className={`font-semibold text-sm ${tarefa.statusLocal === 'CONCLUÍDA' ? 'line-through text-gray-600' : 'text-gray-800'}`}>
+                                        {tarefa.textoVisivel}
+                                    </span>
+                                </div>
+                                <div className="flex space-x-2 items-center">
+                                    <button
+                                        onClick={() => handleToggleStatusLocal(index)}
+                                        title={tarefa.statusLocal === 'CONCLUÍDA' ? "Reabrir Tarefa" : "Concluir Tarefa"}
+                                        className={`p-1.5 rounded-full hover:bg-opacity-80 transition-colors ${tarefa.statusLocal === 'CONCLUÍDA' ? 'bg-yellow-500 text-white' : 'bg-green-500 text-white'}`}
+                                    >
+                                        {tarefa.statusLocal === 'CONCLUÍDA' ? <LucideRotateCcw size={16} /> : <LucideCheckCircle size={16} />}
+                                    </button>
+                                    <button
+                                        onClick={() => handleRemoverTarefaDaCelula(index)}
+                                        title="Remover desta célula"
+                                        className="p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                                    >
+                                        <LucideXCircle size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            {/* [MODIFICADO v2.9.0] Divisão do conteúdo em colunas */}
+                            <div className="mt-2 pt-2 border-t border-gray-300 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    {tarefa.orientacao && (
+                                        <div className="mb-2">
+                                            <strong className="block font-medium text-gray-800 text-sm mb-1">Orientação:</strong>
+                                            <p className="text-sm text-gray-700">{tarefa.orientacao}</p>
+                                        </div>
+                                    )}
+                                    <div className="mt-2">
+                                        <label htmlFor={`turno-tarefa-${index}`} className="block text-xs font-medium text-gray-600 mb-0.5">Turno:</label>
+                                        <select
+                                            id={`turno-tarefa-${index}`}
+                                            value={tarefa.turno || TURNO_DIA_INTEIRO}
+                                            onChange={(e) => handleTurnoChange(index, e.target.value)}
+                                            className="block w-full p-1.5 text-xs border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                        >
+                                            {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    </div>
+                                    {tarefaCompleta?.status && (
+                                        <div className="mt-2 text-xs text-gray-500">
+                                            Status no Mapa: <span className={`font-medium ${getStatusColor(tarefaCompleta.status).replace('bg-', 'text-').replace('-200', '-700').replace('-300', '-800')}`}>{tarefaCompleta.status}</span>
+                                        </div>
+                                    )}
+                                </div>
                                 
-                                {/* [ADICIONADO] Bloco para exibir a orientação da tarefa */}
-                                {tarefa.orientacao && (
-                                    <p className="text-sm text-gray-700 mt-2 pt-2 border-t border-gray-300">
-                                        <strong className="font-medium text-gray-800">Orientação:</strong> {tarefa.orientacao}
-                                    </p>
+                                {/* [NOVO v2.9.0] Seção para exibir as imagens */}
+                                {imagens.length > 0 && (
+                                    <div>
+                                        <strong className="block font-medium text-gray-800 text-sm mb-1">Anexos:</strong>
+                                        <div className="flex flex-wrap gap-2">
+                                            {imagens.map((url, imgIndex) => (
+                                                <a key={imgIndex} href={url} target="_blank" rel="noopener noreferrer" title="Clique para ampliar">
+                                                    <img 
+                                                        src={url} 
+                                                        alt={`Anexo ${imgIndex + 1}`} 
+                                                        className="w-16 h-16 object-cover rounded-md border-2 border-white shadow-md hover:scale-110 hover:shadow-lg transition-transform"
+                                                        loading="lazy"
+                                                    />
+                                                </a>
+                                            ))}
+                                        </div>
+                                    </div>
                                 )}
                             </div>
-                            <div className="flex space-x-2 items-center">
-                                <button
-                                    onClick={() => handleToggleStatusLocal(index)}
-                                    title={tarefa.statusLocal === 'CONCLUÍDA' ? "Reabrir Tarefa" : "Concluir Tarefa"}
-                                    className={`p-1.5 rounded-full hover:bg-opacity-80 transition-colors ${tarefa.statusLocal === 'CONCLUÍDA' ? 'bg-yellow-500 text-white' : 'bg-green-500 text-white'}`}
-                                >
-                                    {tarefa.statusLocal === 'CONCLUÍDA' ? <LucideRotateCcw size={16}/> : <LucideCheckCircle size={16}/>}
-                                </button>
-                                <button
-                                    onClick={() => handleRemoverTarefaDaCelula(index)}
-                                    title="Remover desta célula"
-                                    className="p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                                >
-                                    <LucideXCircle size={16}/>
-                                </button>
-                            </div>
                         </div>
-                        <div className="mt-2">
-                            <label htmlFor={`turno-tarefa-${index}`} className="block text-xs font-medium text-gray-600 mb-0.5">Turno:</label>
-                            <select 
-                                id={`turno-tarefa-${index}`}
-                                value={tarefa.turno || TURNO_DIA_INTEIRO}
-                                onChange={(e) => handleTurnoChange(index, e.target.value)}
-                                className="block w-full p-1.5 text-xs border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                            >
-                                {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        </div>
-                        {statusTarefasMapa[tarefa.mapaTaskId] && (
-                             <div className="mt-2 text-xs text-gray-500">
-                                 Status no Mapa: <span className={`font-medium ${
-                                     statusTarefasMapa[tarefa.mapaTaskId] === 'CONCLUÍDA' ? 'text-green-600' : 
-                                     statusTarefasMapa[tarefa.mapaTaskId] === 'PROGRAMADA' ? 'text-blue-600' :
-                                     statusTarefasMapa[tarefa.mapaTaskId] === 'CANCELADA' ? 'text-red-600' : 'text-gray-600'
-                                 }`}>{statusTarefasMapa[tarefa.mapaTaskId]}</span>
-                            </div>
-                        )}
-                    </div>
-                ))}
+                    )
+                })}
             </div>
             <div className="mt-6 pt-4 border-t flex justify-end space-x-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
                     Cancelar
                 </button>
-                <button 
-                    type="button" 
-                    onClick={handleSalvarAlteracoes} 
+                <button
+                    type="button"
+                    onClick={handleSalvarAlteracoes}
                     disabled={loading}
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                 >
