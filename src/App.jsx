@@ -339,10 +339,9 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 2.9.8
-// Componente GlobalProvider
+// Versão: 3.0.2
+// Componente GlobalProvider (MODIFICADO para carregar todas as permissões)
 const GlobalProvider = ({ children }) => {
-    // ... (estados - Nenhuma alteração desde a última versão)
     const [currentUser, setCurrentUser] = useState(null);
     const [userId, setUserId] = useState(null);
     const [loadingAuth, setLoadingAuth] = useState(true);
@@ -350,10 +349,8 @@ const GlobalProvider = ({ children }) => {
         prioridades: [], areas: [], acoes: [], status: [], turnos: [], tarefas: [], usuarios_notificacao: []
     });
     const [funcionarios, setFuncionarios] = useState([]);
-    const [usuariosAutorizados, setUsuariosAutorizados] = useState([]);
-    const [usuariosAutorizadosConfig, setUsuariosAutorizadosConfig] = useState([]);
-    const [initialDataSeeded, setInitialDataSeeded] = useState(false);
-    
+    const [permissoes, setPermissoes] = useState({});
+
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(authGlobal, async (user) => {
             if (user) {
@@ -362,9 +359,7 @@ const GlobalProvider = ({ children }) => {
             } else {
                 try {
                     await signInAnonymously(authGlobal);
-                } catch (error) {
-                    console.error("Erro no login anônimo:", error);
-                }
+                } catch (error) { console.error("Erro no login anônimo:", error); }
                 setCurrentUser(authGlobal.currentUser);
                 setUserId(authGlobal.currentUser ? authGlobal.currentUser.uid : crypto.randomUUID());
             }
@@ -372,8 +367,6 @@ const GlobalProvider = ({ children }) => {
         });
         return () => unsubscribe();
     }, []);
-
-    // ... (useEffect de SeedData continua o mesmo)
 
     useEffect(() => {
         if (!userId || !appId || !db) return;
@@ -391,24 +384,26 @@ const GlobalProvider = ({ children }) => {
             unsubscribers.push(unsubscribe);
         });
         
-        const qPermissoesAdd = query(collection(db, `${basePath}/listas_auxiliares/usuarios_autorizados_add/items`));
-        const unsubscribePermissoesAdd = onSnapshot(qPermissoesAdd, (snapshot) => {
-            const emailsAutorizados = snapshot.docs.map(d => d.data().nome.toLowerCase());
-            setUsuariosAutorizados(emailsAutorizados);
-        }, error => console.error(`Erro ao carregar permissões de adição:`, error));
-        unsubscribers.push(unsubscribePermissoesAdd);
-
-        const qPermissoesConfig = query(collection(db, `${basePath}/listas_auxiliares/usuarios_autorizados_config/items`));
-        const unsubscribePermissoesConfig = onSnapshot(qPermissoesConfig, (snapshot) => {
-            const emailsAutorizados = snapshot.docs.map(d => d.data().nome.toLowerCase());
-            setUsuariosAutorizadosConfig(emailsAutorizados);
-        }, error => console.error(`Erro ao carregar permissões de configuração:`, error));
-        unsubscribers.push(unsubscribePermissoesConfig);
+        // [MODIFICADO v3.0.2] Adiciona a permissão de ação à lista de chaves a serem carregadas
+        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa'];
+        
+        chavesDePermissao.forEach(chave => {
+            const collectionPath = `${basePath}/listas_auxiliares/permissoes_${chave}/items`;
+            const q = query(collection(db, collectionPath));
+            
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const emailsPermitidos = snapshot.docs.map(doc => doc.data().nome.toLowerCase());
+                setPermissoes(prev => ({ ...prev, [chave]: emailsPermitidos }));
+            }, error => {
+                console.error(`Erro ao carregar permissões para '${chave}':`, error);
+                setPermissoes(prev => ({ ...prev, [chave]: [] }));
+            });
+            unsubscribers.push(unsubscribe);
+        });
 
         const qFuncionarios = query(collection(db, `${basePath}/funcionarios`));
         const unsubscribeFuncionarios = onSnapshot(qFuncionarios, (snapshot) => {
-            const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            setFuncionarios(items.sort((a,b) => a.nome.localeCompare(b.nome)));
+            setFuncionarios(snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.nome.localeCompare(b.nome)));
         }, error => console.error("Erro ao carregar funcionários:", error));
         unsubscribers.push(unsubscribeFuncionarios);
 
@@ -422,7 +417,7 @@ const GlobalProvider = ({ children }) => {
     }
 
     return (
-        <GlobalContext.Provider value={{ currentUser, userId, db, storage, auth: authGlobal, listasAuxiliares, funcionarios, appId, setFuncionarios, setListasAuxiliares, usuariosAutorizados, usuariosAutorizadosConfig }}>
+        <GlobalContext.Provider value={{ currentUser, userId, db, storage, auth: authGlobal, listasAuxiliares, funcionarios, appId, permissoes }}>
             {children}
         </GlobalContext.Provider>
     );
@@ -822,38 +817,51 @@ const FuncionariosManager = () => {
     );
 };
 
-// Versão: 2.9.8
-// Componente de Configurações
+// Versão: 3.0.2
+// Componente de Configurações (Nomenclatura Ajustada)
 const ConfiguracoesComponent = () => {
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Configurações Gerais</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                    {/* Gerenciadores de Permissão */}
+
+            <div className="mb-8 p-4 border rounded-md shadow-sm bg-blue-50">
+                 <h3 className="text-xl font-semibold mb-4 text-blue-800">Permissões de Acesso</h3>
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <ListaAuxiliarManager nomeLista="Acesso ao Dashboard" nomeSingular="E-mail" collectionPathSegment="permissoes_dashboard" />
+                    <ListaAuxiliarManager nomeLista="Acesso ao Mapa de Atividades" nomeSingular="E-mail" collectionPathSegment="permissoes_mapa" />
+                    <ListaAuxiliarManager nomeLista="Acesso à Programação Semanal" nomeSingular="E-mail" collectionPathSegment="permissoes_programacao" />
+                    <ListaAuxiliarManager nomeLista="Acesso à Tarefa Pátio" nomeSingular="E-mail" collectionPathSegment="permissoes_anotacoes" />
+                    <ListaAuxiliarManager nomeLista="Acesso às Tarefas Pendentes" nomeSingular="E-mail" collectionPathSegment="permissoes_pendentes" />
+                    <ListaAuxiliarManager nomeLista="Acesso aos Relatórios" nomeSingular="E-mail" collectionPathSegment="permissoes_relatorios" />
+                    <ListaAuxiliarManager nomeLista="Acesso às Configurações" nomeSingular="E-mail" collectionPathSegment="permissoes_config" />
+                    {/* Permissão de Ação Específica */}
                     <ListaAuxiliarManager 
                         nomeLista="Permissão para Adicionar Tarefas" 
                         nomeSingular="E-mail do Usuário" 
-                        collectionPathSegment="usuarios_autorizados_add" 
+                        collectionPathSegment="permissoes_add_tarefa" 
                     />
-                    <ListaAuxiliarManager 
-                        nomeLista="Permissão para Acessar Configurações" 
-                        nomeSingular="E-mail do Usuário" 
-                        collectionPathSegment="usuarios_autorizados_config" 
-                    />
-                    <ListaAuxiliarManager nomeLista="Usuários para Notificação" nomeSingular="E-mail do Usuário" collectionPathSegment="usuarios_notificacao" />
-                </div>
-                <div>
-                    {/* Listas Auxiliares */}
-                    <ListaAuxiliarManager nomeLista="Tarefas (Descrições Fixas)" nomeSingular="Tarefa" collectionPathSegment="tarefas" />
-                    <ListaAuxiliarManager nomeLista="Prioridades" nomeSingular="Prioridade" collectionPathSegment="prioridades" />
-                    <ListaAuxiliarManager nomeLista="Áreas" nomeSingular="Área" collectionPathSegment="areas" />
-                    <ListaAuxiliarManager nomeLista="Ações" nomeSingular="Ação" collectionPathSegment="acoes" />
-                    <ListaAuxiliarManager nomeLista="Status de Tarefas" nomeSingular="Status" collectionPathSegment="status" />
-                    <ListaAuxiliarManager nomeLista="Turnos" nomeSingular="Turno" collectionPathSegment="turnos" />
-                    <FuncionariosManager />
+                 </div>
+            </div>
+            {/* O resto do componente continua igual */}
+            <div className="mb-8 p-4 border rounded-md shadow-sm bg-white">
+                <h3 className="text-xl font-semibold mb-4 text-gray-700">Listas e Cadastros Gerais</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div>
+                        <ListaAuxiliarManager nomeLista="Usuários para Notificação" nomeSingular="E-mail do Usuário" collectionPathSegment="usuarios_notificacao" />
+                        <ListaAuxiliarManager nomeLista="Tarefas (Descrições Fixas)" nomeSingular="Tarefa" collectionPathSegment="tarefas" />
+                    </div>
+                    <div>
+                         <ListaAuxiliarManager nomeLista="Prioridades" nomeSingular="Prioridade" collectionPathSegment="prioridades" />
+                         <ListaAuxiliarManager nomeLista="Áreas" nomeSingular="Área" collectionPathSegment="areas" />
+                         <ListaAuxiliarManager nomeLista="Ações" nomeSingular="Ação" collectionPathSegment="acoes" />
+                    </div>
+                    <div>
+                        <ListaAuxiliarManager nomeLista="Status de Tarefas" nomeSingular="Status" collectionPathSegment="status" />
+                        <ListaAuxiliarManager nomeLista="Turnos" nomeSingular="Turno" collectionPathSegment="turnos" />
+                    </div>
                 </div>
             </div>
+            <FuncionariosManager />
         </div>
         );
     };
@@ -1240,10 +1248,11 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
     );
 };
 
-// Versão: 2.9.6
+// Versão: 3.0.2
 // Componente MapaAtividadesComponent (COMPLETO E CORRIGIDO)
 const MapaAtividadesComponent = () => {
-    const { userId, db, appId, storage, funcionarios: contextFuncionarios, listasAuxiliares, auth, usuariosAutorizados } = useContext(GlobalContext);
+    // Busca 'permissoes' do contexto em vez da variável antiga
+    const { userId, db, appId, storage, funcionarios: contextFuncionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
     const tarefasAnteriores = useRef([]);
     const [todasTarefas, setTodasTarefas] = useState([]);
@@ -1271,13 +1280,13 @@ const MapaAtividadesComponent = () => {
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
     const TODOS_OS_TURNOS_VALUE = "---TODOS_OS_TURNOS---";
 
-    // Lógica de verificação de permissão
-    const podeAdicionarTarefa = auth.currentUser?.email && usuariosAutorizados.includes(auth.currentUser.email.toLowerCase());
+    // A lógica de permissão agora usa o objeto 'permissoes'
+    const podeAdicionarTarefa = auth.currentUser?.email &&
+        (auth.currentUser.email === 'mpivottoramos@gmail.com' || (permissoes?.add_tarefa?.includes(auth.currentUser.email.toLowerCase()) ?? false));
 
     useEffect(() => {
         setLoading(true);
         const q = query(tarefasCollectionRef, orderBy("createdAt", "desc"));
-        
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTodasTarefas(fetchedTarefas);
@@ -1286,7 +1295,6 @@ const MapaAtividadesComponent = () => {
             console.error("Erro ao carregar tarefas do mapa: ", error);
             setLoading(false);
         });
-        
         return () => unsubscribe();
     }, [userId, appId, db]);
 
@@ -1335,7 +1343,7 @@ const MapaAtividadesComponent = () => {
         }
         setTarefasExibidas(tarefasProcessadas);
     }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroTurno, filtroDataInicio, filtroDataFim, termoBusca]);
-    
+
     const handleOpenImagensModal = (urls) => { setImagensParaVer(urls); setIsImagensModalOpen(true); };
     const handleCloseImagensModal = () => { setIsImagensModalOpen(false); setImagensParaVer([]); };
     const limparFiltros = () => {
@@ -1358,9 +1366,63 @@ const MapaAtividadesComponent = () => {
         if (!responsavelIds || responsavelIds.length === 0) return '---';
         return responsavelIds.map(id => { const func = contextFuncionarios.find(f => f.id === id); return func ? func.nome : id; }).join(', ');
     };
-    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => { /* ...código existente... */ };
-    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaIdParaSalvar) => { /* ...código existente... */ };
-    const handleDeleteTarefa = async (tarefaId) => { /* ...código existente... */ };
+    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
+        const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
+        if (!tarefaOriginal) { throw new Error("Tarefa não encontrada."); }
+        const payload = { status: novoStatus, updatedAt: Timestamp.now() };
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        await updateDoc(tarefaDocRef, payload);
+        const detalhesLog = `Status alterado de '${tarefaOriginal.status}' para '${novoStatus}' via alteração rápida.`;
+        await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Status Atualizado", detalhesLog);
+        await sincronizarTarefaComProgramacao(tarefaId, { ...tarefaOriginal, ...payload }, db, basePath);
+    };
+
+    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaIdParaSalvar) => {
+        let idDaTarefaSalva = tarefaIdParaSalvar;
+        const usuario = auth.currentUser;
+        try {
+            if (!idDaTarefaSalva) {
+                const novoDocRef = doc(tarefasCollectionRef);
+                idDaTarefaSalva = novoDocRef.id;
+            }
+            const urlsDosNovosAnexos = [];
+            if (novosAnexos && novosAnexos.length > 0) {
+                for (const anexo of novosAnexos) {
+                    const caminhoStorage = `${basePath}/imagens_tarefas/${idDaTarefaSalva}/${Date.now()}_${anexo.name}`;
+                    const storageRef = ref(storage, caminhoStorage);
+                    const uploadTask = await uploadBytesResumable(storageRef, anexo);
+                    const downloadURL = await getDownloadURL(uploadTask.ref);
+                    urlsDosNovosAnexos.push(downloadURL);
+                }
+            }
+            const dadosFinaisDaTarefa = { ...tarefaData, imagens: [...(tarefaData.imagens || []), ...urlsDosNovosAnexos] };
+            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, idDaTarefaSalva);
+            if (tarefaIdParaSalvar) {
+                await setDoc(tarefaDocRef, dadosFinaisDaTarefa, { merge: true });
+            } else {
+                await setDoc(tarefaDocRef, dadosFinaisDaTarefa);
+                await logAlteracaoTarefa(db, basePath, idDaTarefaSalva, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" adicionada.`);
+            }
+            await sincronizarTarefaComProgramacao(idDaTarefaSalva, dadosFinaisDaTarefa, db, basePath);
+        } catch (error) {
+            console.error("Erro ao salvar tarefa: ", error);
+            alert("Ocorreu um erro ao salvar a tarefa.");
+        }
+    };
+
+    const handleDeleteTarefa = async (tarefaId) => {
+        const tarefaParaExcluir = todasTarefas.find(t => t.id === tarefaId);
+        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${tarefaParaExcluir?.tarefa}"?`)) {
+            try {
+                await removerTarefaDaProgramacao(tarefaId, db, basePath);
+                await deleteDoc(doc(db, `${basePath}/tarefas_mapa`, tarefaId));
+                toast.success("Tarefa excluída com sucesso!");
+            } catch (error) {
+                console.error("Erro ao excluir tarefa: ", error);
+                toast.error("Erro ao excluir a tarefa.");
+            }
+        }
+    };
 
     const TABLE_HEADERS = ["Tarefa", "Orientação", "Responsável(eis)", "Área", "Prioridade", "Período", "Turno", "Status", "Ações"];
 
@@ -2994,6 +3056,29 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
+// Versão: 2.9.9
+// [NOVO] Componente para a tela inicial de Boas-Vindas
+const WelcomeComponent = () => {
+    return (
+        <div className="flex flex-col justify-center items-center h-full bg-gray-50 text-center p-6">
+            <div className="bg-white p-10 rounded-xl shadow-md">
+                <img 
+                    src={LOGO_URL} 
+                    alt="Logo Gramoterra" 
+                    className="mx-auto h-20 w-auto mb-6" 
+                    onError={(e) => e.target.style.display='none'}
+                />
+                <h1 className="text-4xl font-bold text-gray-800">
+                    Gramoterra
+                </h1>
+                <p className="text-xl text-gray-600 mt-2">
+                    Gestor de Equipes
+                </p>
+            </div>
+        </div>
+    );
+};
+
 // Componente Dashboard
 const DashboardComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
@@ -3319,32 +3404,47 @@ const DashboardComponent = () => {
 };
 
 
-// Versão: 2.9.8
-// Componente Principal App (CORRIGIDO)
+// Versão: 3.0.0
+// Componente Principal App (MODIFICADO para usar o sistema de permissões completo)
 function App() {
-    const [currentPage, setCurrentPage] = useState('dashboard');
-    const { currentUser, auth: firebaseAuth, usuariosAutorizadosConfig } = useContext(GlobalContext);
+    const [currentPage, setCurrentPage] = useState('welcome'); 
+    const { currentUser, auth: firebaseAuth, permissoes } = useContext(GlobalContext);
 
     if (!currentUser) {
         return <AuthComponent />;
     }
 
-    // Lógica para verificar se o usuário pode ver a página de Configurações
-    // Inclui um "master user" como segurança para você não perder o acesso
-    const podeVerConfig = currentUser?.email && 
-        (currentUser.email === 'mpivottoramos@gmail.com' || usuariosAutorizadosConfig.includes(currentUser.email.toLowerCase()));
+    // [MODIFICADO v3.0.0] Função centralizada para checar permissão
+    const checkPermission = (menu) => {
+        const userEmail = currentUser?.email;
+        if (!userEmail) return false;
+        
+        // O seu e-mail sempre terá acesso a tudo, como uma chave mestra de segurança.
+        if (userEmail === 'mpivottoramos@gmail.com') return true;
+        
+        // Verifica se a lista de permissões para o menu específico inclui o usuário atual
+        return permissoes[menu]?.includes(userEmail.toLowerCase()) ?? false;
+    };
 
     const PageContent = () => {
+        // Redireciona para a primeira página permitida se a atual não for acessível
+        const getFallbackPage = () => {
+            if (checkPermission('dashboard')) return <DashboardComponent />;
+            if (checkPermission('mapa')) return <MapaAtividadesComponent />;
+            // Adicione outras verificações aqui...
+            return <WelcomeComponent />; // Tela padrão se não tiver acesso a nada
+        };
+
         switch (currentPage) {
-            case 'dashboard': return <DashboardComponent />;
-            case 'mapa': return <MapaAtividadesComponent />;
-            case 'programacao': return <ProgramacaoSemanalComponent />;
-            case 'anotacoes': return <TarefaPatioComponent />;
-            case 'tarefasPendentes': return <TarefasPendentesComponent />;
-            // Protege a rota de Configurações
-            case 'config': return podeVerConfig ? <ConfiguracoesComponent /> : <DashboardComponent />;
-            case 'relatorios': return <RelatoriosComponent />;
-            default: return <DashboardComponent />;
+            case 'welcome': return <WelcomeComponent />;
+            case 'dashboard': return checkPermission('dashboard') ? <DashboardComponent /> : getFallbackPage();
+            case 'mapa': return checkPermission('mapa') ? <MapaAtividadesComponent /> : getFallbackPage();
+            case 'programacao': return checkPermission('programacao') ? <ProgramacaoSemanalComponent /> : getFallbackPage();
+            case 'anotacoes': return checkPermission('anotacoes') ? <TarefaPatioComponent /> : getFallbackPage();
+            case 'tarefasPendentes': return checkPermission('pendentes') ? <TarefasPendentesComponent /> : getFallbackPage();
+            case 'config': return checkPermission('config') ? <ConfiguracoesComponent /> : getFallbackPage();
+            case 'relatorios': return checkPermission('relatorios') ? <RelatoriosComponent /> : getFallbackPage();
+            default: return <WelcomeComponent />;
         }
     };
 
@@ -3361,16 +3461,7 @@ function App() {
 
     return (
         <>
-            <Toaster
-                position="top-right"
-                toastOptions={{
-                    success: {
-                        duration: 5000,
-                        style: { background: '#1976D2', color: 'white', fontWeight: 'bold' },
-                        iconTheme: { primary: '#BBDEFB', secondary: '#1976D2' },
-                    },
-                }}
-            />
+            <Toaster position="top-right" toastOptions={{ success: { /* ... */ } }} />
             <div className="flex h-screen bg-gray-100 font-sans">
                 <aside className="w-64 bg-white shadow-lg flex flex-col p-4 space-y-2 border-r border-gray-200">
                     <div className="mb-4 p-2 text-center">
@@ -3378,30 +3469,22 @@ function App() {
                         <h1 className="text-xl font-semibold text-gray-700">Gestor de Equipes</h1>
                     </div>
                     <nav className="flex-grow space-y-1">
-                        <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>
-                        <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>
-                        <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>
-                        <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>
-                        <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>
-                        
-                        {/* Link do menu de Configurações agora é condicional */}
-                        {podeVerConfig && (
-                           <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>
-                        )}
-                        
-                        <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>
+                        {/* [MODIFICADO v3.0.0] Todos os links agora são condicionais */}
+                        {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
+                        {checkPermission('mapa') && <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>}
+                        {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>}
+                        {checkPermission('anotacoes') && <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>}
+                        {checkPermission('pendentes') && <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>}
+                        {checkPermission('config') && <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>}
+                        {checkPermission('relatorios') && <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>}
                     </nav>
                     <div className="mt-auto">
                         <p className="text-xs text-gray-500 mb-2 px-2">Logado como: {currentUser.isAnonymous ? "Anônimo" : currentUser.email || currentUser.uid}</p>
-                        <button
-                            onClick={() => firebaseAuth.signOut()}
-                            className="w-full flex items-center justify-center px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors duration-150 ease-in-out"
-                        >
+                        <button onClick={() => firebaseAuth.signOut()} className="w-full flex items-center justify-center px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100 hover:text-red-700">
                             <LucideLogOut size={18} className="mr-2"/> Sair
                         </button>
                     </div>
                 </aside>
-
                 <main className="flex-1 overflow-y-auto">
                     <PageContent />
                 </main>
