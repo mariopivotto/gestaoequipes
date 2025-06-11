@@ -1162,9 +1162,77 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
     );
 };
 
-// Componente para Modal de Histórico (sem alterações)
+// Versão: 2.9.4
+// Componente para Modal de Histórico (COMPLETO)
 const HistoricoTarefaModal = ({ isOpen, onClose, tarefaId }) => {
-    // ...código sem alterações...
+    const { db, appId } = useContext(GlobalContext);
+    const [historico, setHistorico] = useState([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        // Zera o histórico ao fechar para não mostrar dados antigos
+        if (!isOpen) {
+            setHistorico([]);
+            return;
+        }
+
+        if (tarefaId) {
+            setLoading(true);
+            const basePath = `/artifacts/${appId}/public/data`;
+            const historicoRef = collection(db, `${basePath}/tarefas_mapa/${tarefaId}/historico_alteracoes`);
+            const q = query(historicoRef, orderBy("timestamp", "desc"));
+
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const historicoData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setHistorico(historicoData);
+                setLoading(false);
+            }, (error) => {
+                console.error("Erro ao carregar histórico:", error);
+                setLoading(false);
+                toast.error("Erro ao carregar o histórico.");
+            });
+
+            // Limpa o listener quando o componente é desmontado ou o modal é fechado
+            return () => unsubscribe();
+        }
+    }, [isOpen, tarefaId, db, appId]);
+
+    const formatTimestamp = (ts) => {
+        if (!ts) return "Data inválida";
+        return ts.toDate().toLocaleString('pt-BR', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Histórico de Alterações da Tarefa" width="max-w-4xl">
+            {loading ? (
+                <p>Carregando histórico...</p>
+            ) : historico.length > 0 ? (
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                    {historico.map(entry => (
+                        <div key={entry.id} className="p-3 bg-gray-50 rounded-lg border border-gray-200 shadow-sm">
+                            <div className="flex justify-between items-center mb-2">
+                                <p className="text-sm font-semibold text-gray-800">{entry.acaoRealizada}</p>
+                                <p className="text-xs text-gray-500">{formatTimestamp(entry.timestamp)}</p>
+                            </div>
+                            <p className="text-sm text-gray-600"><strong>Usuário:</strong> {entry.usuarioEmail || 'N/A'}</p>
+                            {entry.detalhesAdicionais && (
+                                <div className="mt-2 pt-2 border-t border-gray-200">
+                                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                        <strong>Detalhes:</strong> {entry.detalhesAdicionais}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-center text-gray-500 py-4">Nenhum histórico encontrado para esta tarefa.</p>
+            )}
+        </Modal>
+    );
 };
 
 // Versão: 2.9.2
@@ -1238,8 +1306,7 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
     );
 };
 
-// Versão: 2.9.2
-// Versão: 2.9.3
+// Versão: 2.9.4
 // Componente MapaAtividadesComponent (CORRIGIDO)
 const MapaAtividadesComponent = () => {
     const { userId, db, appId, storage, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext);
@@ -1577,7 +1644,6 @@ const MapaAtividadesComponent = () => {
                                                 <LucideRefreshCw size={18}/>
                                             </button>
                                             <button onClick={() => handleOpenModal(tarefa)} title="Editar" className="text-gray-600 hover:text-gray-900"><LucideEdit size={18}/></button>
-                                            {/* [CORRIGIDO v2.9.3] Ícone de Histórico restaurado */}
                                             <button onClick={() => handleOpenHistoricoModal(tarefa.id)} title="Histórico" className="text-gray-600 hover:text-gray-900"><LucideHistory size={18}/></button>
                                             <button onClick={() => handleDeleteTarefa(tarefa.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
                                         </div>
