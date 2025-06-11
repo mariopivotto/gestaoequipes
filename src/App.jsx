@@ -1248,6 +1248,121 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
     );
 };
 
+// Versão: 3.0.3
+// [NOVO] Componente para o Modal de Tratamento de Tarefas Atrasadas
+const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) => {
+    const [justificativa, setJustificativa] = useState('');
+    const [planoAcao, setPlanoAcao] = useState('');
+    const [novaData, setNovaData] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (tarefa?.dataProvavelTermino?.seconds) {
+            // Sugere a nova data como 7 dias a partir de hoje
+            const hoje = new Date();
+            hoje.setDate(hoje.getDate() + 7);
+            setNovaData(hoje.toISOString().split('T')[0]);
+        }
+        // Limpa os campos ao abrir
+        setJustificativa('');
+        setPlanoAcao('');
+    }, [tarefa, isOpen]);
+
+    const getResponsavelNomes = (responsavelIds) => {
+        if (!responsavelIds || responsavelIds.length === 0) return 'N/A';
+        return responsavelIds.map(id => funcionarios.find(f => f.id === id)?.nome || id).join(', ');
+    };
+
+    const handleSave = async (acao) => {
+        if (acao === 'reprogramar' && !novaData) {
+            toast.error("Por favor, defina uma nova data para reprogramar.");
+            return;
+        }
+        setLoading(true);
+        await onSave(tarefa.id, {
+            acao,
+            justificativa,
+            planoAcao,
+            novaData: acao === 'reprogramar' ? Timestamp.fromDate(new Date(novaData + "T00:00:00Z")) : null
+        });
+        setLoading(false);
+        onClose();
+    };
+
+    if (!isOpen || !tarefa) return null;
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Tratar Tarefa Atrasada" width="max-w-2xl">
+            <div className="space-y-4">
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <h4 className="font-bold text-lg text-red-800">{tarefa.tarefa}</h4>
+                    <p className="text-sm text-red-700">Responsável(eis): {getResponsavelNomes(tarefa.responsaveis)}</p>
+                    <p className="text-sm text-red-700">Prazo Original: {formatDate(tarefa.dataProvavelTermino)}</p>
+                </div>
+
+                <div>
+                    <label htmlFor="justificativa" className="block text-sm font-medium text-gray-700">Justificativa do Atraso</label>
+                    <textarea
+                        id="justificativa"
+                        value={justificativa}
+                        onChange={(e) => setJustificativa(e.target.value)}
+                        rows="3"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Ex: Aguardando chegada de material, equipe alocada em outra frente prioritária, etc."
+                    />
+                </div>
+                <div>
+                    <label htmlFor="planoAcao" className="block text-sm font-medium text-gray-700">Plano de Ação</label>
+                    <textarea
+                        id="planoAcao"
+                        value={planoAcao}
+                        onChange={(e) => setPlanoAcao(e.target.value)}
+                        rows="3"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Ex: Realizar a tarefa assim que o material chegar, iniciar na próxima segunda-feira, etc."
+                    />
+                </div>
+                <div>
+                    <label htmlFor="novaData" className="block text-sm font-medium text-gray-700">Reprogramar para Nova Data de Término</label>
+                    <input
+                        id="novaData"
+                        type="date"
+                        value={novaData}
+                        onChange={(e) => setNovaData(e.target.value)}
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                </div>
+
+                <div className="pt-5 flex justify-between items-center space-x-2">
+                    <button 
+                        type="button" 
+                        onClick={() => handleSave('cancelar')} 
+                        disabled={loading}
+                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-400 flex items-center"
+                    >
+                        <LucideXCircle size={16} className="mr-2" />
+                        Cancelar Tarefa
+                    </button>
+                    <div className="flex space-x-2">
+                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
+                            Fechar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleSave('reprogramar')}
+                            disabled={loading}
+                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center"
+                        >
+                            {loading ? 'Salvando...' : 'Salvar e Reprogramar'}
+                             <LucideArrowRightCircle size={16} className="ml-2" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 // Versão: 3.0.2
 // Componente MapaAtividadesComponent (COMPLETO E CORRIGIDO)
 const MapaAtividadesComponent = () => {
@@ -3079,98 +3194,82 @@ const WelcomeComponent = () => {
     );
 };
 
-// Componente Dashboard
+// Versão: 3.0.4
+// Componente Dashboard (COMPLETO E RESTAURADO)
 const DashboardComponent = () => {
-    const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
+    const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
-        porStatus: {},
-        porPrioridade: {},
-        proximoPrazo: [],
-        atrasadas: [],
-        pendentesAtrasadas: [],
-        porFuncionario: {}
+        porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], pendentesAtrasadas: [], porFuncionario: {}
     });
     const [loadingDashboard, setLoadingDashboard] = useState(true);
     const basePath = `/artifacts/${appId}/public/data`;
 
-    // Estados e manipuladores para os modais
-    const [isTarefaModalOpen, setIsTarefaModalOpen] = useState(false);
-    const [isAlocarModalOpen, setIsAlocarModalOpen] = useState(false);
+    const [isTratarAtrasoModalOpen, setIsTratarAtrasoModalOpen] = useState(false);
     const [tarefaSelecionada, setTarefaSelecionada] = useState(null);
 
-    const handleAbrirTarefaModal = (tarefa) => {
+    const handleOpenTratarAtrasoModal = (tarefa) => {
         setTarefaSelecionada(tarefa);
-        setIsTarefaModalOpen(true);
+        setIsTratarAtrasoModalOpen(true);
     };
-
-    const handleFecharTarefaModal = () => {
-        setIsTarefaModalOpen(false);
+    const handleCloseTratarAtrasoModal = () => {
+        setIsTratarAtrasoModalOpen(false);
         setTarefaSelecionada(null);
     };
 
-    const handleAbrirAlocarModal = (tarefa) => {
-        setTarefaSelecionada(tarefa);
-        setIsAlocarModalOpen(true);
+    const getResponsavelNomes = (responsavelIds) => {
+        if (!responsavelIds || !funcionarios || responsavelIds.length === 0) return 'N/A';
+        return responsavelIds.map(id => {
+            const func = funcionarios.find(f => f.id === id);
+            return func ? func.nome : id;
+        }).join(', ');
     };
 
-    const handleFecharAlocarModal = () => {
-        setIsAlocarModalOpen(false);
-        setTarefaSelecionada(null);
+    const calculateDaysOverdue = (timestamp) => {
+        if (!timestamp?.toDate) return 0;
+        const dueDate = timestamp.toDate();
+        const now = new Date();
+        dueDate.setHours(0, 0, 0, 0);
+        now.setHours(0, 0, 0, 0);
+        const diffTime = now.getTime() - dueDate.getTime();
+        if (diffTime < 0) return 0;
+        return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     };
 
-    // Funções de salvamento para os modais
-    const handleSaveTarefaDashboard = async (tarefaData, tarefaId) => {
+    const handleSaveTratamento = async (tarefaId, tratamento) => {
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        const tarefaOriginal = stats.atrasadas.find(t => t.id === tarefaId);
+        const usuario = auth.currentUser;
         try {
-            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
-            await setDoc(tarefaDocRef, tarefaData, { merge: true });
-            
-            const tarefaSalvaSnap = await getDoc(tarefaDocRef);
-            if (tarefaSalvaSnap.exists()) {
-                const dadosCompletos = { id: tarefaId, ...tarefaSalvaSnap.data() };
-                await sincronizarTarefaComProgramacao(tarefaId, dadosCompletos, db, basePath);
-                await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Tarefa Atualizada", "Tarefa atualizada via Dashboard.");
+            if (tratamento.acao === 'cancelar') {
+                await updateDoc(tarefaDocRef, { status: 'CANCELADA', updatedAt: Timestamp.now() });
+                await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Cancelada", `Cancelada via tela de tratamento de atrasos. Justificativa: ${tratamento.justificativa || 'Nenhuma'}`);
+                toast.success("Tarefa cancelada.");
+            } else if (tratamento.acao === 'reprogramar') {
+                const payload = { dataProvavelTermino: tratamento.novaData, updatedAt: Timestamp.now() };
+                await updateDoc(tarefaDocRef, payload);
+                const detalhesLog = `Tarefa reprogramada. Justificativa: ${tratamento.justificativa || 'Nenhuma'}. Plano de Ação: ${tratamento.planoAcao || 'Nenhum'}.`;
+                await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Atraso Tratado", detalhesLog);
+                if (tarefaOriginal) {
+                    await sincronizarTarefaComProgramacao(tarefaId, { ...tarefaOriginal, ...payload }, db, basePath);
+                }
+                toast.success("Tarefa reprogramada com sucesso!");
             }
-        } catch (error) {
-            console.error("Erro ao salvar tarefa do dashboard:", error);
-            alert("Erro ao salvar tarefa: " + error.message);
-        }
-    };
-
-    const handleSalvarAlocacaoDashboard = async (tarefaId, dadosAlocacao) => {
-        try {
-            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
-            const dadosParaAtualizar = {
-                ...dadosAlocacao,
-                status: "PROGRAMADA",
-                updatedAt: Timestamp.now(),
-                alocadoPor: auth.currentUser?.uid || 'sistema',
-                alocadoEm: Timestamp.now(),
-            };
-
-            await updateDoc(tarefaDocRef, dadosParaAtualizar);
-
             setStats(prev => ({
                 ...prev,
-                pendentesAtrasadas: prev.pendentesAtrasadas.filter(t => t.id !== tarefaId)
+                atrasadas: prev.atrasadas.filter(t => t.id !== tarefaId)
             }));
-
-            const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
-            if (tarefaAtualizadaSnap.exists()) {
-                const dadosCompletos = { id: tarefaId, ...tarefaAtualizadaSnap.data() };
-                await sincronizarTarefaComProgramacao(tarefaId, dadosCompletos, db, basePath);
-                await logAlteracaoTarefa(db, basePath, tarefaId, auth.currentUser?.uid, auth.currentUser?.email, "Tarefa Alocada", "Tarefa alocada via Dashboard.");
-            }
-            
-            handleFecharAlocarModal();
-        } catch (error)
-        {
-            console.error("Erro ao alocar tarefa do dashboard:", error);
-            alert("Erro ao alocar tarefa: " + error.message);
+        } catch (error) {
+            console.error("Erro ao salvar tratamento de atraso:", error);
+            toast.error("Falha ao salvar alterações.");
         }
     };
-    
+
     useEffect(() => {
         const fetchDashboardData = async () => {
+            if (!auth || !db || !appId || !listasAuxiliares.status || listasAuxiliares.status.length === 0 || !funcionarios) {
+                setLoadingDashboard(false);
+                return;
+            }
             setLoadingDashboard(true);
             try {
                 const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
@@ -3178,13 +3277,14 @@ const DashboardComponent = () => {
                 const todasTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
                 const porStatus = {};
-                (Array.isArray(listasAuxiliares.status) ? listasAuxiliares.status : []).forEach(s => porStatus[s] = 0);
+                listasAuxiliares.status.forEach(s => porStatus[s] = 0);
                 const porPrioridade = {};
-                (Array.isArray(listasAuxiliares.prioridades) ? listasAuxiliares.prioridades : []).forEach(p => porPrioridade[p] = 0);
-                const porFuncionario = { "SEM_RESPONSAVEL": 0 };
-                (Array.isArray(funcionarios) ? funcionarios : []).forEach(f => {
-                    if (f && f.id) porFuncionario[f.id] = 0;
+                listasAuxiliares.prioridades.forEach(p => porPrioridade[p] = 0);
+                const porFuncionario = {};
+                funcionarios.forEach(f => {
+                    if (f && f.id) porFuncionario[f.id] = {count: 0, nome: f.nome};
                 });
+                porFuncionario["SEM_RESPONSAVEL"] = {count: 0, nome: "Sem Responsável Designado"};
 
                 const hoje = new Date();
                 hoje.setHours(0, 0, 0, 0);
@@ -3205,49 +3305,45 @@ const DashboardComponent = () => {
                     if (tarefa.status !== "CANCELADA") {
                         if (tarefa.responsaveis && tarefa.responsaveis.length > 0) {
                             tarefa.responsaveis.forEach(respId => {
-                                if (porFuncionario.hasOwnProperty(respId)) porFuncionario[respId]++;
+                                if (porFuncionario[respId]) porFuncionario[respId].count++;
                             });
                         } else {
-                            porFuncionario["SEM_RESPONSAVEL"]++;
+                            porFuncionario["SEM_RESPONSAVEL"].count++;
                         }
                     }
 
-                    if (tarefa.dataProvavelTermino && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
+                    if (tarefa.dataProvavelTermino?.toDate && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
                         const dataTermino = tarefa.dataProvavelTermino.toDate();
                         dataTermino.setHours(0, 0, 0, 0);
 
                         if (dataTermino < hoje) {
                             if (tarefa.status === 'PROGRAMADA' || tarefa.status === 'EM OPERAÇÃO') {
                                 atrasadas.push(tarefa);
-                            } else if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') {
-                                pendentesAtrasadas.push(tarefa);
                             }
                         } else if (dataTermino >= hoje && dataTermino <= daqui7Dias) {
                             proximoPrazo.push(tarefa);
                         }
                     }
+                     if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') {
+                        pendentesAtrasadas.push(tarefa);
+                    }
                 });
 
                 proximoPrazo.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
                 atrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-                pendentesAtrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+                pendentesAtrasadas.sort((a, b) => a.createdAt.toMillis() - b.createdAt.toMillis());
 
                 setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, pendentesAtrasadas, porFuncionario });
             } catch (error) {
                 console.error("[Dashboard] Erro ao buscar dados:", error);
-                setStats({ porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], pendentesAtrasadas: [], porFuncionario: {} });
             } finally {
                 setLoadingDashboard(false);
             }
         };
 
-        if (!loadingAuth && db && appId && listasAuxiliares.status.length > 0 && listasAuxiliares.prioridades.length > 0 && funcionarios) {
-            fetchDashboardData();
-        } else if (!loadingAuth) {
-            setLoadingDashboard(false);
-        }
-    }, [db, appId, listasAuxiliares.status, listasAuxiliares.prioridades, funcionarios, loadingAuth]);
-
+        fetchDashboardData();
+    }, [auth, db, appId, listasAuxiliares, funcionarios]);
+    
     const getPrioridadeColor = (prioridade) => {
         if (prioridade === "P4 - URGENTE") return "bg-red-500 text-white";
         if (prioridade === "P1 - CURTO PRAZO") return "bg-orange-400 text-white";
@@ -3258,30 +3354,27 @@ const DashboardComponent = () => {
     const getStatusColorText = (status) => {
         if (status === "CANCELADA") return "text-red-600";
         if (status === "CONCLUÍDA") return "text-green-600";
-        if (status === "PROGRAMADA") return "text-blue-600";
-        if (status === "EM OPERAÇÃO") return "text-cyan-600";
-        if (status === "AGUARDANDO ALOCAÇÃO") return "text-orange-600";
-        if (status === "PREVISTA") return "text-yellow-600";
         return "text-gray-600";
     };
-
+    
     const formatDateDash = (timestamp) => {
         if (!timestamp || !timestamp.toDate) return 'Data inválida';
         return timestamp.toDate().toLocaleDateString('pt-BR');
     };
 
-    if (loadingDashboard || loadingAuth) {
+    if (loadingDashboard) {
         return <div className="p-6 text-center">Carregando dados do Dashboard...</div>;
     }
 
     return (
         <div className="p-6 bg-gray-100 min-h-full">
             <h2 className="text-3xl font-semibold text-gray-800 mb-8">Dashboard</h2>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Status</h3>
                     <ul className="space-y-2">
-                        {Object.entries(stats.porStatus).map(([status, count]) => (
+                        {Object.entries(stats.porStatus).sort(([,countA], [,countB]) => countB - countA).map(([status, count]) => (
                             <li key={status} className="flex justify-between items-center text-sm">
                                 <span className={`font-medium ${getStatusColorText(status)}`}>{status}</span>
                                 <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-semibold">{count}</span>
@@ -3304,25 +3397,14 @@ const DashboardComponent = () => {
                     <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
                         <LucideUsers size={22} className="mr-2 text-purple-600"/> Tarefas por Responsável
                     </h3>
-                    {stats.porFuncionario && Object.keys(stats.porFuncionario).length > 0 ? (
-                        <ul className="space-y-2 max-h-80 overflow-y-auto">
-                            {Object.entries(stats.porFuncionario).sort(([, countA], [, countB]) => countB - countA).map(([funcId, count]) => {
-                                const funcionario = funcId === "SEM_RESPONSAVEL"
-                                    ? { nome: "Sem Responsável Designado", id: "SEM_RESPONSAVEL" }
-                                    : (Array.isArray(funcionarios) ? funcionarios.find(f => f.id === funcId) : null);
-                                if (count === 0 && funcId !== "SEM_RESPONSAVEL") return null;
-
-                                return (
-                                    <li key={funcId} className="flex justify-between items-center text-sm">
-                                        <span className="font-medium text-gray-700">{funcionario ? funcionario.nome : `ID: ${funcId}`}</span>
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                            funcId === "SEM_RESPONSAVEL" ? "bg-gray-200 text-gray-700" : "bg-purple-200 text-purple-700"
-                                        }`}>{count}</span>
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    ) : <p className="text-sm text-gray-500">Nenhum dado de tarefas por responsável.</p>}
+                    <ul className="space-y-2 max-h-80 overflow-y-auto">
+                        {Object.values(stats.porFuncionario).sort((a, b) => b.count - a.count).map(({nome, count}, index) => (
+                             count > 0 && <li key={nome + index} className="flex justify-between items-center text-sm">
+                                <span className="font-medium text-gray-700">{nome}</span>
+                                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-200 text-purple-700">{count}</span>
+                            </li>
+                        ))}
+                    </ul>
                 </div>
             </div>
 
@@ -3330,11 +3412,11 @@ const DashboardComponent = () => {
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
-                        <ul className="space-y-3 max-h-80 overflow-y-auto">
+                        <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
                             {stats.proximoPrazo.map(tarefa => (
                                 <li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300">
                                     <p className="font-semibold text-sm text-yellow-800">{tarefa.tarefa}</p>
-                                    <p className="text-xs text-yellow-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
+                                    <p className="text-xs text-yellow-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className="font-bold">{tarefa.status}</span></p>
                                 </li>
                             ))}
                         </ul>
@@ -3346,57 +3428,55 @@ const DashboardComponent = () => {
                         <LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação
                     </h3>
                     {stats.pendentesAtrasadas.length > 0 ? (
-                        <ul className="space-y-3 max-h-80 overflow-y-auto">
+                        <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
                             {stats.pendentesAtrasadas.map(tarefa => (
                                 <li key={tarefa.id} className="p-3 border rounded-md bg-orange-50 border-orange-300">
-                                    <div>
-                                        <p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p>
-                                        <p className="text-xs text-orange-700">Prazo Sugerido: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
-                                    </div>
+                                    <p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p>
+                                    <p className="text-xs text-orange-700">Criada em: {formatDateDash(tarefa.createdAt)}</p>
                                 </li>
                             ))}
                         </ul>
-                    ) : <p className="text-sm text-gray-500">Nenhuma tarefa pendente com prazo expirado.</p>}
+                    ) : <p className="text-sm text-gray-500">Nenhuma tarefa aguardando alocação.</p>}
                 </div>
 
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
                         {stats.atrasadas.length > 0 ? (
-                            <ul className="space-y-3 max-h-80 overflow-y-auto">
-                                {stats.atrasadas.map(tarefa => (
-                                    <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-300 flex justify-between items-center">
+                            <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                                {stats.atrasadas.map(tarefa => {
+                                    const diasAtraso = calculateDaysOverdue(tarefa.dataProvavelTermino);
+                                    return (
+                                    <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-200 flex justify-between items-center">
                                         <div>
                                             <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
-                                            <p className="text-xs text-red-700">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className={getStatusColorText(tarefa.status)}>{tarefa.status}</span></p>
+                                            <p className="text-xs text-red-700 mt-1">
+                                                Atrasada há <strong>{diasAtraso}</strong> dia(s) - Status: <span className="font-semibold">{tarefa.status}</span>
+                                            </p>
+                                            <p className="text-xs text-red-700 mt-1">
+                                                Responsáveis: <span className="font-semibold">{getResponsavelNomes(tarefa.responsaveis)}</span>
+                                            </p>
                                         </div>
                                         <div className="flex space-x-2">
-                                            <button 
-                                                onClick={() => handleAbrirTarefaModal(tarefa)}
-                                                title="Reprogramar / Editar" 
-                                                className="p-2 text-gray-600 hover:bg-gray-200 rounded-full transition-colors"
+                                            <button
+                                                onClick={() => handleOpenTratarAtrasoModal(tarefa)}
+                                                title="Tratar Atraso"
+                                                className="p-2 text-red-600 bg-red-100 hover:bg-red-200 rounded-full transition-colors"
                                             >
-                                                <LucideCalendarDays size={18} />
+                                                <LucideArrowRightCircle size={18} />
                                             </button>
                                         </div>
                                     </li>
-                                ))}
+                                )})}
                             </ul>
                         ) : <p className="text-sm text-gray-500">Nenhuma tarefa atrasada.</p>}
                 </div>
             </div>
 
-            <TarefaFormModal
-                isOpen={isTarefaModalOpen}
-                onClose={handleFecharTarefaModal}
-                tarefaExistente={tarefaSelecionada}
-                onSave={handleSaveTarefaDashboard}
-            />
-            <AlocarTarefaModal
-                isOpen={isAlocarModalOpen}
-                onClose={handleFecharAlocarModal}
-                tarefaPendente={tarefaSelecionada}
-                onAlocar={handleSalvarAlocacaoDashboard}
-                listasAuxiliares={listasAuxiliares}
+            <TratarAtrasoModal
+                isOpen={isTratarAtrasoModalOpen}
+                onClose={handleCloseTratarAtrasoModal}
+                tarefa={tarefaSelecionada}
+                onSave={handleSaveTratamento}
                 funcionarios={funcionarios}
             />
         </div>
