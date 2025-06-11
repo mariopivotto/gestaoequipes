@@ -1239,7 +1239,8 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
 };
 
 // Versão: 2.9.2
-// Componente MapaAtividadesComponent (MODIFICADO)
+// Versão: 2.9.3
+// Componente MapaAtividadesComponent (CORRIGIDO)
 const MapaAtividadesComponent = () => {
     const { userId, db, appId, storage, funcionarios: contextFuncionarios, listasAuxiliares, auth } = useContext(GlobalContext);
 
@@ -1540,7 +1541,6 @@ const MapaAtividadesComponent = () => {
                             <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4 text-gray-500">Nenhuma tarefa encontrada.</td></tr>
                         ) : (
                             tarefasExibidas.map(tarefa => {
-                                // [MODIFICADO v2.9.2] Apenas tarefas 'AGUARDANDO ALOCAÇÃO' desabilitam o botão.
                                 const isStatusChangeDisabled = tarefa.status === 'AGUARDANDO ALOCAÇÃO';
                                 
                                 return (
@@ -1577,6 +1577,7 @@ const MapaAtividadesComponent = () => {
                                                 <LucideRefreshCw size={18}/>
                                             </button>
                                             <button onClick={() => handleOpenModal(tarefa)} title="Editar" className="text-gray-600 hover:text-gray-900"><LucideEdit size={18}/></button>
+                                            {/* [CORRIGIDO v2.9.3] Ícone de Histórico restaurado */}
                                             <button onClick={() => handleOpenHistoricoModal(tarefa.id)} title="Histórico" className="text-gray-600 hover:text-gray-900"><LucideHistory size={18}/></button>
                                             <button onClick={() => handleDeleteTarefa(tarefa.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button>
                                         </div>
