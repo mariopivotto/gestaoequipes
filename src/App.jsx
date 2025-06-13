@@ -347,8 +347,8 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 4.1.1 (Debug)
-// Adicionado console.log para verificar as variáveis de ambiente.
+// Versão: 6.1.4
+// [CORRIGIDO] Lógica de autenticação no GlobalProvider para garantir que o usuário seja limpo corretamente no logout em produção.
 const GlobalProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(null);
     const [userId, setUserId] = useState(null);
@@ -368,7 +368,6 @@ const GlobalProvider = ({ children }) => {
             if (user) {
                 if (IS_DEV && !user.isAnonymous) {
                    console.log("Usuário autenticado com sucesso:", user.email);
-                   toast.success(`Login DEV: ${user.email}`);
                 }
                 setCurrentUser(user);
                 setUserId(user.uid);
@@ -376,16 +375,21 @@ const GlobalProvider = ({ children }) => {
                 return;
             }
 
+            // Se não há usuário logado
             if (IS_DEV && DEV_EMAIL && DEV_PASSWORD) {
                 try {
                     console.log(`Ambiente DEV: Tentando login automático com ${DEV_EMAIL}...`);
                     await signInWithEmailAndPassword(authGlobal, DEV_EMAIL, DEV_PASSWORD);
                 } catch (error) {
                     console.error("Falha no login automático de desenvolvedor:", error);
-                    toast.error(`Login automático DEV falhou. Faça o login manual.`);
+                    toast.error(`Login automático DEV falhou.`);
+                    setCurrentUser(null); // Garante que fique nulo em caso de falha
                     setLoadingAuth(false);
                 }
             } else {
+                // [CORRIGIDO v6.1.4] Caminho para produção (e dev sem auto-login) quando deslogado.
+                // Limpa explicitamente o usuário e finaliza o carregamento.
+                setCurrentUser(null);
                 setLoadingAuth(false);
             }
         });
@@ -398,7 +402,6 @@ const GlobalProvider = ({ children }) => {
 
         const basePath = `/artifacts/${appId}/public/data`;
         const unsubscribers = [];
-
         const listaNames = ['prioridades', 'areas', 'acoes', 'status', 'turnos', 'tarefas', 'usuarios_notificacao'];
         listaNames.forEach(name => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/${name}/items`));
@@ -409,7 +412,7 @@ const GlobalProvider = ({ children }) => {
             unsubscribers.push(unsubscribe);
         });
         
-        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito'];
+        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda'];
         chavesDePermissao.forEach(chave => {
             const collectionPath = `${basePath}/listas_auxiliares/permissoes_${chave}/items`;
             const q = query(collection(db, collectionPath));
