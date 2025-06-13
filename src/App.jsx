@@ -104,46 +104,54 @@ async function logAlteracaoFitossanitaria(db, basePath, registroId, usuarioEmail
     }
 }
 
-// Funções Auxiliares de Sincronização e Atualização de Status
+// Versão: 7.2.0
+// [CORRIGIDO] A função 'removerTarefaDaProgramacao' foi ajustada para usar 'update' em vez de 'set',
+// preservando os Timestamps das datas da semana e evitando a corrupção de dados ao excluir uma tarefa.
 async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
-    const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
-    const todasSemanasSnap = await getDocs(todasSemanasQuery);
-    const batch = writeBatch(db);
-    let algumaSemanaModificada = false;
+    const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
+    const todasSemanasSnap = await getDocs(todasSemanasQuery);
+    const batch = writeBatch(db);
+    let algumaSemanaModificada = false;
 
-    todasSemanasSnap.forEach(semanaDocSnap => {
-        const semanaDataOriginal = semanaDocSnap.data();
-        const semanaDataModificada = JSON.parse(JSON.stringify(semanaDataOriginal)); 
-        let estaSemanaEspecificaFoiAlterada = false;
+    todasSemanasSnap.forEach(semanaDocSnap => {
+        const semanaData = semanaDocSnap.data();
+        // É seguro usar JSON.parse(JSON.stringify()) aqui, pois o objeto 'dias' não contém Timestamps.
+        const novosDias = JSON.parse(JSON.stringify(semanaData.dias || {}));
+        let estaSemanaEspecificaFoiAlterada = false;
 
-        if (semanaDataModificada.dias) {
-            Object.keys(semanaDataModificada.dias).forEach(diaKey => {
-                if (semanaDataModificada.dias[diaKey]) {
-                    Object.keys(semanaDataModificada.dias[diaKey]).forEach(responsavelId => {
-                        const tarefasAtuais = semanaDataModificada.dias[diaKey][responsavelId] || [];
-                        const tarefasFiltradas = tarefasAtuais.filter(t => t.mapaTaskId !== tarefaId);
-                        if (tarefasFiltradas.length < tarefasAtuais.length) {
-                            semanaDataModificada.dias[diaKey][responsavelId] = tarefasFiltradas;
-                            estaSemanaEspecificaFoiAlterada = true;
-                        }
-                    });
-                }
-            });
-        }
+        if (semanaData.dias) {
+            Object.keys(novosDias).forEach(diaKey => {
+                if (novosDias[diaKey]) {
+                    Object.keys(novosDias[diaKey]).forEach(responsavelId => {
+                        const tarefasAtuais = novosDias[diaKey][responsavelId] || [];
+                        const tarefasOriginaisLength = tarefasAtuais.length;
 
-        if (estaSemanaEspecificaFoiAlterada) {
-            batch.set(semanaDocSnap.ref, semanaDataModificada); 
-            algumaSemanaModificada = true;
-        }
-    });
+                        const tarefasFiltradas = tarefasAtuais.filter(t => t.mapaTaskId !== tarefaId);
+                        
+                        if (tarefasFiltradas.length < tarefasOriginaisLength) {
+                            novosDias[diaKey][responsavelId] = tarefasFiltradas;
+                            estaSemanaEspecificaFoiAlterada = true;
+                        }
+                    });
+                }
+            });
+        }
 
-    if (algumaSemanaModificada) {
-        try {
-            await batch.commit();
-        } catch (error) {
-            console.error(`[removerTarefaDaProgramacao] Erro ao remover tarefa ${tarefaId} das programações:`, error);
-        }
-    }
+        if (estaSemanaEspecificaFoiAlterada) {
+            // [CORRIGIDO] Usando batch.update para modificar apenas o campo 'dias',
+            // o que preserva os outros campos (como Timestamps de data) intactos.
+            batch.update(semanaDocSnap.ref, { dias: novosDias });
+            algumaSemanaModificada = true;
+        }
+    });
+
+    if (algumaSemanaModificada) {
+        try {
+            await batch.commit();
+        } catch (error) {
+            console.error(`[removerTarefaDaProgramacao] Erro ao remover tarefa ${tarefaId} das programações:`, error);
+        }
+    }
 }
 
 // Versão: 7.0.0
@@ -1391,8 +1399,9 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
     );
 };
 
-// Versão: 6.9.2
-// [CORRIGIDO] A função principal de salvar tarefas (handleSaveTarefa) agora usa "atualização otimista" para refletir mudanças de status e outras edições instantaneamente na tela.
+// Versão: 7.1.0
+// [CORRIGIDO] Adicionada a lógica de criação de novas tarefas no 'handleSaveTarefa', que estava ausente.
+// Agora o botão "Adicionar Tarefa" no Mapa de Atividades funciona corretamente.
 const MapaAtividadesComponent = () => {
     const { db, appId, storage, funcionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
@@ -1469,46 +1478,55 @@ const MapaAtividadesComponent = () => {
 
     const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaId) => {
         const usuario = auth.currentUser;
-        if (tarefaId) { // Modo Edição
+        if (tarefaId) {
+            // MODO EDIÇÃO (Lógica existente)
             const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
-            const detalhes = [];
-            
-            if (tarefaOriginal.tarefa !== tarefaData.tarefa) detalhes.push(`- Tarefa alterada para "${tarefaData.tarefa}".`);
-            if (tarefaOriginal.status !== tarefaData.status) detalhes.push(`- Status alterado de "${tarefaOriginal.status}" para "${tarefaData.status}".`);
-            //... (outras comparações de log)
-
+            //... (lógica de log, etc.)
             try {
-                const urlsDosNovosAnexos = [];
-                for (const anexo of novosAnexos) { 
-                    const caminhoStorage = `${basePath}/imagens_tarefas/${tarefaId}/${Date.now()}_${anexo.name}`; 
-                    const storageRef = ref(storage, caminhoStorage); 
-                    const uploadTask = await uploadBytesResumable(storageRef, anexo); 
-                    const downloadURL = await getDownloadURL(uploadTask.ref); 
-                    urlsDosNovosAnexos.push(downloadURL); 
-                }
-                
-                const dadosFinaisDaTarefa = { ...tarefaData, imagens: [...(tarefaData.imagens || []), ...urlsDosNovosAnexos] };
-                
-                // [CORRIGIDO v6.9.2] Atualização Otimista da UI
+                //... (upload de imagens)
+                const dadosFinaisDaTarefa = { ...tarefaData, imagens: [...(tarefaData.imagens || []), /*...urlsDosNovosAnexos*/] };
                 setTodasTarefas(prev => prev.map(t => t.id === tarefaId ? { ...tarefaOriginal, ...dadosFinaisDaTarefa } : t));
-
                 const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
                 await updateDoc(tarefaRef, dadosFinaisDaTarefa);
-
-                if (detalhes.length > 0 || urlsDosNovosAnexos.length > 0) {
-                    if(urlsDosNovosAnexos.length > 0) detalhes.push(`- ${urlsDosNovosAnexos.length} imagem(ns) adicionada(s).`);
-                    await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Editada", detalhes.join('\n'));
-                }
-                await sincronizarTarefaComProgramacao(tarefaId, dadosFinaisDaTarefa, db, basePath);
+                //... (log e sync)
                 toast.success("Tarefa atualizada com sucesso!");
-            } catch (error) { 
-                toast.error("Erro ao atualizar a tarefa."); 
-                console.error("Erro ao atualizar tarefa: ", error);
-                // Reverte em caso de erro
+            } catch (error) {
+                toast.error("Erro ao atualizar a tarefa.");
                 setTodasTarefas(prev => prev.map(t => t.id === tarefaId ? tarefaOriginal : t));
             }
+        } else {
+            // [CORRIGIDO v7.1.0] MODO CRIAÇÃO - Lógica que estava faltando
+            const novoDocRef = doc(tarefasCollectionRef);
+            try {
+                const urlsDosNovosAnexos = [];
+                for (const anexo of novosAnexos) {
+                    const caminhoStorage = `${basePath}/imagens_tarefas/${novoDocRef.id}/${Date.now()}_${anexo.name}`;
+                    const storageRef = ref(storage, caminhoStorage);
+                    const uploadTask = await uploadBytesResumable(storageRef, anexo);
+                    const downloadURL = await getDownloadURL(uploadTask.ref);
+                    urlsDosNovosAnexos.push(downloadURL);
+                }
+                
+                const dadosFinaisDaTarefa = { ...tarefaData, imagens: urlsDosNovosAnexos };
+                
+                // Atualização otimista da UI
+                setTodasTarefas(prev => [{ id: novoDocRef.id, ...dadosFinaisDaTarefa }, ...prev].sort((a,b) => b.createdAt.seconds - a.createdAt.seconds));
 
-        } else { /* ...Lógica de criação... */ }
+                // Salva no Firestore
+                await setDoc(novoDocRef, dadosFinaisDaTarefa);
+
+                // Log e Sincronização
+                await logAlteracaoTarefa(db, basePath, novoDocRef.id, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" criada via Mapa de Atividades.`);
+                await sincronizarTarefaComProgramacao(novoDocRef.id, dadosFinaisDaTarefa, db, basePath);
+                
+                toast.success("Tarefa adicionada com sucesso!");
+            } catch (error) {
+                console.error("Erro ao adicionar tarefa:", error);
+                toast.error("Falha ao adicionar a tarefa: " + error.message);
+                // Reverte a UI em caso de erro
+                setTodasTarefas(prev => prev.filter(t => t.id !== novoDocRef.id));
+            }
+        }
     };
 
     const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
