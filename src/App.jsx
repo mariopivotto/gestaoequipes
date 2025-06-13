@@ -6,7 +6,7 @@ import firebaseAppInstance from './firebaseConfig';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit } from 'lucide-react';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase
@@ -803,8 +803,8 @@ const FuncionariosManager = () => {
     );
 };
 
-// Versão: 4.7.0
-// [ALTERADO] Adicionada uma interface de abas para organizar melhor as permissões e os cadastros gerais.
+// Versão: 6.0.0
+// [ALTERADO] Adicionado o painel de permissão para a nova Agenda Diária.
 const ConfiguracoesComponent = () => {
     const [activeTab, setActiveTab] = useState('permissoes');
 
@@ -827,20 +827,12 @@ const ConfiguracoesComponent = () => {
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Configurações Gerais</h2>
-
-            {/* [NOVO v4.7.0] Navegação por abas */}
             <div className="border-b border-gray-200 mb-6">
                 <nav className="flex space-x-2">
-                    <TabButton tabName="permissoes" currentTab={activeTab} setTab={setActiveTab}>
-                        Permissões de Acesso
-                    </TabButton>
-                    <TabButton tabName="cadastros" currentTab={activeTab} setTab={setActiveTab}>
-                        Cadastros Gerais
-                    </TabButton>
+                    <TabButton tabName="permissoes" currentTab={activeTab} setTab={setActiveTab}>Permissões de Acesso</TabButton>
+                    <TabButton tabName="cadastros" currentTab={activeTab} setTab={setActiveTab}>Cadastros Gerais</TabButton>
                 </nav>
             </div>
-
-            {/* [NOVO v4.7.0] Conteúdo condicional baseado na aba ativa */}
             <div>
                 {activeTab === 'permissoes' && (
                     <div className="mb-8 p-4 border rounded-md shadow-sm bg-blue-50">
@@ -850,6 +842,8 @@ const ConfiguracoesComponent = () => {
                             <ListaAuxiliarManager nomeLista="Acesso ao Mapa de Atividades" nomeSingular="E-mail" collectionPathSegment="permissoes_mapa" />
                             <ListaAuxiliarManager nomeLista="Acesso à Programação Semanal" nomeSingular="E-mail" collectionPathSegment="permissoes_programacao" />
                             <ListaAuxiliarManager nomeLista="Acesso ao Controle Fitossanitário" nomeSingular="E-mail" collectionPathSegment="permissoes_fito" />
+                            {/* [NOVO v6.0.0] Card para gerenciar a permissão 'agenda'. */}
+                            <ListaAuxiliarManager nomeLista="Acesso à Agenda Diária" nomeSingular="E-mail" collectionPathSegment="permissoes_agenda" />
                             <ListaAuxiliarManager nomeLista="Acesso à Tarefa Pátio" nomeSingular="E-mail" collectionPathSegment="permissoes_anotacoes" />
                             <ListaAuxiliarManager nomeLista="Acesso às Tarefas Pendentes" nomeSingular="E-mail" collectionPathSegment="permissoes_pendentes" />
                             <ListaAuxiliarManager nomeLista="Acesso aos Relatórios" nomeSingular="E-mail" collectionPathSegment="permissoes_relatorios" />
@@ -858,25 +852,14 @@ const ConfiguracoesComponent = () => {
                          </div>
                     </div>
                 )}
-
                 {activeTab === 'cadastros' && (
                     <div>
                         <div className="mb-8 p-4 border rounded-md shadow-sm bg-white">
                             <h3 className="text-xl font-semibold mb-4 text-gray-700">Listas e Cadastros Auxiliares</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                <div>
-                                    <ListaAuxiliarManager nomeLista="Usuários para Notificação" nomeSingular="E-mail do Usuário" collectionPathSegment="usuarios_notificacao" />
-                                    <ListaAuxiliarManager nomeLista="Tarefas (Descrições Fixas)" nomeSingular="Tarefa" collectionPathSegment="tarefas" />
-                                </div>
-                                <div>
-                                     <ListaAuxiliarManager nomeLista="Prioridades" nomeSingular="Prioridade" collectionPathSegment="prioridades" />
-                                     <ListaAuxiliarManager nomeLista="Áreas" nomeSingular="Área" collectionPathSegment="areas" />
-                                     <ListaAuxiliarManager nomeLista="Ações" nomeSingular="Ação" collectionPathSegment="acoes" />
-                                </div>
-                                <div>
-                                    <ListaAuxiliarManager nomeLista="Status de Tarefas" nomeSingular="Status" collectionPathSegment="status" />
-                                    <ListaAuxiliarManager nomeLista="Turnos" nomeSingular="Turno" collectionPathSegment="turnos" />
-                                </div>
+                                <div><ListaAuxiliarManager nomeLista="Usuários para Notificação" nomeSingular="E-mail do Usuário" collectionPathSegment="usuarios_notificacao" /><ListaAuxiliarManager nomeLista="Tarefas (Descrições Fixas)" nomeSingular="Tarefa" collectionPathSegment="tarefas" /></div>
+                                <div><ListaAuxiliarManager nomeLista="Prioridades" nomeSingular="Prioridade" collectionPathSegment="prioridades" /><ListaAuxiliarManager nomeLista="Áreas" nomeSingular="Área" collectionPathSegment="areas" /><ListaAuxiliarManager nomeLista="Ações" nomeSingular="Ação" collectionPathSegment="acoes" /></div>
+                                <div><ListaAuxiliarManager nomeLista="Status de Tarefas" nomeSingular="Status" collectionPathSegment="status" /><ListaAuxiliarManager nomeLista="Turnos" nomeSingular="Turno" collectionPathSegment="turnos" /></div>
                             </div>
                         </div>
                         <FuncionariosManager />
@@ -3665,6 +3648,8 @@ const HistoricoPlanoModal = ({ isOpen, onClose, plano, historicoCompleto }) => {
     );
 };
 
+
+
 // Versão: 4.8.0
 // [NOVO] Modal para exibir o histórico de alterações de um registro de aplicação.
 const HistoricoAplicacaoModal = ({ isOpen, onClose, registroId }) => {
@@ -3723,6 +3708,414 @@ const HistoricoAplicacaoModal = ({ isOpen, onClose, registroId }) => {
                 <p className="text-center text-gray-500 py-4">Nenhum histórico encontrado para este registro.</p>
             )}
         </Modal>
+    );
+};
+
+// Versão: 6.1.1
+// [CORRIGIDO] Garante que a data do evento seja salva em UTC para consistência.
+const EventoAgendaModal = ({ isOpen, onClose, onSave, eventoExistente, targetDate }) => {
+    const [titulo, setTitulo] = useState('');
+    const [descricao, setDescricao] = useState('');
+    const [horaInicio, setHoraInicio] = useState('08:00');
+    const [horaFim, setHoraFim] = useState('09:00');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            if (eventoExistente) {
+                setTitulo(eventoExistente.titulo || '');
+                setDescricao(eventoExistente.descricao || '');
+                setHoraInicio(eventoExistente.horaInicio || '08:00');
+                setHoraFim(eventoExistente.horaFim || '09:00');
+            } else {
+                setTitulo('');
+                setDescricao('');
+                setHoraInicio('08:00');
+                setHoraFim('09:00');
+            }
+        }
+    }, [eventoExistente, isOpen]);
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        if (!titulo.trim() || !horaInicio || !horaFim) {
+            toast.error("Título, Hora de Início e Fim são obrigatórios.");
+            return;
+        }
+        if (horaFim < horaInicio) {
+            toast.error("A hora de término não pode ser anterior à hora de início.");
+            return;
+        }
+        setLoading(true);
+
+        // [CORRIGIDO v6.1.1] Cria a data em UTC para evitar problemas de fuso horário.
+        const dateParts = targetDate.split('-').map(Number);
+        const targetDateUTC = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
+
+        const dadosEvento = {
+            titulo: titulo.trim(),
+            descricao: descricao.trim(),
+            data: Timestamp.fromDate(targetDateUTC),
+            horaInicio,
+            horaFim,
+        };
+
+        await onSave(dadosEvento, eventoExistente?.id || null);
+        setLoading(false);
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={eventoExistente ? "Editar Evento" : "Adicionar Novo Evento"}>
+            <form onSubmit={handleSave} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Título do Evento *</label>
+                    <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Hora de Início *</label>
+                        <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Hora de Fim *</label>
+                        <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Descrição / Detalhes</label>
+                    <textarea value={descricao} onChange={e => setDescricao(e.target.value)} rows="4" className="mt-1 block w-full border-gray-300 rounded-md"></textarea>
+                </div>
+                <div className="pt-4 flex justify-end space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400">
+                        {loading ? 'Salvando...' : 'Salvar Evento'}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+// Versão: 6.1.3
+// [ALTERADO] A altura das colunas dos dias na agenda semanal foi reduzida.
+const AgendaDiariaComponent = () => {
+    const { db, appId, auth } = useContext(GlobalContext);
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [eventosDaSemana, setEventosDaSemana] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingEvent, setEditingEvent] = useState(null);
+    const [dateForNewEvent, setDateForNewEvent] = useState(null);
+    const [agendaVersion, setAgendaVersion] = useState(0);
+
+    const basePath = `/artifacts/${appId}/public/data`;
+    const agendaCollectionRef = collection(db, `${basePath}/agenda_diaria`);
+
+    useEffect(() => {
+        setLoading(true);
+        const dateCopy = new Date(currentDate.getTime());
+        const day = dateCopy.getUTCDay();
+        const diff = dateCopy.getUTCDate() - day + (day === 0 ? -6 : 1);
+        const startOfWeek = new Date(Date.UTC(dateCopy.getUTCFullYear(), dateCopy.getUTCMonth(), diff));
+        const endOfWeek = new Date(startOfWeek.getTime());
+        endOfWeek.setUTCDate(endOfWeek.getUTCDate() + 5);
+        const q = query(agendaCollectionRef, where("data", ">=", Timestamp.fromDate(startOfWeek)), where("data", "<=", Timestamp.fromDate(endOfWeek)), orderBy("data"), orderBy("horaInicio"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setEventosDaSemana(fetchedEvents);
+            setLoading(false);
+        }, error => {
+            console.error("Erro ao carregar eventos da agenda:", error);
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, [currentDate, agendaVersion]);
+
+    const changeWeek = (offset) => {
+        setCurrentDate(prevDate => {
+            const newDate = new Date(prevDate);
+            newDate.setDate(newDate.getDate() + (7 * offset));
+            return newDate;
+        });
+    };
+    
+    const handleOpenModal = (date, evento = null) => {
+        setDateForNewEvent(date.toISOString().split('T')[0]);
+        setEditingEvent(evento);
+        setIsModalOpen(true);
+    };
+
+    const handleSaveEvent = async (dadosEvento, eventoId) => {
+        const usuarioEmail = auth.currentUser?.email;
+        if (eventoId) {
+            const eventoRef = doc(db, `${basePath}/agenda_diaria`, eventoId);
+            await updateDoc(eventoRef, { ...dadosEvento, updatedAt: Timestamp.now() });
+            toast.success("Evento atualizado com sucesso!");
+        } else {
+            await addDoc(agendaCollectionRef, { ...dadosEvento, createdBy: usuarioEmail, createdAt: Timestamp.now() });
+            toast.success("Evento criado com sucesso!");
+        }
+        setAgendaVersion(v => v + 1);
+    };
+
+    const handleDeleteEvent = async (eventoId) => {
+        if (window.confirm("Tem certeza que deseja excluir este evento?")) {
+            const eventoRef = doc(db, `${basePath}/agenda_diaria`, eventoId);
+            await deleteDoc(eventoRef);
+            toast.success("Evento excluído!");
+        }
+    };
+    
+    const renderWeekView = () => {
+        const weekDays = [];
+        const dateCopy = new Date(currentDate.getTime());
+        const day = dateCopy.getUTCDay();
+        const diff = dateCopy.getUTCDate() - day + (day === 0 ? -6 : 1);
+        const startOfWeek = new Date(Date.UTC(dateCopy.getUTCFullYear(), dateCopy.getUTCMonth(), diff));
+
+        for (let i = 0; i < 6; i++) {
+            const dayDate = new Date(startOfWeek.getTime());
+            dayDate.setUTCDate(startOfWeek.getUTCDate() + i);
+            const dayString = dayDate.toISOString().split('T')[0];
+            const eventosDoDia = eventosDaSemana.filter(e => e.data.toDate().toISOString().split('T')[0] === dayString);
+            
+            weekDays.push(
+                // [ALTERADO v6.1.3] Altura da coluna alterada de min-h-[60vh] para h-96.
+                <div key={i} className="bg-white p-3 rounded-lg shadow-sm h-96 flex flex-col">
+                    <div className="flex justify-between items-center mb-3">
+                        <h4 className="font-bold text-gray-800">{dayDate.toLocaleDateString('pt-BR', { weekday: 'long' })}
+                            <span className="ml-2 font-normal text-gray-500">{dayDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit'})}</span>
+                        </h4>
+                        <button onClick={() => handleOpenModal(dayDate)} title="Adicionar Evento neste Dia" className="p-1 text-blue-500 hover:bg-blue-100 rounded-full"><LucidePlusCircle size={20}/></button>
+                    </div>
+                    <div className="space-y-2 flex-grow overflow-y-auto pr-1">
+                        {loading ? <p>...</p> : eventosDoDia.length === 0 ? (
+                           <div className="flex items-center justify-center h-full"><p className="text-sm text-gray-400">Nenhum evento.</p></div>
+                        ) : (
+                           eventosDoDia.map(evento => (
+                                <div key={evento.id} className="p-3 border-l-4 border-purple-500 bg-purple-50 rounded-r-md">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="font-semibold text-sm text-gray-900">{evento.titulo}</p>
+                                            <p className="text-xs text-purple-700 font-medium">{evento.horaInicio} - {evento.horaFim}</p>
+                                            {evento.descricao && <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{evento.descricao}</p>}
+                                        </div>
+                                         <div className="flex flex-col space-y-2 ml-2">
+                                            <button onClick={() => handleOpenModal(dayDate, evento)} title="Editar"><LucideEdit size={16} className="text-gray-500 hover:text-blue-600"/></button>
+                                            <button onClick={() => handleDeleteEvent(evento.id)} title="Excluir"><LucideTrash2 size={16} className="text-gray-500 hover:text-red-600"/></button>
+                                        </div>
+                                    </div>
+                                </div>
+                           ))
+                        )}
+                    </div>
+                </div>
+            )
+        }
+        return weekDays;
+    };
+    
+    const getWeekRangeLabel = () => {
+        const dateCopy = new Date(currentDate.getTime());
+        const day = dateCopy.getUTCDay();
+        const diff = dateCopy.getUTCDate() - day + (day === 0 ? -6 : 1);
+        const startOfWeek = new Date(Date.UTC(dateCopy.getUTCFullYear(), dateCopy.getUTCMonth(), diff));
+        const endOfWeek = new Date(startOfWeek.getTime());
+        endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 5);
+        return `Semana de ${startOfWeek.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})} a ${endOfWeek.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short', year: 'numeric'})}`;
+    }
+
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <h2 className="text-2xl font-semibold text-gray-800">Agenda Semanal</h2>
+                <div className="flex items-center gap-2 bg-white p-2 rounded-lg shadow-sm border">
+                    <button onClick={() => changeWeek(-1)} className="p-2 rounded-md hover:bg-gray-100" title="Semana Anterior">
+                        <LucideCalendarDays size={20} className="text-gray-600"/>
+                    </button>
+                    <span className="font-semibold text-gray-700">{getWeekRangeLabel()}</span>
+                    <button onClick={() => changeWeek(1)} className="p-2 rounded-md hover:bg-gray-100" title="Próxima Semana">
+                        <LucideCalendarDays size={20} className="text-gray-600"/>
+                    </button>
+                </div>
+            </div>
+
+            <EventoAgendaModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onSave={handleSaveEvent}
+                eventoExistente={editingEvent}
+                targetDate={dateForNewEvent}
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {renderWeekView()}
+            </div>
+        </div>
+    );
+};
+
+// Versão: 5.3.0
+// [ALTERADO] Torna os eventos do calendário clicáveis, abrindo um modal com os detalhes do plano.
+const CalendarioFitossanitarioComponent = () => {
+    const { db, appId, auth } = useContext(GlobalContext);
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [planos, setPlanos] = useState([]);
+    const [eventos, setEventos] = useState({});
+    const [loading, setLoading] = useState(true);
+
+    // [NOVO v5.3.0] Estados para controlar o modal de detalhes do plano
+    const [isPlanoModalOpen, setIsPlanoModalOpen] = useState(false);
+    const [planoSelecionado, setPlanoSelecionado] = useState(null);
+
+    const basePath = `/artifacts/${appId}/public/data`;
+    const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
+
+    const gerarOcorrenciasDoPlano = (plano, ano) => {
+        const ocorrencias = [];
+        if (!plano.ativo || !plano.dataInicio?.toDate) return ocorrencias;
+
+        let dataAtual = plano.dataInicio.toDate();
+        let i = 0; // Adicionado para garantir ID único
+        while (dataAtual.getFullYear() <= ano) {
+            if (dataAtual.getFullYear() >= ano - 1) {
+                ocorrencias.push({
+                    id: `${plano.id}-${i++}`,
+                    title: plano.nome,
+                    date: new Date(dataAtual.getTime()),
+                    produto: plano.produto,
+                    planoId: plano.id, // [NOVO v5.3.0] Referência direta ao ID do plano
+                    color: `hsl(${plano.nome.length * 20 % 360}, 70%, 80%)`
+                });
+            }
+
+            switch (plano.frequencia) {
+                case 'SEMANAL': dataAtual.setDate(dataAtual.getDate() + 7); break;
+                case 'QUINZENAL': dataAtual.setDate(dataAtual.getDate() + 14); break;
+                case 'MENSAL': dataAtual.setMonth(dataAtual.getMonth() + 1); break;
+                case 'INTERVALO_DIAS': dataAtual.setDate(dataAtual.getDate() + (plano.diasIntervalo || 1)); break;
+                default: return ocorrencias;
+            }
+        }
+        return ocorrencias;
+    };
+
+    useEffect(() => {
+        const q = query(planosCollectionRef, where("ativo", "==", true));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const planosAtivos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setPlanos(planosAtivos);
+            setLoading(false);
+        }, error => { console.error("Erro ao carregar planos:", error); setLoading(false); });
+        return () => unsubscribe();
+    }, []);
+
+    useEffect(() => {
+        if (planos.length > 0) {
+            const todosOsEventos = {};
+            const anoAtual = currentDate.getFullYear();
+            
+            planos.forEach(plano => {
+                const ocorrencias = gerarOcorrenciasDoPlano(plano, anoAtual);
+                ocorrencias.forEach(oc => {
+                    const dataString = oc.date.toISOString().split('T')[0];
+                    if (!todosOsEventos[dataString]) { todosOsEventos[dataString] = []; }
+                    todosOsEventos[dataString].push(oc);
+                });
+            });
+            setEventos(todosOsEventos);
+        }
+    }, [planos, currentDate]);
+
+    // [NOVO v5.3.0] Função para abrir o modal de detalhes do plano
+    const handleOpenPlanoModal = (evento) => {
+        const planoEncontrado = planos.find(p => p.id === evento.planoId);
+        if (planoEncontrado) {
+            setPlanoSelecionado(planoEncontrado);
+            setIsPlanoModalOpen(true);
+        }
+    };
+    
+    // [NOVO v5.3.0] Funções de salvar e remover para passar ao modal
+    const handleSavePlano = async (planoData) => { const usuario = auth.currentUser; const dadosParaSalvar = { ...planoData, updatedAt: Timestamp.now(), userEmail: usuario?.email || 'unknown', }; try { if (planoData.id) { const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, planoData.id); await updateDoc(planoDocRef, dadosParaSalvar); toast.success("Plano atualizado com sucesso!"); } else { await addDoc(planosCollectionRef, { ...dadosParaSalvar, createdAt: Timestamp.now() }); toast.success("Plano criado com sucesso!"); } } catch (error) { console.error("Erro ao salvar plano:", error); toast.error("Falha ao salvar o plano."); } };
+    const handleRemovePlano = async (planoId) => { try { await deleteDoc(doc(db, `${basePath}/planos_fitossanitarios`, planoId)); toast.success("Plano excluído com sucesso!"); setIsPlanoModalOpen(false); } catch (error) { console.error("Erro ao excluir plano:", error); toast.error("Falha ao excluir o plano."); } };
+
+    const changeMonth = (offset) => { setCurrentDate(prevDate => { const newDate = new Date(prevDate); newDate.setMonth(newDate.getMonth() + offset); return newDate; }); };
+
+    const renderCalendar = () => {
+        const month = currentDate.getMonth();
+        const year = currentDate.getFullYear();
+        const firstDayOfMonth = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const days = [];
+        for (let i = 0; i < firstDayOfMonth; i++) { days.push(<div key={`empty-${i}`} className="border p-2 bg-gray-50"></div>); }
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const dayEvents = eventos[dateStr] || [];
+            const isToday = new Date(year, month, day).toDateString() === new Date().toDateString();
+
+            days.push(
+                <div key={day} className={`border p-2 h-36 flex flex-col ${isToday ? 'bg-blue-50' : 'bg-white'}`}>
+                    <strong className={`text-sm ${isToday ? 'text-blue-600 font-bold' : ''}`}>{day}</strong>
+                    <div className="flex-grow overflow-y-auto mt-1 space-y-1 pr-1">
+                        {dayEvents.map(event => (
+                            // [ALTERADO v5.3.0] Evento agora é um botão clicável
+                            <button
+                                key={event.id}
+                                onClick={() => handleOpenPlanoModal(event)}
+                                title={event.produto}
+                                className="w-full text-left text-xs p-1 rounded-md text-gray-800 hover:ring-2 hover:ring-blue-400 transition-all"
+                                style={{backgroundColor: event.color}}
+                            >
+                                {event.title}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+        return days;
+    };
+    
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Calendário de Aplicações Programadas</h2>
+            
+            <div className="bg-white p-4 rounded-lg shadow-md">
+                <div className="flex justify-between items-center mb-4">
+                    <button onClick={() => changeMonth(-1)} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">&lt; Anterior</button>
+                    <h3 className="text-xl font-bold">
+                        {currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}
+                    </h3>
+                    <button onClick={() => changeMonth(1)} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">Próximo &gt;</button>
+                </div>
+                
+                {loading ? (
+                    <p className="text-center py-10">Carregando planos...</p>
+                ) : (
+                    <>
+                        <div className="grid grid-cols-7 text-center font-bold text-gray-600 border-b pb-2">
+                            {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => <div key={day}>{day}</div>)}
+                        </div>
+                        <div className="grid grid-cols-7">
+                            {renderCalendar()}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            {/* [NOVO v5.3.0] Renderiza o modal de detalhes quando um plano é selecionado */}
+            {isPlanoModalOpen && (
+                <PlanoAplicacaoModal
+                    isOpen={isPlanoModalOpen}
+                    onClose={() => setIsPlanoModalOpen(false)}
+                    onSave={handleSavePlano}
+                    onRemove={handleRemovePlano}
+                    planoExistente={planoSelecionado}
+                />
+            )}
+        </div>
     );
 };
 
@@ -4607,8 +5000,8 @@ const DashboardComponent = () => {
 };
 
 
-// Versão: 4.5.0
-// [CORRIGIDO] Adicionado o link de menu e a rota para a página de Planos de Aplicação.
+// Versão: 6.0.0
+// [ALTERADO] Adicionado o link de menu e a rota para a nova Agenda Diária.
 function App() {
     const [currentPage, setCurrentPage] = useState('welcome');
     const { currentUser, auth: firebaseAuth, permissoes } = useContext(GlobalContext);
@@ -4627,15 +5020,13 @@ function App() {
         switch (currentPage) {
             case 'welcome': return <WelcomeComponent />;
             case 'dashboard': return checkPermission('dashboard') ? <DashboardComponent /> : getFallbackPage();
+            // [NOVO v6.0.0] Rota para a agenda
+            case 'agenda': return checkPermission('agenda') ? <AgendaDiariaComponent /> : getFallbackPage();
             case 'mapa': return checkPermission('mapa') ? <MapaAtividadesComponent /> : getFallbackPage();
             case 'programacao': return checkPermission('programacao') ? <ProgramacaoSemanalComponent /> : getFallbackPage();
-            
-            // [NOVO v4.5.0] Rota para a nova página de Planos de Aplicação.
+            case 'calendarioFito': return checkPermission('fito') ? <CalendarioFitossanitarioComponent /> : getFallbackPage();
             case 'planosFito': return checkPermission('fito') ? <PlanosFitossanitariosComponent /> : getFallbackPage();
-            
-            // Rota para o histórico, que antes era o único componente 'fito'
             case 'fito': return checkPermission('fito') ? <HistoricoFitossanitarioComponent /> : getFallbackPage();
-            
             case 'anotacoes': return checkPermission('anotacoes') ? <TarefaPatioComponent /> : getFallbackPage();
             case 'tarefasPendentes': return checkPermission('pendentes') ? <TarefasPendentesComponent /> : getFallbackPage();
             case 'config': return checkPermission('config') ? <ConfiguracoesComponent /> : getFallbackPage();
@@ -4662,13 +5053,13 @@ function App() {
                     </div>
                     <nav className="flex-grow space-y-1">
                         {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
+                        {/* [NOVO v6.0.0] Link de menu para a agenda */}
+                        {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Diária</NavLink>}
                         {checkPermission('mapa') && <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>}
                         {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>}
-                        
-                        {/* [NOVO v4.5.0] Adicionado o link de menu que estava faltando. */}
+                        {checkPermission('fito') && <NavLink page="calendarioFito" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Calendário de Aplicações</NavLink>}
                         {checkPermission('fito') && <NavLink page="planosFito" icon={LucideClipboardEdit} currentPage={currentPage} setCurrentPage={setCurrentPage}>Planos de Aplicação</NavLink>}
                         {checkPermission('fito') && <NavLink page="fito" icon={LucideSprayCan} currentPage={currentPage} setCurrentPage={setCurrentPage}>Histórico de Aplicações</NavLink>}
-                        
                         {checkPermission('anotacoes') && <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>}
                         {checkPermission('pendentes') && <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>}
                         {checkPermission('config') && <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>}
