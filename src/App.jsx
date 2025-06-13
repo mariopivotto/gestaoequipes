@@ -1,9 +1,9 @@
-// Versão: 3.1.3
-// Script completo e atualizado.
+// Versão: 6.2.0
+// [CORRIGIDO] Reintroduzido o AuthComponent (tela de login) e ajustada a lógica de autenticação no GlobalProvider.
 
 import React, { useState, useEffect, createContext, useContext, memo, useRef } from 'react';
 import firebaseAppInstance from './firebaseConfig';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked } from 'lucide-react';
@@ -446,11 +446,10 @@ const GlobalProvider = ({ children }) => {
     );
 };
 
+// [NOVO v6.2.0] Componente da tela de Login reintroduzido
 const AuthComponent = () => {
-    const { auth } = useContext(GlobalContext); 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [isLogin, setIsLogin] = useState(true);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -459,31 +458,72 @@ const AuthComponent = () => {
         setError('');
         setLoading(true);
         try {
-            if (isLogin) {
-                await signInWithEmailAndPassword(auth, email, password);
-            } else {
-                await createUserWithEmailAndPassword(auth, email, password);
-            }
+            await signInWithEmailAndPassword(authGlobal, email, password);
         } catch (err) {
-            setError(err.message);
+            switch (err.code) {
+                case 'auth/user-not-found':
+                    setError('Nenhum usuário encontrado com este e-mail.');
+                    break;
+                case 'auth/wrong-password':
+                    setError('Senha incorreta. Por favor, tente novamente.');
+                    break;
+                case 'auth/invalid-email':
+                    setError('O formato do e-mail é inválido.');
+                    break;
+                default:
+                    setError('Ocorreu um erro ao tentar fazer o login.');
+                    break;
+            }
         }
         setLoading(false);
     };
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-            <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+            <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md">
                 <img src={LOGO_URL} alt="Logo Gramoterra" className="mx-auto h-16 w-auto mb-6" onError={(e) => e.target.style.display='none'}/>
-                <h2 className="text-2xl font-bold text-center text-gray-700 mb-6">
-                    {isLogin ? 'Login' : 'Registrar'} - Gestor de Equipes
+                <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">
+                    Acesso - Gestor de Equipes
                 </h2>
-                <form onSubmit={handleSubmit}>
-                    {/* ... JSX do formulário ... */}
+                <form onSubmit={handleSubmit} className="space-y-6">
+                    <div>
+                        <label htmlFor="email" className="block text-sm font-medium text-gray-700">E-mail</label>
+                        <input
+                            id="email"
+                            type="email"
+                            value={email}
+                            onChange={e => setEmail(e.target.value)}
+                            required
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="password" className="block text-sm font-medium text-gray-700">Senha</label>
+                        <input
+                            id="password"
+                            type="password"
+                            value={password}
+                            onChange={e => setPassword(e.target.value)}
+                            required
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                    </div>
+                    {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-md">{error}</p>}
+                    <div>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400"
+                        >
+                            {loading ? 'A entrar...' : 'Entrar'}
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
     );
 };
+
 
 
 const Modal = ({ isOpen, onClose, title, children, width = "max-w-2xl" }) => {
@@ -5003,13 +5043,28 @@ const DashboardComponent = () => {
 };
 
 
-// Versão: 6.0.0
-// [ALTERADO] Adicionado o link de menu e a rota para a nova Agenda Diária.
+// [CORRIGIDO v6.2.0] Componente App agora renderiza AuthComponent quando necessário.
 function App() {
+    const { currentUser } = useContext(GlobalContext);
+    
+    // Se não há usuário após a verificação, mostra a tela de login.
+    if (currentUser === null) {
+        return <AuthComponent />;
+    }
+
+    // Se ainda estiver a carregar (currentUser === undefined), mostra uma tela de carregamento.
+    if (currentUser === undefined) {
+         return <div className="flex justify-center items-center h-screen"><div className="text-xl">A verificar autenticação...</div></div>;
+    }
+    
+    // Se há usuário, mostra a aplicação principal.
+    return <MainApp />;
+}
+
+// O conteúdo da sua aplicação principal foi movido para este novo componente.
+const MainApp = () => {
     const [currentPage, setCurrentPage] = useState('welcome');
     const { currentUser, auth: firebaseAuth, permissoes } = useContext(GlobalContext);
-
-    if (!currentUser) { return <AuthComponent />; }
 
     const checkPermission = (menu) => {
         const userEmail = currentUser?.email;
@@ -5023,7 +5078,6 @@ function App() {
         switch (currentPage) {
             case 'welcome': return <WelcomeComponent />;
             case 'dashboard': return checkPermission('dashboard') ? <DashboardComponent /> : getFallbackPage();
-            // [NOVO v6.0.0] Rota para a agenda
             case 'agenda': return checkPermission('agenda') ? <AgendaDiariaComponent /> : getFallbackPage();
             case 'mapa': return checkPermission('mapa') ? <MapaAtividadesComponent /> : getFallbackPage();
             case 'programacao': return checkPermission('programacao') ? <ProgramacaoSemanalComponent /> : getFallbackPage();
@@ -5056,8 +5110,7 @@ function App() {
                     </div>
                     <nav className="flex-grow space-y-1">
                         {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
-                        {/* [NOVO v6.0.0] Link de menu para a agenda */}
-                        {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Diária</NavLink>}
+                        {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Semanal</NavLink>}
                         {checkPermission('mapa') && <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>}
                         {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>}
                         {checkPermission('fito') && <NavLink page="calendarioFito" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Calendário de Aplicações</NavLink>}
