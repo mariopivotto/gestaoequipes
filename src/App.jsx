@@ -846,10 +846,11 @@ const FuncionariosManager = () => {
     );
 };
 
-// Versão: 6.0.0
-// [ALTERADO] Adicionado o painel de permissão para a nova Agenda Diária.
+// Versão: 6.7.0
+// [ALTERADO] Invertida a ordem das abas em Configurações, com "Cadastros Gerais" aparecendo primeiro.
 const ConfiguracoesComponent = () => {
-    const [activeTab, setActiveTab] = useState('permissoes');
+    // A aba ativa inicial agora é 'cadastros'.
+    const [activeTab, setActiveTab] = useState('cadastros');
 
     const TabButton = ({ tabName, currentTab, setTab, children }) => {
         const isActive = currentTab === tabName;
@@ -872,8 +873,9 @@ const ConfiguracoesComponent = () => {
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Configurações Gerais</h2>
             <div className="border-b border-gray-200 mb-6">
                 <nav className="flex space-x-2">
-                    <TabButton tabName="permissoes" currentTab={activeTab} setTab={setActiveTab}>Permissões de Acesso</TabButton>
+                    {/* Ordem das abas invertida */}
                     <TabButton tabName="cadastros" currentTab={activeTab} setTab={setActiveTab}>Cadastros Gerais</TabButton>
+                    <TabButton tabName="permissoes" currentTab={activeTab} setTab={setActiveTab}>Permissões de Acesso</TabButton>
                 </nav>
             </div>
             <div>
@@ -885,7 +887,6 @@ const ConfiguracoesComponent = () => {
                             <ListaAuxiliarManager nomeLista="Acesso ao Mapa de Atividades" nomeSingular="E-mail" collectionPathSegment="permissoes_mapa" />
                             <ListaAuxiliarManager nomeLista="Acesso à Programação Semanal" nomeSingular="E-mail" collectionPathSegment="permissoes_programacao" />
                             <ListaAuxiliarManager nomeLista="Acesso ao Controle Fitossanitário" nomeSingular="E-mail" collectionPathSegment="permissoes_fito" />
-                            {/* [NOVO v6.0.0] Card para gerenciar a permissão 'agenda'. */}
                             <ListaAuxiliarManager nomeLista="Acesso à Agenda Diária" nomeSingular="E-mail" collectionPathSegment="permissoes_agenda" />
                             <ListaAuxiliarManager nomeLista="Acesso à Tarefa Pátio" nomeSingular="E-mail" collectionPathSegment="permissoes_anotacoes" />
                             <ListaAuxiliarManager nomeLista="Acesso às Tarefas Pendentes" nomeSingular="E-mail" collectionPathSegment="permissoes_pendentes" />
@@ -2000,16 +2001,55 @@ const ProgramacaoSemanalComponent = () => {
     );
 };
 
-// ... (O restante dos componentes: TarefaPatioComponent, GerenciarTarefaProgramacaoModal, etc. permanecem sem alterações) ...
-// ... (Cole o restante do seu código original aqui, a partir de `const TarefaPatioComponent = () => { ... }` até o final do arquivo)
+// Versão: 6.8.2
+// [NOVO] Componente criado para agrupar as funcionalidades de Fitossanitário em abas.
+const ControleFitossanitarioComponent = () => {
+    const [activeTab, setActiveTab] = useState('planos');
 
-// [CORRIGIDO v2.8.1] Componente TarefaPátio com todos os campos do formulário restaurados.
+    const TabButton = ({ tabName, currentTab, setTab, children }) => {
+        const isActive = currentTab === tabName;
+        return (
+            <button
+                onClick={() => setTab(tabName)}
+                className={`px-4 py-2 text-sm font-semibold rounded-t-md transition-colors focus:outline-none ${
+                    isActive
+                        ? 'bg-white text-blue-600 border-b-2 border-blue-600'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+            >
+                {children}
+            </button>
+        );
+    };
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-full">
+            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Controle Fitossanitário</h2>
+            <div className="border-b border-gray-200 mb-6">
+                <nav className="flex space-x-2">
+                    <TabButton tabName="planos" currentTab={activeTab} setTab={setActiveTab}>Planos de Aplicação</TabButton>
+                    <TabButton tabName="calendario" currentTab={activeTab} setTab={setActiveTab}>Calendário de Aplicações</TabButton>
+                    <TabButton tabName="historico" currentTab={activeTab} setTab={setActiveTab}>Histórico de Aplicações</TabButton>
+                </nav>
+            </div>
+            <div>
+                {activeTab === 'planos' && <PlanosFitossanitariosComponent />}
+                {activeTab === 'calendario' && <CalendarioFitossanitarioComponent />}
+                {activeTab === 'historico' && <HistoricoFitossanitarioComponent />}
+            </div>
+        </div>
+    );
+};
+
+// Versão: 6.4.0
+// [NOVO] Adicionada uma listagem informativa de tarefas pendentes na tela "Tarefa Pátio" para evitar duplicidade.
 const TarefaPatioComponent = () => {
     const { userId, db, appId, listasAuxiliares, auth, storage } = useContext(GlobalContext);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [loading, setLoading] = useState(false);
+    const [loadingForm, setLoadingForm] = useState(false);
 
+    // Estados para o formulário do modal
     const [tarefa, setTarefa] = useState('');
     const [prioridade, setPrioridade] = useState('');
     const [area, setArea] = useState('');
@@ -2018,8 +2058,28 @@ const TarefaPatioComponent = () => {
     const [dataInicio, setDataInicio] = useState('');
     const [novosAnexos, setNovosAnexos] = useState([]);
 
+    // Estados para a lista de tarefas pendentes
+    const [tarefasPendentes, setTarefasPendentes] = useState([]);
+    const [loadingList, setLoadingList] = useState(true);
+
     const basePath = `/artifacts/${appId}/public/data`;
     const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
+
+    // Hook para carregar a lista de tarefas pendentes
+    useEffect(() => {
+        setLoadingList(true);
+        const q = query(tarefasMapaCollectionRef, where("status", "==", "AGUARDANDO ALOCAÇÃO"), orderBy("createdAt", "asc"));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedPendentes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setTarefasPendentes(fetchedPendentes);
+            setLoadingList(false);
+        }, (error) => {
+            console.error("Erro ao carregar tarefas pendentes:", error);
+            setLoadingList(false);
+        });
+        return () => unsubscribe();
+    }, [userId, appId, db, basePath]);
 
     const resetFormulario = () => {
         setTarefa('');
@@ -2056,11 +2116,11 @@ const TarefaPatioComponent = () => {
     const handleCriarTarefaPendente = async (e) => {
         e.preventDefault();
         if (!tarefa.trim() || !acao || !dataInicio) {
-            alert("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios.");
+            toast.error("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios.");
             return;
         }
 
-        setLoading(true);
+        setLoadingForm(true);
         try {
             const novoDocRef = doc(tarefasMapaCollectionRef);
             const idDaNovaTarefa = novoDocRef.id;
@@ -2118,7 +2178,7 @@ const TarefaPatioComponent = () => {
             console.error("Erro ao criar tarefa do pátio: ", error);
             toast.error("Erro ao criar tarefa do pátio: " + error.message);
         }
-        setLoading(false);
+        setLoadingForm(false);
     };
 
     return (
@@ -2139,9 +2199,47 @@ const TarefaPatioComponent = () => {
                     que será incluída no Mapa de Atividades para posterior alocação e programação.
                 </p>
             </div>
+
+            {/* Início da Nova Seção de Listagem */}
+            <div className="mt-8">
+                <h3 className="text-xl font-semibold text-gray-700 mb-4">
+                    <LucideListTodo size={22} className="inline-block mr-2 text-orange-500" />
+                    Tarefas Atualmente Pendentes de Alocação
+                </h3>
+                <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                {["Tarefa", "Prioridade", "Área", "Ação", "Data Criação", "Orientação"].map(header => (
+                                    <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap">{header}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {loadingList ? (
+                                <tr><td colSpan="6" className="text-center p-4">Carregando tarefas pendentes...</td></tr>
+                            ) : tarefasPendentes.length === 0 ? (
+                                <tr><td colSpan="6" className="text-center p-4 text-gray-500">Nenhuma tarefa pendente no momento.</td></tr>
+                            ) : (
+                                tarefasPendentes.map(tp => (
+                                    <tr key={tp.id} className="hover:bg-gray-50">
+                                        <td className="px-4 py-3 text-sm text-gray-800 max-w-xs whitespace-normal break-words">{tp.tarefa}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.prioridade || '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.area || '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.acao || '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.createdAt ? formatDate(tp.createdAt) : '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal break-words">{tp.orientacao || '-'}</td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {/* Fim da Nova Seção de Listagem */}
+
             <Modal isOpen={isModalOpen} onClose={handleCloseModal} title="Criar Nova Tarefa do Pátio" width="max-w-3xl">
                 <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
-                    {/* CAMPOS RESTAURADOS */}
                     <div>
                         <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
                         <select
@@ -2197,7 +2295,6 @@ const TarefaPatioComponent = () => {
                         <textarea id="tarefaOrientacao" value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
                     </div>
 
-                    {/* SEÇÃO DE ANEXOS */}
                     <div className="pt-4 border-t">
                         <h4 className="text-md font-semibold text-gray-700 mb-2">Anexos</h4>
                         <div>
@@ -2234,8 +2331,8 @@ const TarefaPatioComponent = () => {
 
                     <div className="pt-4 flex justify-end space-x-2">
                         <button type="button" onClick={handleCloseModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
-                            {loading ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
+                        <button type="submit" disabled={loadingForm} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
+                            {loadingForm ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
                         </button>
                     </div>
                 </form>
@@ -3840,8 +3937,8 @@ const EventoAgendaModal = ({ isOpen, onClose, onSave, eventoExistente, targetDat
     );
 };
 
-// Versão: 6.1.3
-// [ALTERADO] A altura das colunas dos dias na agenda semanal foi reduzida.
+// Versão: 6.6.0
+// [ALTERADO] A Agenda Semanal foi ajustada para ocultar o Domingo e exibir a semana de Segunda a Sábado.
 const AgendaDiariaComponent = () => {
     const { db, appId, auth } = useContext(GlobalContext);
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -3855,15 +3952,28 @@ const AgendaDiariaComponent = () => {
     const basePath = `/artifacts/${appId}/public/data`;
     const agendaCollectionRef = collection(db, `${basePath}/agenda_diaria`);
 
+    // Função auxiliar para garantir consistência no cálculo da semana (Segunda a Sábado)
+    const getWeekInfo = (date) => {
+        const start = new Date(date);
+        start.setUTCHours(0, 0, 0, 0);
+        
+        // Garante que a data de início seja a SEGUNDA-FEIRA
+        const day = start.getUTCDay(); // 0=Dom, 1=Seg,...
+        const diff = day === 0 ? -6 : 1 - day;
+        start.setUTCDate(start.getUTCDate() + diff);
+
+        const end = new Date(start);
+        // O fim da semana é 5 dias depois da segunda (Sábado)
+        end.setUTCDate(start.getUTCDate() + 5);
+
+        return { start, end };
+    };
+
     useEffect(() => {
         setLoading(true);
-        const dateCopy = new Date(currentDate.getTime());
-        const day = dateCopy.getUTCDay();
-        const diff = dateCopy.getUTCDate() - day + (day === 0 ? -6 : 1);
-        const startOfWeek = new Date(Date.UTC(dateCopy.getUTCFullYear(), dateCopy.getUTCMonth(), diff));
-        const endOfWeek = new Date(startOfWeek.getTime());
-        endOfWeek.setUTCDate(endOfWeek.getUTCDate() + 5);
-        const q = query(agendaCollectionRef, where("data", ">=", Timestamp.fromDate(startOfWeek)), where("data", "<=", Timestamp.fromDate(endOfWeek)), orderBy("data"), orderBy("horaInicio"));
+        const { start, end } = getWeekInfo(currentDate);
+
+        const q = query(agendaCollectionRef, where("data", ">=", Timestamp.fromDate(start)), where("data", "<=", Timestamp.fromDate(end)), orderBy("data"), orderBy("horaInicio"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setEventosDaSemana(fetchedEvents);
@@ -3873,7 +3983,7 @@ const AgendaDiariaComponent = () => {
             setLoading(false);
         });
         return () => unsubscribe();
-    }, [currentDate, agendaVersion]);
+    }, [currentDate, agendaVersion, db, basePath, appId]);
 
     const changeWeek = (offset) => {
         setCurrentDate(prevDate => {
@@ -3912,23 +4022,20 @@ const AgendaDiariaComponent = () => {
     
     const renderWeekView = () => {
         const weekDays = [];
-        const dateCopy = new Date(currentDate.getTime());
-        const day = dateCopy.getUTCDay();
-        const diff = dateCopy.getUTCDate() - day + (day === 0 ? -6 : 1);
-        const startOfWeek = new Date(Date.UTC(dateCopy.getUTCFullYear(), dateCopy.getUTCMonth(), diff));
+        const { start } = getWeekInfo(currentDate);
 
+        // Loop para 6 dias (Segunda a Sábado)
         for (let i = 0; i < 6; i++) {
-            const dayDate = new Date(startOfWeek.getTime());
-            dayDate.setUTCDate(startOfWeek.getUTCDate() + i);
+            const dayDate = new Date(start);
+            dayDate.setUTCDate(start.getUTCDate() + i);
             const dayString = dayDate.toISOString().split('T')[0];
             const eventosDoDia = eventosDaSemana.filter(e => e.data.toDate().toISOString().split('T')[0] === dayString);
             
             weekDays.push(
-                // [ALTERADO v6.1.3] Altura da coluna alterada de min-h-[60vh] para h-96.
                 <div key={i} className="bg-white p-3 rounded-lg shadow-sm h-96 flex flex-col">
                     <div className="flex justify-between items-center mb-3">
-                        <h4 className="font-bold text-gray-800">{dayDate.toLocaleDateString('pt-BR', { weekday: 'long' })}
-                            <span className="ml-2 font-normal text-gray-500">{dayDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit'})}</span>
+                        <h4 className="font-bold text-gray-800">{dayDate.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'UTC' })}
+                            <span className="ml-2 font-normal text-gray-500">{dayDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC'})}</span>
                         </h4>
                         <button onClick={() => handleOpenModal(dayDate)} title="Adicionar Evento neste Dia" className="p-1 text-blue-500 hover:bg-blue-100 rounded-full"><LucidePlusCircle size={20}/></button>
                     </div>
@@ -3960,13 +4067,8 @@ const AgendaDiariaComponent = () => {
     };
     
     const getWeekRangeLabel = () => {
-        const dateCopy = new Date(currentDate.getTime());
-        const day = dateCopy.getUTCDay();
-        const diff = dateCopy.getUTCDate() - day + (day === 0 ? -6 : 1);
-        const startOfWeek = new Date(Date.UTC(dateCopy.getUTCFullYear(), dateCopy.getUTCMonth(), diff));
-        const endOfWeek = new Date(startOfWeek.getTime());
-        endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 5);
-        return `Semana de ${startOfWeek.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})} a ${endOfWeek.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short', year: 'numeric'})}`;
+        const { start, end } = getWeekInfo(currentDate);
+        return `Semana de ${start.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short', timeZone: 'UTC'})} a ${end.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'})}`;
     }
 
     return (
@@ -5062,69 +5164,103 @@ function App() {
     return <MainApp />;
 }
 
-// O conteúdo da sua aplicação principal foi movido para este novo componente.
+// Versão: 6.8.3
+// [ALTERADO] Os três links de "Fitossanitário" no menu foram unificados em um só.
 const MainApp = () => {
-    const [currentPage, setCurrentPage] = useState('welcome');
-    const { currentUser, auth: firebaseAuth, permissoes } = useContext(GlobalContext);
-
-    const checkPermission = (menu) => {
-        const userEmail = currentUser?.email;
-        if (!userEmail) return false;
-        if (userEmail === 'mpivottoramos@gmail.com') return true;
-        return permissoes[menu]?.includes(userEmail.toLowerCase()) ?? false;
-    };
-
-    const PageContent = () => {
-        const getFallbackPage = () => <WelcomeComponent />;
-        switch (currentPage) {
-            case 'welcome': return <WelcomeComponent />;
-            case 'dashboard': return checkPermission('dashboard') ? <DashboardComponent /> : getFallbackPage();
-            case 'agenda': return checkPermission('agenda') ? <AgendaDiariaComponent /> : getFallbackPage();
-            case 'mapa': return checkPermission('mapa') ? <MapaAtividadesComponent /> : getFallbackPage();
-            case 'programacao': return checkPermission('programacao') ? <ProgramacaoSemanalComponent /> : getFallbackPage();
-            case 'calendarioFito': return checkPermission('fito') ? <CalendarioFitossanitarioComponent /> : getFallbackPage();
-            case 'planosFito': return checkPermission('fito') ? <PlanosFitossanitariosComponent /> : getFallbackPage();
-            case 'fito': return checkPermission('fito') ? <HistoricoFitossanitarioComponent /> : getFallbackPage();
-            case 'anotacoes': return checkPermission('anotacoes') ? <TarefaPatioComponent /> : getFallbackPage();
-            case 'tarefasPendentes': return checkPermission('pendentes') ? <TarefasPendentesComponent /> : getFallbackPage();
-            case 'config': return checkPermission('config') ? <ConfiguracoesComponent /> : getFallbackPage();
-            case 'relatorios': return checkPermission('relatorios') ? <RelatoriosComponent /> : getFallbackPage();
-            default: return <WelcomeComponent />;
-        }
-    };
+    const [currentPage, setCurrentPage] = useState('dashboard');
+    const { currentUser, permissoes, auth: firebaseAuth } = useContext(GlobalContext);
 
     const NavLink = memo(({ page, children, icon: Icon, currentPage, setCurrentPage }) => (
-        <button onClick={() => setCurrentPage(page)} className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors duration-150 ease-in-out ${currentPage === page ? 'bg-blue-600 text-white shadow-md' : 'text-gray-700 hover:bg-blue-100'}`}>
-            {Icon && <Icon size={18} className="mr-2"/>}
-            {children}
+        <button 
+            onClick={() => setCurrentPage(page)} 
+            className={`w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors duration-150 ease-in-out ${currentPage === page ? 'bg-blue-600 text-white shadow-md' : 'text-gray-700 hover:bg-blue-100'}`}
+        >
+            {Icon && <Icon size={18} className="mr-3"/>}
+            <span>{children}</span>
         </button>
     ));
 
+    const checkPermission = (pageKey) => {
+        const userEmail = currentUser?.email?.toLowerCase();
+        if (!userEmail) return false;
+        
+        if (["sistemas@gramoterra.com.br", "operacional@gramoterra.com.br", "mpivottoramos@gmail.com"].includes(userEmail)) {
+            return true;
+        }
+
+        const permissionList = permissoes[pageKey];
+        return Array.isArray(permissionList) && permissionList.includes(userEmail);
+    };
+
+    const PageContent = () => {
+        if (!checkPermission(currentPage)) {
+            useEffect(() => {
+                toast.error("Você não tem permissão para acessar esta página.");
+                setCurrentPage('dashboard');
+            }, [currentPage]);
+            return <DashboardComponent />;
+        }
+
+        switch (currentPage) {
+            case 'dashboard': return <DashboardComponent />;
+            case 'mapa': return <MapaAtividadesComponent />;
+            case 'programacao': return <ProgramacaoSemanalComponent />;
+            case 'fito': return <ControleFitossanitarioComponent />;
+            case 'agenda': return <AgendaDiariaComponent />;
+            case 'anotacoes': return <TarefaPatioComponent />;
+            case 'pendentes': return <TarefasPendentesComponent />;
+            case 'config': return <ConfiguracoesComponent />;
+            case 'relatorios': return <RelatoriosComponent />;
+            default: return <DashboardComponent />;
+        }
+    };
+    
+    const NavGroupTitle = ({ title }) => (
+        <h4 className="px-3 pt-4 pb-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {title}
+        </h4>
+    );
+
     return (
         <>
-            <Toaster position="top-right" toastOptions={{ success: { duration: 5000, style: { background: '#1976D2', color: 'white', fontWeight: 'bold' }}}} />
+            <Toaster position="bottom-right" toastOptions={{ duration: 4000 }}/>
             <div className="flex h-screen bg-gray-100 font-sans">
-                <aside className="w-64 bg-white shadow-lg flex flex-col p-4 space-y-2 border-r border-gray-200">
-                    <div className="mb-4 p-2 text-center">
-                        <img src={LOGO_URL} alt="Logo" className="mx-auto h-12 w-auto mb-2" onError={(e) => e.target.style.display='none'}/>
-                        <h1 className="text-xl font-semibold text-gray-700">Gestor de Equipes</h1>
+                <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
+                    <div className="h-16 flex items-center justify-center border-b">
+                         <img src={LOGO_URL} alt="Logo Gramoterra" className="h-10"/>
                     </div>
-                    <nav className="flex-grow space-y-1">
-                        {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
-                        {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Semanal</NavLink>}
-                        {checkPermission('mapa') && <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>}
-                        {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>}
-                        {checkPermission('fito') && <NavLink page="calendarioFito" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Calendário de Aplicações</NavLink>}
-                        {checkPermission('fito') && <NavLink page="planosFito" icon={LucideClipboardEdit} currentPage={currentPage} setCurrentPage={setCurrentPage}>Planos de Aplicação</NavLink>}
-                        {checkPermission('fito') && <NavLink page="fito" icon={LucideSprayCan} currentPage={currentPage} setCurrentPage={setCurrentPage}>Histórico de Aplicações</NavLink>}
-                        {checkPermission('anotacoes') && <NavLink page="anotacoes" icon={LucideStickyNote} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>}
-                        {checkPermission('pendentes') && <NavLink page="tarefasPendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>}
-                        {checkPermission('config') && <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>}
-                        {checkPermission('relatorios') && <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>}
+                    
+                    <nav className="flex-1 px-2 mt-4 space-y-1">
+                        <div>
+                            <NavGroupTitle title="Gestão" />
+                            {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
+                            {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>}
+                            {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Semanal</NavLink>}
+                        </div>
+
+                        <div>
+                            <NavGroupTitle title="Operação" />
+                            {checkPermission('anotacoes') && <NavLink page="anotacoes" icon={LucideClipboardEdit} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>}
+                            {checkPermission('pendentes') && <NavLink page="pendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>}
+                            {checkPermission('mapa') && <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>}
+                        </div>
+
+                        <div>
+                            <NavGroupTitle title="Fitossanitário" />
+                            {/* Links unificados em um só */}
+                            {checkPermission('fito') && <NavLink page="fito" icon={LucideSprayCan} currentPage={currentPage} setCurrentPage={setCurrentPage}>Controle Fitossanitário</NavLink>}
+                        </div>
+                        
+                        <div>
+                             <NavGroupTitle title="Análise e Sistema" />
+                            {checkPermission('relatorios') && <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>}
+                            {checkPermission('config') && <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>}
+                        </div>
                     </nav>
-                    <div className="mt-auto">
+
+                    <div className="mt-auto border-t p-2">
                         <p className="text-xs text-gray-500 mb-2 px-2">Logado como: {currentUser.isAnonymous ? "Anônimo" : currentUser.email || currentUser.uid}</p>
-                        <button onClick={() => firebaseAuth.signOut()} className="w-full flex items-center justify-center px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100">
+                        <button onClick={() => firebaseAuth.signOut()} className="w-full flex items-center justify-start px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100">
                             <LucideLogOut size={18} className="mr-2"/> Sair
                         </button>
                     </div>
@@ -5136,7 +5272,6 @@ const MainApp = () => {
         </>
     );
 }
-
 
 export default function WrappedApp() {
     return (
