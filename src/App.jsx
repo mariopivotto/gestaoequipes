@@ -1377,9 +1377,8 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
     );
 };
 
-// Versão: 6.9.0
-// [CORRIGIDO] A exclusão de tarefas agora é registrada no histórico.
-// [CORRIGIDO] A função de exclusão foi tornada mais robusta para lidar com erros de exclusão de imagens no Storage.
+// Versão: 6.9.1
+// [CORRIGIDO] Adicionada "atualização otimista" na interface ao editar, excluir ou mudar o status de uma tarefa, garantindo feedback visual instantâneo para o usuário.
 const MapaAtividadesComponent = () => {
     const { db, appId, storage, funcionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
@@ -1454,9 +1453,43 @@ const MapaAtividadesComponent = () => {
     const handleCloseImagensModal = () => { setIsImagensModalOpen(false); setImagensParaVer([]); };
     const limparFiltros = () => { setFiltroResponsavel("TODOS"); setFiltroStatus(TODOS_OS_STATUS_VALUE); setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE); setFiltroArea(TODAS_AS_AREAS_VALUE); setFiltroTurno(TODOS_OS_TURNOS_VALUE); setFiltroDataInicio(''); setFiltroDataFim(''); setTermoBusca(''); };
 
-    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaId) => { /* ...Lógica existente... */ };
+    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaId) => { /* Lógica existente... */ };
 
-    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => { /* ...Lógica existente... */ };
+    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
+        const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
+        const usuario = auth.currentUser;
+
+        if (!tarefaOriginal) {
+            toast.error("Tarefa original não encontrada para atualizar o status.");
+            return;
+        }
+
+        try {
+            // [CORRIGIDO v6.9.1] Atualização Otimista da UI
+            setTodasTarefas(prevTarefas => prevTarefas.map(t => 
+                t.id === tarefaId ? { ...t, status: novoStatus } : t
+            ));
+            
+            // Atualiza o documento no Firestore
+            await updateDoc(tarefaRef, { status: novoStatus, updatedAt: Timestamp.now() });
+            
+            // Log e sincronização continuam em segundo plano
+            await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Status Alterado", `Status alterado de "${tarefaOriginal.status}" para "${novoStatus}".`);
+            const dadosTarefaAtualizada = { ...tarefaOriginal, status: novoStatus };
+            await sincronizarTarefaComProgramacao(tarefaId, dadosTarefaAtualizada, db, basePath);
+            
+            toast.success("Status atualizado com sucesso!");
+
+        } catch (error) {
+            console.error("Erro na atualização rápida de status:", error);
+            toast.error("Falha ao atualizar o status: " + error.message);
+            // Reverte a atualização otimista em caso de erro
+            setTodasTarefas(prevTarefas => prevTarefas.map(t => 
+                t.id === tarefaId ? tarefaOriginal : t
+            ));
+        }
+    };
     
     const handleDeleteTarefa = async (tarefaId) => {
         const tarefaParaExcluir = todasTarefas.find(t => t.id === tarefaId);
@@ -1469,35 +1502,32 @@ const MapaAtividadesComponent = () => {
             const usuario = auth.currentUser;
             
             try {
-                // [CORRIGIDO] Adiciona o log de exclusão ANTES de deletar
+                // [CORRIGIDO v6.9.1] Atualização otimista: remove a tarefa da UI imediatamente
+                setTodasTarefas(prevTarefas => prevTarefas.filter(t => t.id !== tarefaId));
+
                 await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Excluída", `A tarefa "${tarefaParaExcluir.tarefa}" foi excluída permanentemente.`);
 
-                // Excluir imagens do Storage (se houver)
                 if (tarefaParaExcluir.imagens && tarefaParaExcluir.imagens.length > 0) {
-                    toast('Excluindo imagens anexas...');
                     for (const url of tarefaParaExcluir.imagens) {
                         try {
                             const imagemRef = ref(storage, url);
                             await deleteObject(imagemRef);
                         } catch (storageError) {
-                            console.error("Erro ao excluir imagem do Storage:", url, storageError);
-                            // Continua mesmo se uma imagem falhar, mas avisa no console.
+                            console.error("Erro ao excluir imagem do Storage (continuando processo):", url, storageError);
                         }
                     }
                 }
                 
-                // Excluir a tarefa da programação semanal
                 await removerTarefaDaProgramacao(tarefaId, db, basePath);
-
-                // Excluir o documento da tarefa no Firestore
                 await deleteDoc(doc(db, `${basePath}/tarefas_mapa`, tarefaId));
 
                 toast.success("Tarefa excluída com sucesso!");
-                // O UI se atualizará automaticamente pelo listener `onSnapshot`
 
             } catch (error) {
                 console.error("Erro no processo de exclusão da tarefa:", error);
                 toast.error("Erro ao excluir tarefa: " + error.message);
+                // Reverte a UI em caso de falha na exclusão
+                setTodasTarefas(prevTarefas => [...prevTarefas, tarefaParaExcluir].sort((a, b) => b.createdAt.seconds - a.createdAt.seconds));
             }
         }
     };
@@ -1517,7 +1547,7 @@ const MapaAtividadesComponent = () => {
 
             {/* Filtros */}
             <div className="p-4 bg-white rounded-lg shadow-md mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                      <div><label className="block text-sm font-medium text-gray-700">Buscar Tarefa/Orientação</label><input type="text" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Digite para buscar..." className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div><div><label className="block text-sm font-medium text-gray-700">Responsável</label><select value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value="TODOS">Todos</option><option value={SEM_RESPONSAVEL_VALUE}>--- SEM RESPONSÁVEL ---</option>{funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Status</label><select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODOS_OS_STATUS_VALUE}>Todos</option>{listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Prioridade</label><select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODAS_AS_PRIORIDADES_VALUE}>Todas</option>{listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Área</label><select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODAS_AS_AREAS_VALUE}>Todas</option>{listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Turno</label><select value={filtroTurno} onChange={(e) => setFiltroTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODOS_OS_TURNOS_VALUE}>Todos</option>{listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Início do Período</label><input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div><div><label className="block text-sm font-medium text-gray-700">Fim do Período</label><input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
                 </div>
                 <div className="mt-4 flex justify-end">
