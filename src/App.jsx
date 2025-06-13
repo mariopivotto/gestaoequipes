@@ -347,11 +347,13 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 6.1.4
-// [CORRIGIDO] Lógica de autenticação no GlobalProvider para garantir que o usuário seja limpo corretamente no logout em produção.
+// Versão: 6.2.1
+// [CORRIGIDO] Lógica de carregamento de autenticação movida para o componente App e estado inicial de `currentUser` alterado para `undefined` para maior robustez no fluxo de login/logout.
 const GlobalProvider = ({ children }) => {
-    const [currentUser, setCurrentUser] = useState(null);
+    // Inicia como `undefined` para representar o estado "verificando". `null` significa "deslogado".
+    const [currentUser, setCurrentUser] = useState(undefined);
     const [userId, setUserId] = useState(null);
+    // `loadingAuth` é passado via contexto para o `App` controlar a tela de carregamento.
     const [loadingAuth, setLoadingAuth] = useState(true);
     const [listasAuxiliares, setListasAuxiliares] = useState({
         prioridades: [], areas: [], acoes: [], status: [], turnos: [], tarefas: [], usuarios_notificacao: []
@@ -375,11 +377,12 @@ const GlobalProvider = ({ children }) => {
                 return;
             }
 
-            // Se não há usuário logado
             if (IS_DEV && DEV_EMAIL && DEV_PASSWORD) {
                 try {
                     console.log(`Ambiente DEV: Tentando login automático com ${DEV_EMAIL}...`);
                     await signInWithEmailAndPassword(authGlobal, DEV_EMAIL, DEV_PASSWORD);
+                    // O onAuthStateChanged será chamado novamente com o usuário, então não é preciso fazer mais nada.
+                    // O setLoadingAuth(false) será chamado no próximo ciclo do listener.
                 } catch (error) {
                     console.error("Falha no login automático de desenvolvedor:", error);
                     toast.error(`Login automático DEV falhou.`);
@@ -387,9 +390,8 @@ const GlobalProvider = ({ children }) => {
                     setLoadingAuth(false);
                 }
             } else {
-                // [CORRIGIDO v6.1.4] Caminho para produção (e dev sem auto-login) quando deslogado.
-                // Limpa explicitamente o usuário e finaliza o carregamento.
-                setCurrentUser(null);
+                // Produção (ou dev sem auto-login) quando deslogado.
+                setCurrentUser(null); // Define explicitamente como deslogado
                 setLoadingAuth(false);
             }
         });
@@ -435,12 +437,10 @@ const GlobalProvider = ({ children }) => {
         return () => { unsubscribers.forEach(unsub => unsub()); };
     }, [userId, appId, db]);
 
-    if (loadingAuth) {
-        return <div className="flex justify-center items-center h-screen"><div className="text-xl">Carregando...</div></div>;
-    }
-
+    // A tela de carregamento foi removida daqui e movida para o componente App.
+    // O `loadingAuth` é passado no value do Provider para que o App decida o que renderizar.
     return (
-        <GlobalContext.Provider value={{ currentUser, userId, db, storage, auth: authGlobal, listasAuxiliares, funcionarios, appId, permissoes }}>
+        <GlobalContext.Provider value={{ currentUser, userId, db, storage, auth: authGlobal, listasAuxiliares, funcionarios, appId, permissoes, loadingAuth }}>
             {children}
         </GlobalContext.Provider>
     );
@@ -5043,21 +5043,22 @@ const DashboardComponent = () => {
 };
 
 
-// [CORRIGIDO v6.2.0] Componente App agora renderiza AuthComponent quando necessário.
+// Versão: 6.2.1
+// [CORRIGIDO] Lógica de renderização ajustada para usar o estado `loadingAuth` do GlobalProvider, tratando corretamente os estados de carregamento, logado e deslogado, e resolvendo o problema da tela branca no logout.
 function App() {
-    const { currentUser } = useContext(GlobalContext);
+    const { currentUser, loadingAuth } = useContext(GlobalContext);
     
-    // Se não há usuário após a verificação, mostra a tela de login.
+    // 1. Enquanto a autenticação está sendo verificada (`loadingAuth` é true), exibe uma tela de carregamento.
+    if (loadingAuth) {
+         return <div className="flex justify-center items-center h-screen"><div className="text-xl">Verificando autenticação...</div></div>;
+    }
+
+    // 2. Após a verificação, se o usuário for `null`, significa que está deslogado. Renderiza o componente de login.
     if (currentUser === null) {
         return <AuthComponent />;
     }
-
-    // Se ainda estiver a carregar (currentUser === undefined), mostra uma tela de carregamento.
-    if (currentUser === undefined) {
-         return <div className="flex justify-center items-center h-screen"><div className="text-xl">A verificar autenticação...</div></div>;
-    }
     
-    // Se há usuário, mostra a aplicação principal.
+    // 3. Se chegou até aqui, há um usuário autenticado. Renderiza a aplicação principal.
     return <MainApp />;
 }
 
