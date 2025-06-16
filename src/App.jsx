@@ -541,20 +541,20 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 6.2.1
-// [CORRIGIDO] Lógica de carregamento de autenticação movida para o componente App e estado inicial de `currentUser` alterado para `undefined` para maior robustez no fluxo de login/logout.
+// Versão: 10.6.0
+// [CORRIGIDO] Resolvida a condição de corrida no login, onde a verificação de permissão ocorria antes dos dados serem carregados.
+// O estado de carregamento agora aguarda tanto a autenticação quanto os dados essenciais (permissões, funcionários).
 const GlobalProvider = ({ children }) => {
-    // Inicia como `undefined` para representar o estado "verificando". `null` significa "deslogado".
     const [currentUser, setCurrentUser] = useState(undefined);
     const [userId, setUserId] = useState(null);
-    // `loadingAuth` é passado via contexto para o `App` controlar a tela de carregamento.
-    const [loadingAuth, setLoadingAuth] = useState(true);
+    const [loading, setLoading] = useState(true); // Estado de carregamento unificado
     const [listasAuxiliares, setListasAuxiliares] = useState({
         prioridades: [], areas: [], acoes: [], status: [], turnos: [], tarefas: [], usuarios_notificacao: []
     });
     const [funcionarios, setFuncionarios] = useState([]);
     const [permissoes, setPermissoes] = useState({});
 
+    // Efeito para autenticação
     useEffect(() => {
         const DEV_EMAIL = import.meta.env.VITE_DEV_EMAIL;
         const DEV_PASSWORD = import.meta.env.VITE_DEV_PASSWORD;
@@ -562,79 +562,87 @@ const GlobalProvider = ({ children }) => {
 
         const unsubscribe = onAuthStateChanged(authGlobal, async (user) => {
             if (user) {
-                if (IS_DEV && !user.isAnonymous) {
-                   console.log("Usuário autenticado com sucesso:", user.email);
-                }
                 setCurrentUser(user);
                 setUserId(user.uid);
-                setLoadingAuth(false);
-                return;
-            }
-
-            if (IS_DEV && DEV_EMAIL && DEV_PASSWORD) {
+                // Não para de carregar aqui, espera os dados no próximo useEffect
+            } else if (IS_DEV && DEV_EMAIL && DEV_PASSWORD) {
                 try {
-                    console.log(`Ambiente DEV: Tentando login automático com ${DEV_EMAIL}...`);
                     await signInWithEmailAndPassword(authGlobal, DEV_EMAIL, DEV_PASSWORD);
-                    // O onAuthStateChanged será chamado novamente com o usuário, então não é preciso fazer mais nada.
-                    // O setLoadingAuth(false) será chamado no próximo ciclo do listener.
                 } catch (error) {
                     console.error("Falha no login automático de desenvolvedor:", error);
-                    toast.error(`Login automático DEV falhou.`);
-                    setCurrentUser(null); // Garante que fique nulo em caso de falha
-                    setLoadingAuth(false);
+                    setCurrentUser(null);
+                    setUserId(null);
+                    setLoading(false); // Para o carregamento se o autologin falhar
                 }
             } else {
-                // Produção (ou dev sem auto-login) quando deslogado.
-                setCurrentUser(null); // Define explicitamente como deslogado
-                setLoadingAuth(false);
+                setCurrentUser(null);
+                setUserId(null);
+                setLoading(false); // Para o carregamento se estiver deslogado
             }
         });
 
         return () => unsubscribe();
     }, []);
 
+    // Efeito para carregar dados (permissões, listas, etc.)
     useEffect(() => {
-        if (!userId || !appId || !db) return;
+        if (!userId) {
+            // Se o usuário deslogar, não há dados para carregar
+            if(currentUser === null) setLoading(false);
+            return;
+        }
 
         const basePath = `/artifacts/${appId}/public/data`;
-        const unsubscribers = [];
+        const fetches = [];
+
+        // Permissões
+        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda'];
+        chavesDePermissao.forEach(chave => {
+            const q = query(collection(db, `${basePath}/listas_auxiliares/permissoes_${chave}/items`));
+            fetches.push(getDocs(q).then(snapshot => ({ chave, snapshot })));
+        });
+
+        // Listas Auxiliares
         const listaNames = ['prioridades', 'areas', 'acoes', 'status', 'turnos', 'tarefas', 'usuarios_notificacao'];
         listaNames.forEach(name => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/${name}/items`));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                setListasAuxiliares(prev => ({ ...prev, [name]: items.map(item => item.nome).sort() }));
-            }, error => console.error(`Erro ao carregar ${name}:`, error));
-            unsubscribers.push(unsubscribe);
+            fetches.push(getDocs(q).then(snapshot => ({ name, snapshot, type: 'lista' })));
         });
         
-        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda'];
-        chavesDePermissao.forEach(chave => {
-            const collectionPath = `${basePath}/listas_auxiliares/permissoes_${chave}/items`;
-            const q = query(collection(db, collectionPath));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                const emailsPermitidos = snapshot.docs.map(doc => doc.data().nome.toLowerCase());
-                setPermissoes(prev => ({ ...prev, [chave]: emailsPermitidos }));
-            }, error => {
-                console.error(`Erro ao carregar permissões para '${chave}':`, error);
-                setPermissoes(prev => ({ ...prev, [chave]: [] }));
+        // Funcionários
+        const qFuncionarios = query(collection(db, `${basePath}/funcionarios`));
+        fetches.push(getDocs(qFuncionarios).then(snapshot => ({ type: 'funcionarios', snapshot })));
+
+        Promise.all(fetches).then(results => {
+            const newPermissoes = {};
+            const newListas = {};
+            let newFuncionarios = [];
+
+            results.forEach(result => {
+                if (result.type === 'lista') {
+                    const items = result.snapshot.docs.map(d => d.data().nome).sort();
+                    newListas[result.name] = items;
+                } else if (result.type === 'funcionarios') {
+                    newFuncionarios = result.snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.nome.localeCompare(b.nome));
+                } else { // Permissões
+                    newPermissoes[result.chave] = result.snapshot.docs.map(doc => doc.data().nome.toLowerCase());
+                }
             });
-            unsubscribers.push(unsubscribe);
+
+            setPermissoes(newPermissoes);
+            setListasAuxiliares(prev => ({ ...prev, ...newListas }));
+            setFuncionarios(newFuncionarios);
+            setLoading(false); // FINALMENTE: para o carregamento após todos os dados essenciais serem carregados
+        }).catch(error => {
+            console.error("Erro no carregamento inicial de dados:", error);
+            toast.error("Falha ao carregar dados essenciais.");
+            setLoading(false); // Para o carregamento mesmo em caso de erro
         });
 
-        const qFuncionarios = query(collection(db, `${basePath}/funcionarios`));
-        const unsubscribeFuncionarios = onSnapshot(qFuncionarios, (snapshot) => {
-            setFuncionarios(snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.nome.localeCompare(b.nome)));
-        }, error => console.error("Erro ao carregar funcionários:", error));
-        unsubscribers.push(unsubscribeFuncionarios);
-
-        return () => { unsubscribers.forEach(unsub => unsub()); };
     }, [userId, appId, db]);
 
-    // A tela de carregamento foi removida daqui e movida para o componente App.
-    // O `loadingAuth` é passado no value do Provider para que o App decida o que renderizar.
     return (
-        <GlobalContext.Provider value={{ currentUser, userId, db, storage, auth: authGlobal, listasAuxiliares, funcionarios, appId, permissoes, loadingAuth }}>
+        <GlobalContext.Provider value={{ currentUser, userId, db, storage, auth: authGlobal, listasAuxiliares, funcionarios, appId, permissoes, loading }}>
             {children}
         </GlobalContext.Provider>
     );
@@ -5800,22 +5808,28 @@ const DashboardComponent = () => {
     );
 };
 
-// Versão: 6.2.1
-// [CORRIGIDO] Lógica de renderização ajustada para usar o estado `loadingAuth` do GlobalProvider, tratando corretamente os estados de carregamento, logado e deslogado, e resolvendo o problema da tela branca no logout.
+// Versão: 10.6.0
+// [CORRIGIDO] O componente App agora usa um estado de carregamento unificado do GlobalProvider,
+// aguardando permissões e dados antes de renderizar a aplicação principal.
 function App() {
-    const { currentUser, loadingAuth } = useContext(GlobalContext);
+    const { currentUser, loading } = useContext(GlobalContext);
     
-    // 1. Enquanto a autenticação está sendo verificada (`loadingAuth` é true), exibe uma tela de carregamento.
-    if (loadingAuth) {
-         return <div className="flex justify-center items-center h-screen"><div className="text-xl">Verificando autenticação...</div></div>;
+    // 1. Exibe uma tela de carregamento até que a autenticação e os dados essenciais estejam prontos.
+    if (loading) {
+         return (
+            <div className="flex flex-col justify-center items-center h-screen bg-gray-100">
+                <img src={LOGO_URL} alt="Logo" className="h-20 w-auto animate-pulse mb-4" />
+                <div className="text-xl font-semibold text-gray-600">Carregando dados e permissões...</div>
+            </div>
+        );
     }
 
-    // 2. Após a verificação, se o usuário for `null`, significa que está deslogado. Renderiza o componente de login.
+    // 2. Se não estiver carregando e o usuário for nulo, mostra a tela de login.
     if (currentUser === null) {
         return <AuthComponent />;
     }
     
-    // 3. Se chegou até aqui, há um usuário autenticado. Renderiza a aplicação principal.
+    // 3. Se chegou aqui, o usuário está autenticado e os dados foram carregados. Renderiza a aplicação.
     return <MainApp />;
 }
 
