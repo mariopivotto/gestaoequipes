@@ -5519,8 +5519,8 @@ const AlertaAtrasoModal = ({ isOpen, onClose, numeroDeTarefas, onVerTarefasClick
     );
 };
 
-// Versão: 10.7.0
-// [ALTERADO] O card "Tarefas por Responsável" no Dashboard agora exclui as tarefas concluídas da contagem.
+// Versão: 10.7.1
+// [ALTERADO] O card "Tarefas por Prioridade" no Dashboard agora também exclui as tarefas concluídas da contagem.
 const DashboardComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
@@ -5657,15 +5657,24 @@ const DashboardComponent = () => {
             let proximoPrazo = [], atrasadas = [], pendentesAtrasadas = [];
 
             todasTarefas.forEach(tarefa => {
-                if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) { porStatus[tarefa.status]++; }
-                if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) { porPrioridade[tarefa.prioridade]++; }
+                // Contagem para o card "Tarefas por Status" (inclui todos os status)
+                if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) {
+                    porStatus[tarefa.status]++;
+                }
                 
-                // Lógica de contagem por responsável - IGNORA CONCLUÍDAS E CANCELADAS
+                // Contagem para os cards "Tarefas por Responsável" e "Tarefas por Prioridade"
+                // IGNORA CONCLUÍDAS E CANCELADAS
                 if (tarefa.status !== "CANCELADA" && tarefa.status !== "CONCLUÍDA") {
+                    // Contagem por responsável
                     if (tarefa.responsaveis?.length > 0) {
                         tarefa.responsaveis.forEach(id => { if (porFuncionario[id]) porFuncionario[id].count++; });
                     } else {
                         porFuncionario["SEM_RESPONSAVEL"].count++;
+                    }
+
+                    // Contagem por prioridade
+                    if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) {
+                        porPrioridade[tarefa.prioridade]++;
                     }
                 }
                 
