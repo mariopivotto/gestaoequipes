@@ -4897,9 +4897,8 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
-// Versão: 10.2.0
-// [CORRIGIDO] A tarefa criada a partir de um registro agora tem o status padrão "PROGRAMADA".
-// [CORRIGIDO] Ao aprovar uma tarefa pendente, ela agora é removida imediatamente da lista na interface.
+// Versão: 10.3.1
+// [CORRIGIDO] A tarefa criada a partir de um registro agora herda a "Ação" correta do plano de origem.
 const RegistroAplicacaoComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
     
@@ -5029,12 +5028,21 @@ const RegistroAplicacaoComponent = () => {
             if (dadosDoForm.planoId) {
                 batch.update(doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId), { ultimaAplicacao: dadosDoForm.dataAplicacao });
             }
+
+            // Define a ação correta com base no plano, se existir
+            let acaoDaTarefa = "APLICAÇÃO FITOSSANITÁRIA";
+            if (dadosDoForm.planoId) {
+                const planoCorrespondente = todosPlanosAtivos.find(p => p.id === dadosDoForm.planoId);
+                if (planoCorrespondente && planoCorrespondente.acao) {
+                    acaoDaTarefa = planoCorrespondente.acao;
+                }
+            }
+            
             if (criarTarefa) {
                 const responsavelObj = funcionarios.find(f => f.nome === dadosDoForm.responsavel);
                 const tarefaData = {
                     tarefa: `APLICAÇÃO REGISTRADA: ${dadosDoForm.produto}`, orientacao: `Registro da aplicação: ${dadosDoForm.observacoes || 'Sem observações.'}. Planta/Local: ${dadosDoForm.plantaLocal || 'N/A'}.`,
-                    status: "PROGRAMADA", // Alterado para PROGRAMADA
-                    prioridade: "P2 - MEDIO PRAZO", acao: "APLICAÇÃO FITOSSANITÁRIA", turno: "DIA INTEIRO",
+                    status: "PROGRAMADA", prioridade: "P2 - MEDIO PRAZO", acao: acaoDaTarefa, turno: "DIA INTEIRO",
                     dataInicio: dadosDoForm.dataAplicacao, dataProvavelTermino: dadosDoForm.dataAplicacao,
                     responsaveis: responsavelObj ? [responsavelObj.id] : [], area: dadosDoForm.areas.join(', '),
                     criadoPor: usuario?.uid, criadoPorEmail: usuario?.email, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
@@ -5042,6 +5050,7 @@ const RegistroAplicacaoComponent = () => {
                 };
                 batch.set(doc(tarefasCollectionRef), tarefaData);
             }
+
             if (reagendamento !== 'NENHUM') {
                 const dataAtual = dadosDoForm.dataAplicacao.toDate();
                 let dataFutura = new Date(dataAtual.getTime());
@@ -5052,14 +5061,15 @@ const RegistroAplicacaoComponent = () => {
                 const tarefaFuturaData = {
                     tarefa: `APLICAÇÃO FITO: ${dadosDoForm.produto}`,
                     orientacao: `Aplicação recorrente baseada no registro anterior. Observações: ${dadosDoForm.observacoes || 'N/A'}. Local: ${dadosDoForm.plantaLocal || 'N/A'}.`,
-                    status: "PENDENTE_APROVACAO_FITO", prioridade: "P2 - MEDIO PRAZO", acao: dadosDoForm.planoId ? (todosPlanosAtivos.find(p=>p.id===dadosDoForm.planoId)?.acao || 'MANUTENÇÃO | PREVENTIVA') : 'MANUTENÇÃO | PREVENTIVA',
+                    status: "PENDENTE_APROVACAO_FITO", prioridade: "P2 - MEDIO PRAZO", acao: acaoDaTarefa,
                     turno: "DIA INTEIRO", dataInicio: Timestamp.fromDate(dataFutura), dataProvavelTermino: Timestamp.fromDate(dataFutura),
                     responsaveis: responsavelObj ? [responsavelObj.id] : [], area: dadosDoForm.areas.join(', '),
                     criadoPor: usuario?.uid, criadoPorEmail: usuario?.email, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
-                    origem: "Reagendamento Fito", origemRegistroId: novoRegistroRef.id
+                    origem: "Reagendamento Fito", origemRegistroId: novoRegistroRef.id, origemPlanoId: dadosDoForm.planoId
                 };
                 batch.set(doc(tarefasCollectionRef), tarefaFuturaData);
             }
+
             await batch.commit();
             await logAlteracaoFitossanitaria(db, basePath, novoRegistroRef.id, usuario?.email, "Registro Criado");
             toast.success("Aplicação registrada com sucesso!");
@@ -5075,7 +5085,6 @@ const RegistroAplicacaoComponent = () => {
                 updatedAt: Timestamp.now()
             });
             toast.success("Tarefa aprovada e enviada para a programação!");
-            // Remove o item da lista da UI para feedback instantâneo
             setAplicacoesFuturas(prev => prev.filter(app => app.id !== tarefaPendente.id));
         } catch (error) {
             console.error("Erro ao aprovar tarefa:", error);
