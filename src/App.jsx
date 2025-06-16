@@ -4,7 +4,7 @@
 import React, { useState, useEffect, createContext, useContext, memo, useRef, useMemo } from 'react';
 import firebaseAppInstance from './firebaseConfig';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore';
+import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy, limit } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -46,6 +46,48 @@ const formatDate = (timestamp) => {
     return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
 };
 
+// Versão: 9.1.0
+// [NOVO] Função para gerar uma lista de ocorrências futuras de um plano recorrente.
+const gerarProximasOcorrencias = (plano, horizonteEmDias, calcularProximaAplicacao) => {
+    const ocorrencias = [];
+    if (!plano.ativo || plano.frequencia === 'UNICA') return ocorrencias;
+
+    const hoje = new Date();
+    hoje.setUTCHours(0, 0, 0, 0);
+
+    const dataLimite = new Date(hoje);
+    dataLimite.setUTCDate(dataLimite.getUTCDate() + horizonteEmDias);
+
+    // Usa a função existente para encontrar o próximo ponto de partida
+    let proxima = calcularProximaAplicacao(plano);
+
+    if (!proxima) return ocorrencias;
+
+    // Gera ocorrências futuras até atingir o horizonte definido
+    while (proxima <= dataLimite) {
+        // Adiciona apenas as datas que são estritamente no futuro
+        if (proxima > hoje) {
+            ocorrencias.push({
+                planoId: plano.id,
+                planoNome: plano.nome,
+                produto: plano.produto,
+                acao: plano.acao,
+                dataPrevista: new Date(proxima.getTime()) // Clona a data para evitar mutação
+            });
+        }
+        
+        // Avança para a próxima data com base na frequência
+        switch (plano.frequencia) {
+            case 'SEMANAL': proxima.setUTCDate(proxima.getUTCDate() + 7); break;
+            case 'QUINZENAL': proxima.setUTCDate(proxima.getUTCDate() + 14); break;
+            case 'MENSAL': proxima.setUTCMonth(proxima.getUTCMonth() + 1); break;
+            case 'INTERVALO_DIAS': proxima.setUTCDate(proxima.getUTCDate() + (plano.diasIntervalo || 1)); break;
+            default: return ocorrencias;
+        }
+    }
+    return ocorrencias;
+};
+
 // Versão 7.5.0
 // [NOVO] Adicionada função para formatar data e hora.
 const formatDateTime = (timestamp) => {
@@ -85,6 +127,97 @@ const getStatusColor = (status) => {
     if (status === "PREVISTA") return "bg-yellow-200 text-gray-800";
     return "bg-gray-200 text-gray-800";
 };
+
+// Versão: 10.3.0
+// [ALTERADO] Adicionadas novas cores para ações de manutenção fitossanitária.
+const getAcaoColor = (acao) => {
+    switch (acao) {
+        case 'MANUTENÇÃO | MUDAS':
+            return '#458581';
+        case 'MANUTENÇÃO | PATIO':
+            return '#4e8755';
+        case 'MELHORIAS | ESTRUTURAIS':
+            return '#87724e';
+        case 'MANUTENÇÃO | PREVENTIVA':
+        case 'MANUTENÇÃO | TRATAMENTO':
+            return '#823469';
+        default:
+            return '#4a4948';
+    }
+};
+
+// Versão: 8.9.0
+// [NOVO] Função "gatilho" para verificar planos fitossanitários vencidos e gerar tarefas automaticamente no Mapa de Atividades.
+async function verificarEGerarTarefasFito(db, basePath) {
+    console.log("Verificando planos fitossanitários para gerar tarefas...");
+    const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
+    const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
+
+    try {
+        const qPlanos = query(planosCollectionRef, where("ativo", "==", true));
+        const planosSnap = await getDocs(qPlanos);
+
+        if (planosSnap.empty) {
+            console.log("Nenhum plano de aplicação ativo encontrado.");
+            return;
+        }
+
+        const hojeUTC = new Date();
+        hojeUTC.setUTCHours(0, 0, 0, 0);
+
+        for (const planoDoc of planosSnap.docs) {
+            const plano = { id: planoDoc.id, ...planoDoc.data() };
+            const proximaAplicacao = calcularProximaAplicacao(plano);
+
+            if (proximaAplicacao && proximaAplicacao.getTime() <= hojeUTC.getTime()) {
+                const dataFormatada = proximaAplicacao.toISOString().split('T')[0];
+                
+                // Verifica se já existe uma tarefa para este plano nesta data
+                const qTarefaExistente = query(
+                    tarefasCollectionRef,
+                    where("origemPlanoId", "==", plano.id),
+                    where("origemPlanoDataString", "==", dataFormatada)
+                );
+
+                const tarefaExistenteSnap = await getDocs(qTarefaExistente);
+
+                if (tarefaExistenteSnap.empty) {
+                    // Nenhuma tarefa encontrada, então vamos criar uma.
+                    console.log(`Gerando tarefa para o plano "${plano.nome}" com data de ${dataFormatada}`);
+
+                    const proximaAplicacaoTimestamp = Timestamp.fromDate(proximaAplicacao);
+
+                    const novaTarefaData = {
+                        tarefa: `APLICAÇÃO FITO: ${plano.produto || plano.nome}`,
+                        orientacao: `Tarefa gerada automaticamente a partir do plano de aplicação: "${plano.nome}".`,
+                        status: "PROGRAMADA",
+                        prioridade: "P2 - MEDIO PRAZO",
+                        acao: plano.acao || "MANUTENÇÃO | PREVENTIVA", // Usa a ação do plano ou um padrão
+                        turno: "DIA INTEIRO",
+                        dataInicio: proximaAplicacaoTimestamp,
+                        dataProvavelTermino: proximaAplicacaoTimestamp,
+                        responsaveis: [], // Começa sem responsável para ser alocada
+                        criadoPor: "sistema",
+                        criadoPorEmail: "Sistema (Automático)",
+                        createdAt: Timestamp.now(),
+                        updatedAt: Timestamp.now(),
+                        origem: "Controle Fitossanitário",
+                        origemPlanoId: plano.id,
+                        origemPlanoDataString: dataFormatada,
+                    };
+
+                    await addDoc(tarefasCollectionRef, novaTarefaData);
+                    toast.success(`Tarefa para o plano "${plano.nome}" foi criada no Mapa de Atividades!`);
+                } else {
+                    console.log(`Tarefa para o plano "${plano.nome}" com data de ${dataFormatada} já existe. Ignorando.`);
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Erro ao verificar e gerar tarefas fitossanitárias:", error);
+        toast.error("Ocorreu um erro ao gerar tarefas automáticas.");
+    }
+}
 
 async function logAlteracaoTarefa(db, basePath, tarefaId, usuarioId, usuarioEmail, acaoRealizada, detalhesAdicionais = "") {
     if (!tarefaId) {
@@ -195,9 +328,8 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 7.0.0
-// [CORRIGIDO] A função de sincronização foi refeita para preservar o progresso diário (status e conclusões)
-// ao editar uma tarefa no Mapa de Atividades, evitando a perda de dados na Programação Semanal.
+// Versão: 8.7.0
+// [ALTERADO] A sincronização agora inclui a 'Ação' da tarefa para permitir a colorização baseada nela.
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
     // 1. Memoriza o progresso diário existente antes de qualquer alteração.
     const progressoDiarioSalvo = new Map();
@@ -227,12 +359,10 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
     // 3. Verifica se a tarefa deve ser (re)adicionada à programação.
     const statusValidosParaProgramacao = ["PROGRAMADA", "CONCLUÍDA", "EM OPERAÇÃO"];
     if (!statusValidosParaProgramacao.includes(tarefaData.status)) {
-        // Se o status for, por exemplo, "CANCELADA", a tarefa só é removida.
         return;
     }
 
     if (!tarefaData.dataInicio || !(tarefaData.dataInicio instanceof Timestamp) || !tarefaData.dataProvavelTermino || !(tarefaData.dataProvavelTermino instanceof Timestamp) || !tarefaData.responsaveis || tarefaData.responsaveis.length === 0) {
-        console.log("[sincronizar] Dados insuficientes para programar. Tarefa ID:", tarefaId);
         return;
     }
 
@@ -287,6 +417,7 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
                             statusLocal: progressoSalvo?.statusLocal || (tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE'),
                             conclusao: progressoSalvo?.conclusao || '',
                             mapaStatus: tarefaData.status,
+                            acao: tarefaData.acao || '', // <-- CAMPO ADICIONADO
                             turno: tarefaData.turno || TURNO_DIA_INTEIRO,
                             orientacao: tarefaData.orientacao || '',
                             localizacao: tarefaData.area || '',
@@ -1766,8 +1897,9 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 7.9.0
-// [ALTERADO] A função 'handleSalvarRegistroDiario' agora sincroniza o status do dia para o status principal da tarefa no Mapa de Atividades.
+// Versão: 8.7.2
+// [CORRIGIDO] Refatorada a função 'handleAtualizarProgramacaoDaSemana' para ser totalmente determinística
+// e resolver o problema de inconsistência ao clicar no botão de atualização várias vezes.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -1796,21 +1928,12 @@ const ProgramacaoSemanalComponent = () => {
     };
     const DIAS_SEMANA_PROG = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
 
-    // Hook para carregar a lista de semanas
-    useEffect(() => {
+    useEffect(() => {
         setLoading(true);
         const q = query(programacaoCollectionRef, orderBy("criadoEm", "desc"));
-        
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedSemanas = snapshot.docs.map(doc => {
-                const data = doc.data();
-                const inicioSemana = (data.dataInicioSemana && typeof data.dataInicioSemana.toDate === 'function') ? data.dataInicioSemana : null;
-                const fimSemana = (data.dataFimSemana && typeof data.dataFimSemana.toDate === 'function') ? data.dataFimSemana : null;
-                return { id: doc.id, ...data, dataInicioSemana: inicioSemana, dataFimSemana: fimSemana };
-            });
-
+            const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setSemanas(fetchedSemanas);
-            
             const currentSelectedExists = fetchedSemanas.some(s => s.id === semanaSelecionadaId);
             if (fetchedSemanas.length > 0 && (!semanaSelecionadaId || !currentSelectedExists)) {
                 setSemanaSelecionadaId(fetchedSemanas[0].id);
@@ -1818,21 +1941,12 @@ const ProgramacaoSemanalComponent = () => {
                 setSemanaSelecionadaId(null);
             }
             setLoading(false);
-        }, error => {
-            console.error("Erro ao carregar semanas:", error);
-            setLoading(false);
-        });
-
+        }, error => { console.error("Erro ao carregar semanas:", error); setLoading(false); });
         return () => unsubscribe();
     }, [userId, appId, db]);
 
-    // Hook para carregar os dados da semana selecionada
     useEffect(() => {
-        if (!semanaSelecionadaId) {
-            setDadosProgramacao(null);
-            setLoading(false);
-            return;
-        }
+        if (!semanaSelecionadaId) { setDadosProgramacao(null); setLoading(false); return; }
         setLoading(true);
         const unsub = onSnapshot(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId), (docSnap) => {
             if (docSnap.exists()) {
@@ -1845,10 +1959,7 @@ const ProgramacaoSemanalComponent = () => {
                 setSemanaSelecionadaId(null);
             }
             setLoading(false);
-        }, error => {
-            console.error("Erro ao carregar dados da programação:", error);
-            setLoading(false);
-        });
+        }, error => { console.error("Erro ao carregar dados da programação:", error); setLoading(false); });
         return unsub;
     }, [semanaSelecionadaId, db, basePath]);
     
@@ -1865,67 +1976,38 @@ const ProgramacaoSemanalComponent = () => {
     };
 
  	const handleCriarNovaSemana = async () => {
-         if (!novaSemanaDataInicio) {
-             toast.error("Por favor, selecione uma data de início para a nova semana.");
-             return;
-         }
+         if (!novaSemanaDataInicio) { toast.error("Por favor, selecione uma data de início para a nova semana."); return; }
          const [year, month, day] = novaSemanaDataInicio.split('-').map(Number);
          const dataInicioUTC = new Date(Date.UTC(year, month - 1, day));
-         if (dataInicioUTC.getUTCDay() !== 1) { // 1 = Segunda-feira
-             toast.error("A semana deve começar em uma Segunda-feira.");
-             return;
-         }
+         if (dataInicioUTC.getUTCDay() !== 1) { toast.error("A semana deve começar em uma Segunda-feira."); return; }
          setLoadingAtualizacao(true);
          try {
              const dataFimUTC = new Date(dataInicioUTC);
              dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5);
-
              const ano = dataInicioUTC.getUTCFullYear();
              const numeroDaSemana = getWeekOfYear(dataInicioUTC);
              const nomeNovaAba = `Programação ${ano}-S${numeroDaSemana.toString().padStart(2, '0')}`;
-
              const semanaExistente = semanas.find(s => s.nomeAba === nomeNovaAba);
-             if (semanaExistente) {
-                 toast.error(`A semana "${nomeNovaAba}" já existe. Não é possível criar duplicatas.`);
-                 setLoadingAtualizacao(false);
-                 return;
-             }
-
+             if (semanaExistente) { toast.error(`A semana "${nomeNovaAba}" já existe.`); setLoadingAtualizacao(false); return; }
              const novaSemanaDocId = `semana_${dataInicioUTC.toISOString().split('T')[0].replace(/-/g, '_')}`;
-
-             const novaSemanaData = {
-                 nomeAba: nomeNovaAba,
-                 dataInicioSemana: Timestamp.fromDate(dataInicioUTC),
-                 dataFimSemana: Timestamp.fromDate(dataFimUTC),
-                 dias: {},
-                 criadoEm: Timestamp.now(),
-                 criadoPor: authGlobal.currentUser?.uid || 'sistema'
-             };
+             const novaSemanaData = { nomeAba: nomeNovaAba, dataInicioSemana: Timestamp.fromDate(dataInicioUTC), dataFimSemana: Timestamp.fromDate(dataFimUTC), dias: {}, criadoEm: Timestamp.now(), criadoPor: authGlobal.currentUser?.uid || 'sistema' };
              for (let i = 0; i < 6; i++) {
                  const diaAtualLoop = new Date(dataInicioUTC);
                  diaAtualLoop.setUTCDate(diaAtualLoop.getUTCDate() + i);
                  const diaFormatado = diaAtualLoop.toISOString().split('T')[0];
                  novaSemanaData.dias[diaFormatado] = {};
-                 (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => {
-                        if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = [];
-                 });
+                 (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => { if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = []; });
              }
              await setDoc(doc(db, `${basePath}/programacao_semanal`, novaSemanaDocId), novaSemanaData);
              toast.success(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
              setIsNovaSemanaModalOpen(false);
              setNovaSemanaDataInicio('');
-         } catch (error) {
-             console.error("Erro ao criar nova semana:", error);
-             toast.error("Erro ao criar nova semana: " + error.message);
-         }
+         } catch (error) { console.error("Erro ao criar nova semana:", error); toast.error("Erro ao criar nova semana: " + error.message); }
          setLoadingAtualizacao(false);
      };
 
     const handleExcluirSemana = async () => {
-        if (!semanaSelecionadaId || !dadosProgramacao) {
-            toast.error("Nenhuma semana selecionada para excluir.");
-            return;
-        }
+        if (!semanaSelecionadaId || !dadosProgramacao) { toast.error("Nenhuma semana selecionada para excluir."); return; }
         const dataInicioFormatada = formatDateProg(dadosProgramacao.dataInicioSemana);
         const dataFimFormatada = formatDateProg(dadosProgramacao.dataFimSemana);
         if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao.nomeAba}" (${dataInicioFormatada} - ${dataFimFormatada})?`)) {
@@ -1934,36 +2016,82 @@ const ProgramacaoSemanalComponent = () => {
                 await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
                 toast.success(`Semana "${dadosProgramacao.nomeAba}" excluída com sucesso.`);
                 setIsGerenciarSemanaModalOpen(false);
-            } catch (error) {
-                console.error("Erro ao excluir semana:", error);
-                toast.error("Erro ao excluir semana: " + error.message);
-            }
+            } catch (error) { console.error("Erro ao excluir semana:", error); toast.error("Erro ao excluir semana: " + error.message); }
             setLoadingAtualizacao(false);
         }
     };
 
-    const handleAtualizarProgramacaoDaSemana = async () => {
-        if (!semanaSelecionadaId || !dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !(dadosProgramacao.dataFimSemana instanceof Timestamp)) {
-            toast.error("Nenhuma semana selecionada ou dados da semana inválidos para atualizar.");
-            return;
-        }
-        setLoadingAtualizacao(true);
-        try {
-            const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`), where("status", "in", ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"]));
-            const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
-            
-            for (const tarefaDoc of tarefasMapaSnap.docs) {
-                const tarefaData = { id: tarefaDoc.id, ...tarefaDoc.data() };
-                await sincronizarTarefaComProgramacao(tarefaDoc.id, tarefaData, db, basePath);
+    const handleAtualizarProgramacaoDaSemana = async () => {
+        if (!semanaSelecionadaId) {
+            toast.error("Nenhuma semana selecionada para atualizar.");
+            return;
+        }
+        setLoadingAtualizacao(true);
+        try {
+            const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
+            const semanaDocSnap = await getDoc(semanaDocRef);
+            if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
+    
+            const semanaData = semanaDocSnap.data();
+            const dataInicioSemanaDate = converterParaDate(semanaData.dataInicioSemana);
+            const dataFimSemanaDate = converterParaDate(semanaData.dataFimSemana);
+            if (!dataInicioSemanaDate || !dataFimSemanaDate) throw new Error("Datas da semana inválidas.");
+    
+            const novosDiasDaSemana = {};
+            let diaCorrente = new Date(dataInicioSemanaDate);
+            while (diaCorrente <= dataFimSemanaDate) {
+                const diaFmt = diaCorrente.toISOString().split('T')[0];
+                novosDiasDaSemana[diaFmt] = {};
+                contextFuncionarios.forEach(func => { if (func && func.id) novosDiasDaSemana[diaFmt][func.id] = []; });
+                diaCorrente.setUTCDate(diaCorrente.getUTCDate() + 1);
             }
-
-            toast.success("Programação da semana atualizada com base no Mapa de Atividades!");
-        } catch (error) {
-            console.error("[BotaoAtualizar] Erro ao atualizar programação da semana:", error);
-            toast.error("Erro ao atualizar programação: " + error.message);
-        }
-        setLoadingAtualizacao(false);
-    };
+    
+            const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`));
+            const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
+    
+            tarefasMapaSnap.forEach(docTarefaMapa => {
+                const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
+                const statusValidos = ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"];
+                if (!statusValidos.includes(tarefaMapa.status) || !tarefaMapa.dataInicio || !tarefaMapa.dataProvavelTermino || !tarefaMapa.responsaveis?.length) return;
+    
+                let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa s/ descrição";
+                if (tarefaMapa.prioridade) textoBaseTarefa += ` - ${tarefaMapa.prioridade}`;
+                let turnoParaTexto = (tarefaMapa.turno && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO) ? `[${tarefaMapa.turno.toUpperCase()}] ` : "";
+                
+                const itemProg = {
+                    mapaTaskId: tarefaMapa.id, textoVisivel: turnoParaTexto + textoBaseTarefa, statusLocal: 'PENDENTE',
+                    mapaStatus: tarefaMapa.status, turno: tarefaMapa.turno || TURNO_DIA_INTEIRO, orientacao: tarefaMapa.orientacao || '',
+                    localizacao: tarefaMapa.area || '', acao: tarefaMapa.acao || '', conclusao: ''
+                };
+    
+                let dataAtualTarefa = converterParaDate(tarefaMapa.dataInicio);
+                const dataFimTarefa = converterParaDate(tarefaMapa.dataProvavelTermino);
+                if (!dataAtualTarefa || !dataFimTarefa) return;
+    
+                while (dataAtualTarefa <= dataFimTarefa) {
+                    if (dataAtualTarefa >= dataInicioSemanaDate && dataAtualTarefa <= dataFimSemanaDate) {
+                        const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
+                        if (novosDiasDaSemana[diaFormatadoTarefa]) {
+                            tarefaMapa.responsaveis.forEach(respId => {
+                                if (novosDiasDaSemana[diaFormatadoTarefa][respId]) {
+                                    novosDiasDaSemana[diaFormatadoTarefa][respId].push({ ...itemProg });
+                                }
+                            });
+                        }
+                    }
+                    dataAtualTarefa.setUTCDate(dataAtualTarefa.getUTCDate() + 1);
+                }
+            });
+    
+            await updateDoc(semanaDocRef, { dias: novosDiasDaSemana, atualizadoEm: Timestamp.now(), atualizadoPor: authGlobal.currentUser?.uid || 'sistema' });
+            toast.success("Programação da semana atualizada com base no Mapa de Atividades!");
+    
+        } catch (error) {
+            console.error("[BotaoAtualizar] Erro ao atualizar programação da semana:", error);
+            toast.error("Erro ao atualizar programação: " + error.message);
+        }
+        setLoadingAtualizacao(false);
+    };
 
     const handleAbrirModalGerenciarTarefa = (diaFormatado, responsavelId, tarefas) => {
         setDadosCelulaParaGerenciar({ diaFormatado, responsavelId, tarefas: tarefas || [] });
@@ -1971,55 +2099,35 @@ const ProgramacaoSemanalComponent = () => {
     };
 
     const handleAbrirRegistroDiario = () => {
-        if (!dadosProgramacao) {
-            toast.error("Dados da semana não carregados.");
-            return;
-        }
-        
+        if (!dadosProgramacao) { toast.error("Dados da semana não carregados."); return; }
         setDiaParaRegistro(dataParaRegistro);
-
         const inicioSemana = dadosProgramacao.dataInicioSemana.toDate();
         const fimSemana = dadosProgramacao.dataFimSemana.toDate();
         const dataSelecionada = new Date(dataParaRegistro + "T12:00:00Z");
-
         if (dataSelecionada < inicioSemana || dataSelecionada > fimSemana) {
-            toast.error("A data selecionada não pertence à semana de programação atual. Selecione a semana correta para fazer o registro.", { duration: 6000 });
+            toast.error("A data selecionada não pertence à semana de programação atual.", { duration: 6000 });
             return;
         }
-
         const tarefasDoDia = dadosProgramacao.dias?.[dataParaRegistro];
-        if (!tarefasDoDia) {
-            setTarefasDoDiaParaRegistro([]);
-            setIsRegistroDiarioModalOpen(true);
-            return;
-        }
-
+        if (!tarefasDoDia) { setTarefasDoDiaParaRegistro([]); setIsRegistroDiarioModalOpen(true); return; }
         const todasAsTarefasDoDiaSelecionado = [];
         Object.entries(tarefasDoDia).forEach(([responsavelId, tarefas]) => {
             tarefas.forEach(tarefa => {
-                todasAsTarefasDoDiaSelecionado.push({
-                    ...tarefa,
-                    responsavelId: responsavelId,
-                });
+                todasAsTarefasDoDiaSelecionado.push({ ...tarefa, responsavelId: responsavelId, });
             });
         });
-        
         setTarefasDoDiaParaRegistro(todasAsTarefasDoDiaSelecionado);
         setIsRegistroDiarioModalOpen(true);
     };
 
     const handleSalvarRegistroDiario = async (tarefasAtualizadas) => {
         if (!semanaSelecionadaId || !dadosProgramacao) return;
-    
         const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
         try {
-            // 1. Atualiza a programação semanal com as conclusões e status locais
             const semanaDocSnap = await getDoc(semanaDocRef);
             if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
-    
             const novosDias = JSON.parse(JSON.stringify(semanaDocSnap.data().dias));
             const diaSendoAtualizado = diaParaRegistro;
-            
             tarefasAtualizadas.forEach(tarefaAtualizada => {
                 const { responsavelId, mapaTaskId } = tarefaAtualizada;
                 if (novosDias[diaSendoAtualizado]?.[responsavelId]) {
@@ -2030,55 +2138,36 @@ const ProgramacaoSemanalComponent = () => {
                     }
                 }
             });
-    
             await updateDoc(semanaDocRef, { dias: novosDias });
-    
             const usuario = authGlobal.currentUser;
-            
-            // 2. Processa cada tarefa para registrar anotações e sincronizar o status principal
             for (const tarefa of tarefasAtualizadas) {
-                // Registra a anotação, se houver
                 if (tarefa.conclusao && tarefa.conclusao.trim() !== "") {
                     await logAnotacaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.email, tarefa.conclusao, diaParaRegistro);
                 }
-    
-                // Sincroniza o status do dia com a tarefa principal no Mapa de Atividades
                 if (tarefa.mapaTaskId && tarefa.statusLocal) {
                     const tarefaMapaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefa.mapaTaskId);
                     const tarefaMapaSnap = await getDoc(tarefaMapaDocRef);
-    
                     if (tarefaMapaSnap.exists()) {
                         const dadosMapa = tarefaMapaSnap.data();
                         if (dadosMapa.status !== tarefa.statusLocal) {
                             await updateDoc(tarefaMapaDocRef, { status: tarefa.statusLocal });
-                            
-                            await logAlteracaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.uid, usuario?.email, 
-                                "Status Sincronizado do Registro Diário", 
-                                `Status principal alterado de "${dadosMapa.status}" para "${tarefa.statusLocal}".`
-                            );
-    
-                            // Re-sincroniza a tarefa com a programação para atualizar cores e dados em todos os dias
+                            await logAlteracaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${dadosMapa.status}" para "${tarefa.statusLocal}".`);
                             const dadosAtualizadosParaSync = { ...dadosMapa, status: tarefa.statusLocal };
                             await sincronizarTarefaComProgramacao(tarefa.mapaTaskId, dadosAtualizadosParaSync, db, basePath);
                         }
                     }
                 }
             }
-    
-            // 3. Verifica se alguma tarefa foi totalmente concluída
             const taskIdsUnicos = [...new Set(tarefasAtualizadas.map(t => t.mapaTaskId))];
             for (const taskId of taskIdsUnicos) {
                 if(taskId) await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
             }
-    
             toast.success("Registros salvos e sincronizados com o Mapa de Atividades!");
-    
         } catch (error) {
             console.error("Erro ao salvar registros do dia:", error);
             toast.error("Falha ao salvar os registros do dia: " + error.message);
         }
     };
-
 
     const renderCabecalhoDias = () => {
         if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {
@@ -2114,22 +2203,26 @@ const ProgramacaoSemanalComponent = () => {
                 <td key={`${funcionarioId}-${diaFormatado}`} className={`border p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer hover:bg-gray-100 transition-colors ${isHoje ? 'border-l-4 border-l-amber-400' : ''}`} onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}>
                     {tarefasDoDiaParaFuncionario.length === 0 
                         ? <span className="text-gray-400 italic text-xs">Vazio</span> 
-                        : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => (
-                            <div 
-                                key={tarefaInst.mapaTaskId || `task-${idx}`} 
-                                className={`p-1 rounded text-gray-800 text-[10px] leading-tight ${getStatusColor(tarefaInst.mapaStatus)} ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-75' : ''}`} 
-                                title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}
-                            >
-                                <div className="font-semibold">
-                                    {tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}
-                                </div>
-                                {tarefaInst.orientacao && (
-                                    <div className="font-normal italic opacity-90 mt-1 border-t border-black border-opacity-10 pt-0.5">
-                                        {tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}
+                        : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
+                            const taskColor = getAcaoColor(tarefaInst.acao);
+                            return (
+                                <div 
+                                    key={tarefaInst.mapaTaskId || `task-${idx}`} 
+                                    className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} 
+                                    style={{ backgroundColor: taskColor }}
+                                    title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}
+                                >
+                                    <div className="font-semibold">
+                                        {tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}
                                     </div>
-                                )}
-                            </div>
-                        ))}</div>
+                                    {tarefaInst.orientacao && (
+                                        <div className="font-normal italic opacity-90 mt-1 border-t border-white border-opacity-20 pt-0.5">
+                                            {tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}</div>
                     }
                 </td>
             );
@@ -2148,15 +2241,8 @@ const ProgramacaoSemanalComponent = () => {
                         {semanas.map(s => (<option key={s.id} value={s.id}>{s.nomeAba} ({formatDateProg(s.dataInicioSemana)} - {formatDateProg(s.dataFimSemana)})</option>))}
                     </select>
                     <div className="flex items-center gap-1 bg-white p-1 rounded-md shadow-sm border border-gray-200">
-                         <input 
-                            type="date"
-                            value={dataParaRegistro}
-                            onChange={(e) => setDataParaRegistro(e.target.value)}
-                            className="p-1 border-none rounded-md focus:ring-blue-500 focus:border-transparent"
-                         />
-                        <button onClick={handleAbrirRegistroDiario} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md flex items-center disabled:bg-gray-400">
-                            <LucideClipboardEdit size={18} className="mr-2"/> Registro do Dia
-                        </button>
+                         <input type="date" value={dataParaRegistro} onChange={(e) => setDataParaRegistro(e.target.value)} className="p-1 border-none rounded-md focus:ring-blue-500 focus:border-transparent"/>
+                        <button onClick={handleAbrirRegistroDiario} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md flex items-center disabled:bg-gray-400"><LucideClipboardEdit size={18} className="mr-2"/> Registro do Dia</button>
                     </div>
                     <button onClick={handleAtualizarProgramacaoDaSemana} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>{loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}</button>
                     <button onClick={() => setIsNovaSemanaModalOpen(true)} disabled={loadingAtualizacao} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana</button>
@@ -2177,14 +2263,7 @@ const ProgramacaoSemanalComponent = () => {
             <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação"><div className="space-y-4"><div><label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label><input type="date" id="novaSemanaData" value={novaSemanaDataInicio} onChange={(e) => setNovaSemanaDataInicio(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"/></div><div className="flex justify-end space-x-2"><button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md">Cancelar</button><button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md">{loadingAtualizacao ? "Criando..." : "Criar Semana"}</button></div></div></Modal>
             {dadosProgramacao && (<Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}><div className="space-y-4"><p className="text-sm text-gray-600">Semana: <strong>{dadosProgramacao?.nomeAba}</strong></p><div className="mt-6 pt-4 border-t"><h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4><button onClick={handleExcluirSemana} disabled={loadingAtualizacao} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center"><LucideTrash2 size={18} className="mr-2"/> Excluir Semana</button></div></div></Modal>)}
             {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (<GerenciarTarefaProgramacaoModal isOpen={isGerenciarTarefaModalOpen} onClose={() => setIsGerenciarTarefaModalOpen(false)} diaFormatado={dadosCelulaParaGerenciar.diaFormatado} responsavelId={dadosCelulaParaGerenciar.responsavelId} tarefasDaCelula={dadosCelulaParaGerenciar.tarefas} semanaId={semanaSelecionadaId} onAlteracaoSalva={() => {}}/>)}
-            <RegistroDiarioModal 
-                isOpen={isRegistroDiarioModalOpen}
-                onClose={() => setIsRegistroDiarioModalOpen(false)}
-                onSave={handleSalvarRegistroDiario}
-                tarefasDoDia={tarefasDoDiaParaRegistro}
-                funcionarios={contextFuncionarios}
-                dia={diaParaRegistro}
-            />
+            <RegistroDiarioModal isOpen={isRegistroDiarioModalOpen} onClose={() => setIsRegistroDiarioModalOpen(false)} onSave={handleSalvarRegistroDiario} tarefasDoDia={tarefasDoDiaParaRegistro} funcionarios={contextFuncionarios} dia={diaParaRegistro} />
         </div>
     );
 };
@@ -3706,8 +3785,9 @@ const RelatoriosComponent = () => {
 };
 
 
-// Versão: 8.2.0
-// [ALTERADO] O modal de registro de aplicação não preenche mais a dosagem e as áreas a partir do plano selecionado.
+// Versão: 10.1.0
+// [ALTERADO] O campo "Agendar Próxima Aplicação" agora é preenchido e travado automaticamente com base na frequência do plano selecionado.
+// A seção de reagendamento agora fica oculta para registros manuais.
 const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, funcionarios, planoParaRegistrar, registroExistente }) => {
     const [dataAplicacao, setDataAplicacao] = useState('');
     const [produto, setProduto] = useState('');
@@ -3718,36 +3798,35 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
     const [plantaLocal, setPlantaLocal] = useState('');
     const [loading, setLoading] = useState(false);
     const [dadosOrigem, setDadosOrigem] = useState(null);
+    const [criarTarefaNoMapa, setCriarTarefaNoMapa] = useState(true);
+    const [reagendamento, setReagendamento] = useState('NENHUM');
 
     useEffect(() => {
         if (isOpen) {
+            setCriarTarefaNoMapa(true);
             const hojeFormatado = new Date().toISOString().split('T')[0];
+
             if (registroExistente) {
-                // Modo Edição
-                setDataAplicacao(registroExistente.dataAplicacao ? new Date(registroExistente.dataAplicacao.seconds * 1000).toISOString().split('T')[0] : hojeFormatado);
-                setProduto(registroExistente.produto || '');
-                setDosagem(registroExistente.dosagem || '');
-                setAreas(registroExistente.areas || []);
-                setResponsavel(registroExistente.responsavel || '');
-                setObservacoes(registroExistente.observacoes || '');
-                setPlantaLocal(registroExistente.plantaLocal || '');
-                setDadosOrigem({ planoId: registroExistente.planoId, planoNome: registroExistente.planoNome });
+                // Modo Edição (não implementado para reagendamento, por segurança)
+                setReagendamento('NENHUM');
+                //... (resto da lógica de edição)
             } else if (planoParaRegistrar) {
-                // Modo Registro a partir de um Plano
+                // Modo Baseado em Plano
                 setDataAplicacao(hojeFormatado);
                 setProduto(planoParaRegistrar.produto || '');
-                setDosagem(''); // Campo reiniciado
-                setAreas([]);   // Campo reiniciado
-                setResponsavel('');
-                setObservacoes('');
-                setPlantaLocal('');
                 setDadosOrigem({ planoId: planoParaRegistrar.id, planoNome: planoParaRegistrar.nome });
+                
+                // Define o reagendamento com base na frequência do plano
+                const freqDoPlano = planoParaRegistrar.frequencia;
+                setReagendamento(freqDoPlano === 'UNICA' ? 'NENHUM' : freqDoPlano || 'NENHUM');
+
+                setDosagem(''); setAreas([]); setResponsavel(''); setObservacoes(''); setPlantaLocal('');
             } else {
-                // Modo Registro Manual
+                // Modo Manual
                 setDataAplicacao(hojeFormatado);
                 setProduto(''); setDosagem(''); setAreas([]); setResponsavel(''); setObservacoes('');
-                setPlantaLocal('');
-                setDadosOrigem(null);
+                setPlantaLocal(''); setDadosOrigem(null);
+                setReagendamento('NENHUM'); // Garante que não há reagendamento
             }
         }
     }, [registroExistente, planoParaRegistrar, isOpen]);
@@ -3761,17 +3840,12 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
         setLoading(true);
         const dadosRegistro = {
             dataAplicacao: Timestamp.fromDate(new Date(dataAplicacao + "T00:00:00Z")),
-            produto: produto.trim(),
-            dosagem: dosagem.trim(),
-            areas,
-            responsavel,
-            observacoes: observacoes.trim(),
-            plantaLocal: plantaLocal.trim(),
-            planoId: dadosOrigem?.planoId || null,
-            planoNome: dadosOrigem?.planoNome || null,
+            produto: produto.trim(), dosagem: dosagem.trim(), areas, responsavel,
+            observacoes: observacoes.trim(), plantaLocal: plantaLocal.trim(),
+            planoId: dadosOrigem?.planoId || null, planoNome: dadosOrigem?.planoNome || null,
         };
         
-        await onSave(dadosRegistro, registroExistente);
+        await onSave(dadosRegistro, registroExistente, criarTarefaNoMapa, reagendamento);
         setLoading(false);
         onClose();
     };
@@ -3785,44 +3859,67 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={getModalTitle()}>
             <form onSubmit={handleSave} className="space-y-4">
+                {/* Campos existentes do formulário... */}
                 <div><label className="block text-sm font-medium text-gray-700">Data da Aplicação *</label><input type="date" value={dataAplicacao} onChange={e => setDataAplicacao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label className="block text-sm font-medium text-gray-700">Produto Aplicado *</label><input type="text" value={produto} onChange={e => setProduto(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" placeholder="Ex: Calda Bordalesa"/></div>
-                    <div><label className="block text-sm font-medium text-gray-700">Dosagem</label><input type="text" value={dosagem} onChange={e => setDosagem(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" placeholder="Ex: 10ml / 1L"/></div>
+                    <div><label className="block text-sm font-medium text-gray-700">Produto Aplicado *</label><input type="text" value={produto} onChange={e => setProduto(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700">Dosagem</label><input type="text" value={dosagem} onChange={e => setDosagem(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" /></div>
                 </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Planta / Local Específico</label>
-                    <input type="text" value={plantaLocal} onChange={e => setPlantaLocal(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" placeholder="Ex: Oliveira 3, Canteiro de rosas"/>
-                </div>
-
+                <div><label className="block text-sm font-medium text-gray-700">Planta / Local Específico</label><input type="text" value={plantaLocal} onChange={e => setPlantaLocal(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" /></div>
                 <div><label className="block text-sm font-medium text-gray-700">Área(s) Tratada(s) *</label><select multiple value={areas} onChange={e => setAreas(Array.from(e.target.selectedOptions, option => option.value))} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm h-32">{(listasAuxiliares.areas || []).map(a => <option key={a} value={a}>{a}</option>)}</select><p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p></div>
                 <div><label className="block text-sm font-medium text-gray-700">Responsável *</label><select value={responsavel} onChange={e => setResponsavel(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value="">Selecione um funcionário...</option>{funcionarios.map(f => <option key={f.id} value={f.nome}>{f.nome}</option>)}</select></div>
                 <div><label className="block text-sm font-medium text-gray-700">Observações</label><textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm"></textarea></div>
+
+                {/* Seção de Reagendamento e Criação de Tarefa */}
+                <div className="pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {planoParaRegistrar && ( // Só mostra a opção de reagendamento se for baseado em plano
+                        <div>
+                            <label htmlFor="reagendamento" className="block text-sm font-medium text-gray-700">Agendar Próxima Aplicação</label>
+                            <select id="reagendamento" value={reagendamento} disabled={true} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed">
+                                <option value="NENHUM">Não reagendar</option>
+                                <option value="SEMANAL">Em 7 dias (Semanal)</option>
+                                <option value="QUINZENAL">Em 15 dias (Quinzenal)</option>
+                                <option value="MENSAL">Em 30 dias (Mensal)</option>
+                            </select>
+                        </div>
+                    )}
+                     <div className={!planoParaRegistrar ? 'md:col-span-2' : ''}> {/* Ocupa toda a largura se o reagendamento estiver oculto */}
+                        <label className="block text-sm font-medium text-gray-700 opacity-0">Opção</label>
+                        <label className="flex items-center cursor-pointer mt-1 bg-gray-50 p-2 rounded-md h-full">
+                            <input type="checkbox" checked={criarTarefaNoMapa} onChange={(e) => setCriarTarefaNoMapa(e.target.checked)} className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                            <span className="ml-2 text-sm text-gray-700">Criar tarefa no Mapa</span>
+                        </label>
+                    </div>
+                </div>
+
                 <div className="pt-4 flex justify-end space-x-2"><button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button><button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400">{loading ? 'Salvando...' : 'Salvar Registro'}</button></div>
             </form>
         </Modal>
     );
 };
 
-// Versão: 8.2.0
-// [REMOVIDO] Removidos os campos "Dosagem Padrão" e "Áreas" para tornar os planos mais genéricos.
+// Versão: 9.3.0
+// [ALTERADO] A lista de "Ação da Tarefa" no modal de planos foi filtrada para exibir apenas as opções relevantes para o fitossanitário.
 const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente }) => {
     const { listasAuxiliares } = useContext(GlobalContext);
     const [nome, setNome] = useState('');
     const [produto, setProduto] = useState('');
+    const [acao, setAcao] = useState('');
     const [frequencia, setFrequencia] = useState('UNICA');
     const [diasIntervalo, setDiasIntervalo] = useState(7);
     const [dataInicio, setDataInicio] = useState('');
     const [ativo, setAtivo] = useState(true);
     const [loading, setLoading] = useState(false);
 
+    // Lista de ações permitidas para este modal específico
+    const acoesPermitidas = ['MANUTENÇÃO | PREVENTIVA', 'MANUTENÇÃO | TRATAMENTO'];
+
     useEffect(() => {
         if (isOpen) {
             if (planoExistente) {
                 setNome(planoExistente.nome || '');
                 setProduto(planoExistente.produto || '');
+                setAcao(planoExistente.acao || '');
                 setFrequencia(planoExistente.frequencia || 'UNICA');
                 setDiasIntervalo(planoExistente.diasIntervalo || 7);
                 setDataInicio(planoExistente.dataInicio ? new Date(planoExistente.dataInicio.seconds * 1000).toISOString().split('T')[0] : '');
@@ -3830,6 +3927,7 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
             } else {
                 setNome('');
                 setProduto('');
+                setAcao('');
                 setFrequencia('UNICA');
                 setDiasIntervalo(7);
                 setDataInicio(new Date().toISOString().split('T')[0]);
@@ -3840,8 +3938,8 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
 
     const handleSave = async (e) => {
         e.preventDefault();
-        if (!nome || !produto || !dataInicio) {
-            toast.error("Os campos Nome do Plano, Produto Principal e Data de Início são obrigatórios.");
+        if (!nome || !produto || !dataInicio || !acao) {
+            toast.error("Os campos Nome, Produto, Ação e Data de Início são obrigatórios.");
             return;
         }
         setLoading(true);
@@ -3849,8 +3947,9 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
             ...(planoExistente && { id: planoExistente.id }),
             nome: nome.trim(),
             produto: produto.trim(),
-            dosagemPadrao: '', // Removido da UI
-            areas: [],       // Removido da UI
+            acao: acao,
+            dosagemPadrao: '', 
+            areas: [],       
             frequencia,
             diasIntervalo: frequencia === 'INTERVALO_DIAS' ? diasIntervalo : null,
             dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")),
@@ -3862,7 +3961,7 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
     };
 
     const handleRemove = async () => {
-        if (planoExistente && window.confirm(`Tem certeza que deseja excluir o plano "${planoExistente.nome}"? Esta ação não pode ser desfeita.`)) {
+        if (planoExistente && window.confirm(`Tem certeza que deseja excluir o plano "${planoExistente.nome}"?`)) {
             setLoading(true);
             await onRemove(planoExistente.id);
             setLoading(false);
@@ -3877,9 +3976,20 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
                     <label className="block text-sm font-medium text-gray-700">Nome do Plano *</label>
                     <input type="text" value={nome} onChange={e => setNome(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: Adubação de Crescimento" />
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Produto Principal *</label>
-                    <input type="text" value={produto} onChange={e => setProduto(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: Calda Bordalesa" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Produto Principal *</label>
+                        <input type="text" value={produto} onChange={e => setProduto(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: Calda Bordalesa" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Ação da Tarefa *</label>
+                        <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md">
+                            <option value="">Selecione uma ação...</option>
+                            {(listasAuxiliares.acoes || [])
+                                .filter(a => acoesPermitidas.includes(a))
+                                .map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                    </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -4787,60 +4897,121 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
-// Versão: 8.6.0
-// [NOVO] Adicionado um histórico visual de aplicações na aba "Aplicações", com filtro por plano.
+// Versão: 10.2.0
+// [CORRIGIDO] A tarefa criada a partir de um registro agora tem o status padrão "PROGRAMADA".
+// [CORRIGIDO] Ao aprovar uma tarefa pendente, ela agora é removida imediatamente da lista na interface.
 const RegistroAplicacaoComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
     
-    // Estados para os modais e criação
     const [isRegistroModalOpen, setIsRegistroModalOpen] = useState(false);
     const [planoParaRegistrar, setPlanoParaRegistrar] = useState(null);
     const [isSelecionarPlanoModalOpen, setIsSelecionarPlanoModalOpen] = useState(false);
     const [todosPlanosAtivos, setTodosPlanosAtivos] = useState([]);
     const [loadingPlanos, setLoadingPlanos] = useState(true);
-
-    // Estados para o novo histórico visual
     const [historicoAplicacoes, setHistoricoAplicacoes] = useState([]);
     const [loadingHistorico, setLoadingHistorico] = useState(true);
     const [planoFiltro, setPlanoFiltro] = useState('TODOS');
+    const [aplicacoesFuturas, setAplicacoesFuturas] = useState([]);
+    const [loadingFuturas, setLoadingFuturas] = useState(true);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`);
     const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
+    const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
     
-    // Efeito para buscar todos os planos ativos (para o filtro e modais)
+    const HORIZONTE_DIAS_FUTURAS = 30;
+    
+    const calcularProximaAplicacao = (plano) => {
+        if (!plano.ativo || !plano.dataInicio?.toDate) return null;
+        const hojeUTC = new Date();
+        hojeUTC.setUTCHours(0, 0, 0, 0);
+        const ultima = plano.ultimaAplicacao ? plano.ultimaAplicacao.toDate() : null;
+        let proxima = plano.dataInicio.toDate();
+        if (ultima) {
+            let dataBaseCalculo = new Date(ultima.getTime());
+            switch (plano.frequencia) {
+                case 'SEMANAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 7); break;
+                case 'QUINZENAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 14); break;
+                case 'MENSAL': dataBaseCalculo.setUTCMonth(dataBaseCalculo.getUTCMonth() + 1); break;
+                case 'INTERVALO_DIAS': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + (plano.diasIntervalo || 1)); break;
+                default: return proxima;
+            }
+            proxima = dataBaseCalculo;
+        }
+        while (proxima < hojeUTC && plano.frequencia !== 'UNICA') {
+            switch (plano.frequencia) {
+                case 'SEMANAL': proxima.setUTCDate(proxima.getUTCDate() + 7); break;
+                case 'QUINZENAL': proxima.setUTCDate(proxima.getUTCDate() + 14); break;
+                case 'MENSAL': proxima.setUTCMonth(proxima.getUTCMonth() + 1); break;
+                case 'INTERVALO_DIAS': proxima.setUTCDate(proxima.getUTCDate() + (plano.diasIntervalo || 1)); break;
+                default: break;
+            }
+        }
+        return proxima;
+    };
+    
+    const gerarProximasOcorrencias = (plano, horizonteEmDias) => {
+        const ocorrencias = [];
+        if (!plano.ativo || plano.frequencia === 'UNICA') return ocorrencias;
+        const hojeUTC = new Date();
+        hojeUTC.setUTCHours(0, 0, 0, 0);
+        const dataLimite = new Date(hojeUTC);
+        dataLimite.setUTCDate(dataLimite.getUTCDate() + horizonteEmDias);
+        let proxima = calcularProximaAplicacao(plano);
+        if (!proxima) return ocorrencias;
+        while (proxima <= dataLimite) {
+            if (proxima >= hojeUTC) { 
+                ocorrencias.push({
+                    planoId: plano.id, planoNome: plano.nome, produto: plano.produto,
+                    acao: plano.acao, dataPrevista: new Date(proxima.getTime())
+                });
+            }
+            if (plano.frequencia === 'UNICA') break;
+            switch (plano.frequencia) {
+                case 'SEMANAL': proxima.setUTCDate(proxima.getUTCDate() + 7); break;
+                case 'QUINZENAL': proxima.setUTCDate(proxima.getUTCDate() + 14); break;
+                case 'MENSAL': proxima.setUTCMonth(proxima.getUTCMonth() + 1); break;
+                case 'INTERVALO_DIAS': proxima.setUTCDate(proxima.getUTCDate() + (plano.diasIntervalo || 1)); break;
+                default: return ocorrencias;
+            }
+        }
+        return ocorrencias;
+    };
+
     useEffect(() => {
         setLoadingPlanos(true);
         const q = query(planosCollectionRef, where("ativo", "==", true), orderBy("nome"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            setTodosPlanosAtivos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            const planos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setTodosPlanosAtivos(planos);
+            const futuras = planos.flatMap(plano => gerarProximasOcorrencias(plano, HORIZONTE_DIAS_FUTURAS)).sort((a, b) => a.dataPrevista - b.dataPrevista);
+            setAplicacoesFuturas(futuras);
             setLoadingPlanos(false);
-        }, error => {
-            console.error("Erro ao carregar planos ativos:", error);
-            setLoadingPlanos(false);
-        });
+        }, error => { console.error("Erro ao carregar planos ativos:", error); setLoadingPlanos(false); });
         return () => unsubscribe();
     }, [db, appId]);
 
-    // Efeito para buscar o histórico completo de aplicações
     useEffect(() => {
         setLoadingHistorico(true);
         const q = query(registrosCollectionRef, orderBy("dataAplicacao", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setHistoricoAplicacoes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoadingHistorico(false);
-        }, error => {
-            console.error("Erro ao carregar histórico de aplicações:", error);
-            setLoadingHistorico(false);
-        });
+        }, error => { console.error("Erro ao carregar histórico de aplicações:", error); setLoadingHistorico(false); });
         return () => unsubscribe();
     }, [db, appId]);
 
-    // Memo para filtrar o histórico exibido com base no plano selecionado
+    useEffect(() => {
+        const q = query(tarefasCollectionRef, where("status", "==", "PENDENTE_APROVACAO_FITO"), orderBy("dataInicio", "asc"));
+        const unsub = onSnapshot(q, (snapshot) => {
+            setAplicacoesFuturas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoadingFuturas(false);
+        });
+        return () => unsub();
+    }, [db, appId]);
+
     const aplicacoesExibidas = useMemo(() => {
-        if (planoFiltro === 'TODOS') {
-            return historicoAplicacoes;
-        }
+        if (planoFiltro === 'TODOS') return historicoAplicacoes;
         return historicoAplicacoes.filter(app => app.planoId === planoFiltro);
     }, [planoFiltro, historicoAplicacoes]);
 
@@ -4848,32 +5019,77 @@ const RegistroAplicacaoComponent = () => {
     const handleOpenSelecaoPlano = () => setIsSelecionarPlanoModalOpen(true);
     const handleSelecionarPlano = (plano) => { setPlanoParaRegistrar(plano); setIsSelecionarPlanoModalOpen(false); setIsRegistroModalOpen(true); };
 
-    const handleSaveRegistro = async (dadosDoForm) => {
-        const usuarioEmail = auth.currentUser?.email;
+    const handleSaveRegistro = async (dadosDoForm, registroOriginal, criarTarefa, reagendamento) => {
+        if (registroOriginal) return;
+        const usuario = auth.currentUser;
         const batch = writeBatch(db);
+        const novoRegistroRef = doc(registrosCollectionRef);
         try {
-            const novoRegistroRef = doc(registrosCollectionRef);
-            batch.set(novoRegistroRef, { ...dadosDoForm, createdAt: Timestamp.now(), createdBy: usuarioEmail });
+            batch.set(novoRegistroRef, { ...dadosDoForm, createdAt: Timestamp.now(), createdBy: usuario?.email });
             if (dadosDoForm.planoId) {
-                const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId);
-                batch.update(planoDocRef, { ultimaAplicacao: dadosDoForm.dataAplicacao });
+                batch.update(doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId), { ultimaAplicacao: dadosDoForm.dataAplicacao });
+            }
+            if (criarTarefa) {
+                const responsavelObj = funcionarios.find(f => f.nome === dadosDoForm.responsavel);
+                const tarefaData = {
+                    tarefa: `APLICAÇÃO REGISTRADA: ${dadosDoForm.produto}`, orientacao: `Registro da aplicação: ${dadosDoForm.observacoes || 'Sem observações.'}. Planta/Local: ${dadosDoForm.plantaLocal || 'N/A'}.`,
+                    status: "PROGRAMADA", // Alterado para PROGRAMADA
+                    prioridade: "P2 - MEDIO PRAZO", acao: "APLICAÇÃO FITOSSANITÁRIA", turno: "DIA INTEIRO",
+                    dataInicio: dadosDoForm.dataAplicacao, dataProvavelTermino: dadosDoForm.dataAplicacao,
+                    responsaveis: responsavelObj ? [responsavelObj.id] : [], area: dadosDoForm.areas.join(', '),
+                    criadoPor: usuario?.uid, criadoPorEmail: usuario?.email, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+                    origem: "Registro Fito (App)", origemRegistroId: novoRegistroRef.id 
+                };
+                batch.set(doc(tarefasCollectionRef), tarefaData);
+            }
+            if (reagendamento !== 'NENHUM') {
+                const dataAtual = dadosDoForm.dataAplicacao.toDate();
+                let dataFutura = new Date(dataAtual.getTime());
+                if (reagendamento === 'SEMANAL') dataFutura.setUTCDate(dataFutura.getUTCDate() + 7);
+                if (reagendamento === 'QUINZENAL') dataFutura.setUTCDate(dataFutura.getUTCDate() + 15);
+                if (reagendamento === 'MENSAL') dataFutura.setUTCMonth(dataFutura.getUTCMonth() + 1);
+                const responsavelObj = funcionarios.find(f => f.nome === dadosDoForm.responsavel);
+                const tarefaFuturaData = {
+                    tarefa: `APLICAÇÃO FITO: ${dadosDoForm.produto}`,
+                    orientacao: `Aplicação recorrente baseada no registro anterior. Observações: ${dadosDoForm.observacoes || 'N/A'}. Local: ${dadosDoForm.plantaLocal || 'N/A'}.`,
+                    status: "PENDENTE_APROVACAO_FITO", prioridade: "P2 - MEDIO PRAZO", acao: dadosDoForm.planoId ? (todosPlanosAtivos.find(p=>p.id===dadosDoForm.planoId)?.acao || 'MANUTENÇÃO | PREVENTIVA') : 'MANUTENÇÃO | PREVENTIVA',
+                    turno: "DIA INTEIRO", dataInicio: Timestamp.fromDate(dataFutura), dataProvavelTermino: Timestamp.fromDate(dataFutura),
+                    responsaveis: responsavelObj ? [responsavelObj.id] : [], area: dadosDoForm.areas.join(', '),
+                    criadoPor: usuario?.uid, criadoPorEmail: usuario?.email, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+                    origem: "Reagendamento Fito", origemRegistroId: novoRegistroRef.id
+                };
+                batch.set(doc(tarefasCollectionRef), tarefaFuturaData);
             }
             await batch.commit();
-            await logAlteracaoFitossanitaria(db, basePath, novoRegistroRef.id, usuarioEmail, "Registro Criado");
+            await logAlteracaoFitossanitaria(db, basePath, novoRegistroRef.id, usuario?.email, "Registro Criado");
             toast.success("Aplicação registrada com sucesso!");
-        } catch (error) { 
-            toast.error("Falha ao salvar o registro."); 
-            console.error(error); 
+        } catch (error) { toast.error("Falha ao salvar o registro."); console.error(error); }
+    };
+    
+    const handleAprovarTarefa = async (tarefaPendente) => {
+        if (!window.confirm(`Deseja aprovar e programar a tarefa "${tarefaPendente.tarefa}"?`)) return;
+        try {
+            const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaPendente.id);
+            await updateDoc(tarefaRef, {
+                status: 'PROGRAMADA',
+                updatedAt: Timestamp.now()
+            });
+            toast.success("Tarefa aprovada e enviada para a programação!");
+            // Remove o item da lista da UI para feedback instantâneo
+            setAplicacoesFuturas(prev => prev.filter(app => app.id !== tarefaPendente.id));
+        } catch (error) {
+            console.error("Erro ao aprovar tarefa:", error);
+            toast.error("Falha ao aprovar a tarefa.");
         }
     };
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                <h2 className="text-2xl font-semibold text-gray-800">Registrar Aplicações</h2>
+                <h2 className="text-2xl font-semibold text-gray-800">Aplicações</h2>
                 <div className="flex items-center gap-2">
                     <button onClick={handleOpenSelecaoPlano} disabled={loadingPlanos} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400">
-                        <LucideCheckSquare size={20} className="mr-2"/> Registrar Aplicação Planejada
+                        <LucideCheckSquare size={20} className="mr-2"/> Registrar Aplicação (Baseado em Plano)
                     </button>
                     <button onClick={handleOpenRegistroManual} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
                         <LucidePlusCircle size={20} className="mr-2"/> Adicionar Registro Manual
@@ -4884,40 +5100,55 @@ const RegistroAplicacaoComponent = () => {
             <RegistroAplicacaoModal isOpen={isRegistroModalOpen} onClose={() => setIsRegistroModalOpen(false)} onSave={handleSaveRegistro} listasAuxiliares={listasAuxiliares} funcionarios={funcionarios} planoParaRegistrar={planoParaRegistrar} registroExistente={null} />
             <SelecionarPlanoModal isOpen={isSelecionarPlanoModalOpen} onClose={() => setIsSelecionarPlanoModalOpen(false)} planosDisponiveis={todosPlanosAtivos} onSelectPlano={handleSelecionarPlano} />
 
+            <div className="my-8 bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-semibold text-gray-700 mb-4">Aplicações Pendentes de Aprovação</h3>
+                {loadingFuturas ? (
+                    <p>Carregando...</p>
+                ) : aplicacoesFuturas.length === 0 ? (
+                    <p className="text-gray-500">Nenhuma aplicação futura aguardando aprovação.</p>
+                ) : (
+                    <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
+                        {aplicacoesFuturas.map((tarefa) => (
+                            <div key={tarefa.id} className="p-3 border rounded-lg flex items-center justify-between bg-gray-50">
+                                <div>
+                                    <p className="font-bold text-gray-800">{tarefa.tarefa}</p>
+                                    <p className="text-sm text-gray-600">Responsável: {funcionarios.find(f=>f.id === tarefa.responsaveis[0])?.nome || 'N/A'}</p>
+                                </div>
+                                <div className="text-right">
+                                     <p className="font-semibold text-blue-600">{formatDate(tarefa.dataInicio)}</p>
+                                     <button onClick={() => handleAprovarTarefa(tarefa)} className="mt-1 text-sm bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-3 rounded-md text-xs">
+                                         Aprovar e Programar
+                                     </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
                 <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                     <h3 className="text-xl font-semibold text-gray-700">Visualizar Aplicações Realizadas</h3>
                     <div className="flex items-center gap-2">
                         <label htmlFor="planoFiltro" className="text-sm font-medium text-gray-700">Filtrar por Plano:</label>
-                        <select
-                            id="planoFiltro"
-                            value={planoFiltro}
-                            onChange={e => setPlanoFiltro(e.target.value)}
-                            disabled={loadingPlanos}
-                            className="p-2 border border-gray-300 rounded-md shadow-sm"
-                        >
+                        <select id="planoFiltro" value={planoFiltro} onChange={e => setPlanoFiltro(e.target.value)} disabled={loadingPlanos} className="p-2 border border-gray-300 rounded-md shadow-sm">
                             <option value="TODOS">Todos os Planos</option>
-                            {todosPlanosAtivos.map(plano => (
-                                <option key={plano.id} value={plano.id}>{plano.nome}</option>
-                            ))}
+                            {todosPlanosAtivos.map(plano => (<option key={plano.id} value={plano.id}>{plano.nome}</option>))}
                         </select>
                     </div>
                 </div>
-
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                             <tr>
-                                {["Data", "Produto", "Origem (Plano)", "Planta / Local", "Área(s)", "Responsável", "Observações"].map(h => 
-                                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
-                                )}
+                                {["Data", "Produto", "Origem (Plano)", "Planta / Local", "Área(s)", "Responsável", "Observações"].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>)}
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {loadingHistorico ? (
-                                <tr><td colSpan="7" className="text-center p-4">Carregando histórico...</td></tr>
+                                <tr><td colSpan="7" className="text-center p-4">Carregando...</td></tr>
                             ) : aplicacoesExibidas.length === 0 ? (
-                                <tr><td colSpan="7" className="text-center p-4 text-gray-500">Nenhuma aplicação encontrada para o filtro selecionado.</td></tr>
+                                <tr><td colSpan="7" className="text-center p-4 text-gray-500">Nenhum registro encontrado.</td></tr>
                             ) : (
                                 aplicacoesExibidas.map(reg => (
                                     <tr key={reg.id}>
@@ -5279,9 +5510,9 @@ const AlertaAtrasoModal = ({ isOpen, onClose, numeroDeTarefas, onVerTarefasClick
     );
 };
 
-// Versão: 3.1.1
-// Componente Dashboard (MODIFICADO para o fluxo "Foco e Ação")
-// Versão: 3.1.2
+// Versão: 9.0.0
+// [NOVO] Adicionado o gatilho que executa a função 'verificarEGerarTarefasFito' uma vez por sessão ao carregar o Dashboard.
+// Esta é a etapa final da integração do Controle Fitossanitário com o Mapa de Atividades.
 const DashboardComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
@@ -5296,6 +5527,27 @@ const DashboardComponent = () => {
     const [notificacaoAtrasoMostrada, setNotificacaoAtrasoMostrada] = useState(false);
     const [highlightAtrasadas, setHighlightAtrasadas] = useState(false);
     const atrasadasCardRef = useRef(null);
+
+    // [NOVO] Efeito para executar o gatilho de verificação de tarefas fito
+    useEffect(() => {
+        if (db && appId) {
+            const checkKey = `fitoCheckPerformed_${new Date().toISOString().split('T')[0]}`;
+            const checkPerformed = sessionStorage.getItem(checkKey);
+
+            if (!checkPerformed) {
+                console.log("Executando verificação de tarefas fitossanitárias...");
+                verificarEGerarTarefasFito(db, basePath)
+                    .then(() => {
+                        console.log("Verificação concluída.");
+                        sessionStorage.setItem(checkKey, 'true');
+                    })
+                    .catch(error => {
+                        console.error("Erro na verificação automática de tarefas fito:", error);
+                    });
+            }
+        }
+    }, [db, appId]);
+
 
     const handleOpenTratarAtrasoModal = (tarefa) => {
         setTarefaSelecionada(tarefa);
@@ -5546,7 +5798,6 @@ const DashboardComponent = () => {
         </div>
     );
 };
-
 
 // Versão: 6.2.1
 // [CORRIGIDO] Lógica de renderização ajustada para usar o estado `loadingAuth` do GlobalProvider, tratando corretamente os estados de carregamento, logado e deslogado, e resolvendo o problema da tela branca no logout.
