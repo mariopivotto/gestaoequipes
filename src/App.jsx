@@ -4897,8 +4897,8 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
-// Versão: 10.3.1
-// [CORRIGIDO] A tarefa criada a partir de um registro agora herda a "Ação" correta do plano de origem.
+// Versão: 10.3.2
+// [CORRIGIDO] A função 'handleAprovarTarefa' agora preserva o campo "Ação" ao mudar o status da tarefa para "PROGRAMADA".
 const RegistroAplicacaoComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
     
@@ -4984,7 +4984,7 @@ const RegistroAplicacaoComponent = () => {
             const planos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTodosPlanosAtivos(planos);
             const futuras = planos.flatMap(plano => gerarProximasOcorrencias(plano, HORIZONTE_DIAS_FUTURAS)).sort((a, b) => a.dataPrevista - b.dataPrevista);
-            setAplicacoesFuturas(futuras);
+            // setAplicacoesFuturas(futuras); // Esta linha está sendo sobreposta pelo useEffect abaixo
             setLoadingPlanos(false);
         }, error => { console.error("Erro ao carregar planos ativos:", error); setLoadingPlanos(false); });
         return () => unsubscribe();
@@ -5029,7 +5029,6 @@ const RegistroAplicacaoComponent = () => {
                 batch.update(doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId), { ultimaAplicacao: dadosDoForm.dataAplicacao });
             }
 
-            // Define a ação correta com base no plano, se existir
             let acaoDaTarefa = "APLICAÇÃO FITOSSANITÁRIA";
             if (dadosDoForm.planoId) {
                 const planoCorrespondente = todosPlanosAtivos.find(p => p.id === dadosDoForm.planoId);
@@ -5069,7 +5068,6 @@ const RegistroAplicacaoComponent = () => {
                 };
                 batch.set(doc(tarefasCollectionRef), tarefaFuturaData);
             }
-
             await batch.commit();
             await logAlteracaoFitossanitaria(db, basePath, novoRegistroRef.id, usuario?.email, "Registro Criado");
             toast.success("Aplicação registrada com sucesso!");
@@ -5080,12 +5078,14 @@ const RegistroAplicacaoComponent = () => {
         if (!window.confirm(`Deseja aprovar e programar a tarefa "${tarefaPendente.tarefa}"?`)) return;
         try {
             const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaPendente.id);
+            // Atualiza o status e garante que a ação seja preservada
             await updateDoc(tarefaRef, {
                 status: 'PROGRAMADA',
+                acao: tarefaPendente.acao, // Garante que a ação não seja perdida
                 updatedAt: Timestamp.now()
             });
             toast.success("Tarefa aprovada e enviada para a programação!");
-            setAplicacoesFuturas(prev => prev.filter(app => app.id !== tarefaPendente.id));
+            // A atualização da lista agora é feita pelo listener do useEffect
         } catch (error) {
             console.error("Erro ao aprovar tarefa:", error);
             toast.error("Falha ao aprovar a tarefa.");
