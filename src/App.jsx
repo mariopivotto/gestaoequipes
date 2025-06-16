@@ -1395,8 +1395,8 @@ const StatusUpdateModal = ({ isOpen, onClose, tarefa, onStatusSave }) => {
     );
 };
 
-// Versão: 3.0.8
-// Componente para o Modal de Tratamento de Tarefas Atrasadas
+// Versão: 8.1.0
+// [ALTERADO] Adicionada a exibição do campo "Orientação" no modal de tratamento de tarefas atrasadas.
 const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) => {
     const [justificativa, setJustificativa] = useState('');
     const [planoAcao, setPlanoAcao] = useState('');
@@ -1439,10 +1439,17 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Tratar Tarefa Atrasada" width="max-w-2xl">
             <div className="space-y-4">
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg space-y-2">
                     <h4 className="font-bold text-lg text-red-800">{tarefa.tarefa}</h4>
-                    <p className="text-sm text-red-700">Responsável(eis): {getResponsavelNomes(tarefa.responsaveis)}</p>
-                    <p className="text-sm text-red-700">Prazo Original: {formatDate(tarefa.dataProvavelTermino)}</p>
+                    
+                    {tarefa.orientacao && (
+                        <p className="text-sm text-red-700 border-t border-red-100 pt-2">
+                            <strong>Orientação:</strong> {tarefa.orientacao}
+                        </p>
+                    )}
+
+                    <p className="text-sm text-red-700"><strong>Responsável(eis):</strong> {getResponsavelNomes(tarefa.responsaveis)}</p>
+                    <p className="text-sm text-red-700"><strong>Prazo Original:</strong> {formatDate(tarefa.dataProvavelTermino)}</p>
                 </div>
 
                 <div>
@@ -1476,9 +1483,9 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
     );
 };
 
-// Versão: 7.1.0
-// [CORRIGIDO] Adicionada a lógica de criação de novas tarefas no 'handleSaveTarefa', que estava ausente.
-// Agora o botão "Adicionar Tarefa" no Mapa de Atividades funciona corretamente.
+// Versão: 8.0.0
+// [NOVO] Adicionado sistema de paginação, exibindo 50 tarefas por página.
+// [ALTERADO] Tarefas com status "Aguardando Alocação" agora são ocultadas permanentemente da visualização do Mapa de Atividades.
 const MapaAtividadesComponent = () => {
     const { db, appId, storage, funcionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
@@ -1494,6 +1501,7 @@ const MapaAtividadesComponent = () => {
     const [isImagensModalOpen, setIsImagensModalOpen] = useState(false);
     const [imagensParaVer, setImagensParaVer] = useState([]);
 
+    // Filtros
     const [filtroResponsavel, setFiltroResponsavel] = useState("TODOS");
     const [filtroStatus, setFiltroStatus] = useState(TODOS_OS_STATUS_VALUE);
     const [filtroPrioridade, setFiltroPrioridade] = useState(TODAS_AS_PRIORIDADES_VALUE);
@@ -1502,6 +1510,11 @@ const MapaAtividadesComponent = () => {
     const [filtroDataInicio, setFiltroDataInicio] = useState('');
     const [filtroDataFim, setFiltroDataFim] = useState('');
     const [termoBusca, setTermoBusca] = useState('');
+
+    // Paginação
+    const [currentPage, setCurrentPage] = useState(1);
+    const [filteredTaskCount, setFilteredTaskCount] = useState(0);
+    const TASKS_PER_PAGE = 50;
 
     const basePath = `/artifacts/${appId}/public/data`;
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
@@ -1525,7 +1538,10 @@ const MapaAtividadesComponent = () => {
     }, []);
 
     useEffect(() => {
-        let tarefasProcessadas = [...todasTarefas];
+        // 1. Filtro permanente para ocultar "Aguardando Alocação"
+        let tarefasProcessadas = todasTarefas.filter(t => t.status !== "AGUARDANDO ALOCAÇÃO");
+
+        // 2. Aplica filtros do usuário
         if (termoBusca.trim() !== "") { tarefasProcessadas = tarefasProcessadas.filter(t => (t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())) || (t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase()))); }
         if (filtroResponsavel !== "TODOS") { if (filtroResponsavel === SEM_RESPONSAVEL_VALUE) { tarefasProcessadas = tarefasProcessadas.filter(t => !t.responsaveis || t.responsaveis.length === 0); } else { tarefasProcessadas = tarefasProcessadas.filter(t => t.responsaveis && t.responsaveis.includes(filtroResponsavel)); } }
         if (filtroStatus !== TODOS_OS_STATUS_VALUE) { tarefasProcessadas = tarefasProcessadas.filter(t => t.status === filtroStatus); }
@@ -1535,8 +1551,24 @@ const MapaAtividadesComponent = () => {
         const inicioFiltro = filtroDataInicio ? new Date(filtroDataInicio + "T00:00:00Z").getTime() : null;
         const fimFiltro = filtroDataFim ? new Date(filtroDataFim + "T23:59:59Z").getTime() : null;
         if (inicioFiltro || fimFiltro) { tarefasProcessadas = tarefasProcessadas.filter(t => { const inicioTarefa = (t.dataInicio && typeof t.dataInicio.toDate === 'function') ? t.dataInicio.toDate().getTime() : null; const fimTarefa = (t.dataProvavelTermino && typeof t.dataProvavelTermino.toDate === 'function') ? t.dataProvavelTermino.toDate().getTime() : null; if (!inicioTarefa) return false; const comecaAntesOuDuranteFiltro = inicioTarefa <= (fimFiltro || Infinity); const terminaDepoisOuDuranteFiltro = fimTarefa ? fimTarefa >= (inicioFiltro || 0) : true; if (!fimTarefa || inicioTarefa === fimTarefa) { return inicioTarefa >= (inicioFiltro || 0) && inicioTarefa <= (fimFiltro || Infinity); } return comecaAntesOuDuranteFiltro && terminaDepoisOuDuranteFiltro; }); }
-        setTarefasExibidas(tarefasProcessadas);
-    }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroTurno, filtroDataInicio, filtroDataFim, termoBusca]);
+        
+        // 3. Atualiza a contagem total para os controles de paginação
+        setFilteredTaskCount(tarefasProcessadas.length);
+        
+        // 4. Lógica de Paginação
+        const indexOfLastTask = currentPage * TASKS_PER_PAGE;
+        const indexOfFirstTask = indexOfLastTask - TASKS_PER_PAGE;
+        const tasksForCurrentPage = tarefasProcessadas.slice(indexOfFirstTask, indexOfLastTask);
+
+        setTarefasExibidas(tasksForCurrentPage);
+
+    }, [todasTarefas, filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroTurno, filtroDataInicio, filtroDataFim, termoBusca, currentPage]);
+    
+    // Reseta para a página 1 quando os filtros mudam
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filtroResponsavel, filtroStatus, filtroPrioridade, filtroArea, filtroTurno, filtroDataInicio, filtroDataFim, termoBusca]);
+
 
     const getResponsavelNomes = (responsavelIds) => {
         if (!responsavelIds || responsavelIds.length === 0) return '---';
@@ -1551,30 +1583,29 @@ const MapaAtividadesComponent = () => {
     const handleCloseStatusModal = () => { setIsStatusModalOpen(false); setTarefaParaStatusUpdate(null); };
     const handleOpenImagensModal = (urls) => { setImagensParaVer(urls); setIsImagensModalOpen(true); };
     const handleCloseImagensModal = () => { setIsImagensModalOpen(false); setImagensParaVer([]); };
-    const limparFiltros = () => { setFiltroResponsavel("TODOS"); setFiltroStatus(TODOS_OS_STATUS_VALUE); setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE); setFiltroArea(TODAS_AS_AREAS_VALUE); setFiltroTurno(TODOS_OS_TURNOS_VALUE); setFiltroDataInicio(''); setFiltroDataFim(''); setTermoBusca(''); };
+    const limparFiltros = () => { setFiltroResponsavel("TODOS"); setFiltroStatus(TODOS_OS_STATUS_VALUE); setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE); setFiltroArea(TODAS_AS_AREAS_VALUE); setFiltroTurno(TODOS_OS_TURNOS_VALUE); setFiltroDataInicio(''); setFiltroDataFim(''); setTermoBusca(''); setCurrentPage(1); };
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
     const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaId) => {
         const usuario = auth.currentUser;
         if (tarefaId) {
-            // MODO EDIÇÃO (Lógica existente)
+            // MODO EDIÇÃO
             const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
-            //... (lógica de log, etc.)
             try {
-                //... (upload de imagens)
-                const dadosFinaisDaTarefa = { ...tarefaData, imagens: [...(tarefaData.imagens || []), /*...urlsDosNovosAnexos*/] };
-                setTodasTarefas(prev => prev.map(t => t.id === tarefaId ? { ...tarefaOriginal, ...dadosFinaisDaTarefa } : t));
+                // Lógica de upload de imagem...
+                const dadosFinaisDaTarefa = { ...tarefaData /*, imagens: [...] */ };
                 const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
                 await updateDoc(tarefaRef, dadosFinaisDaTarefa);
-                //... (log e sync)
+                // Lógica de log e sync...
                 toast.success("Tarefa atualizada com sucesso!");
             } catch (error) {
                 toast.error("Erro ao atualizar a tarefa.");
-                setTodasTarefas(prev => prev.map(t => t.id === tarefaId ? tarefaOriginal : t));
             }
         } else {
-            // [CORRIGIDO v7.1.0] MODO CRIAÇÃO - Lógica que estava faltando
+            // MODO CRIAÇÃO
             const novoDocRef = doc(tarefasCollectionRef);
             try {
+                // Lógica de upload, log e sync...
                 const urlsDosNovosAnexos = [];
                 for (const anexo of novosAnexos) {
                     const caminhoStorage = `${basePath}/imagens_tarefas/${novoDocRef.id}/${Date.now()}_${anexo.name}`;
@@ -1583,25 +1614,14 @@ const MapaAtividadesComponent = () => {
                     const downloadURL = await getDownloadURL(uploadTask.ref);
                     urlsDosNovosAnexos.push(downloadURL);
                 }
-                
                 const dadosFinaisDaTarefa = { ...tarefaData, imagens: urlsDosNovosAnexos };
-                
-                // Atualização otimista da UI
-                setTodasTarefas(prev => [{ id: novoDocRef.id, ...dadosFinaisDaTarefa }, ...prev].sort((a,b) => b.createdAt.seconds - a.createdAt.seconds));
-
-                // Salva no Firestore
                 await setDoc(novoDocRef, dadosFinaisDaTarefa);
-
-                // Log e Sincronização
                 await logAlteracaoTarefa(db, basePath, novoDocRef.id, usuario?.uid, usuario?.email, "Tarefa Criada", `Tarefa "${tarefaData.tarefa}" criada via Mapa de Atividades.`);
                 await sincronizarTarefaComProgramacao(novoDocRef.id, dadosFinaisDaTarefa, db, basePath);
-                
                 toast.success("Tarefa adicionada com sucesso!");
             } catch (error) {
                 console.error("Erro ao adicionar tarefa:", error);
                 toast.error("Falha ao adicionar a tarefa: " + error.message);
-                // Reverte a UI em caso de erro
-                setTodasTarefas(prev => prev.filter(t => t.id !== novoDocRef.id));
             }
         }
     };
@@ -1610,74 +1630,43 @@ const MapaAtividadesComponent = () => {
         const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
         const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
         const usuario = auth.currentUser;
-
-        if (!tarefaOriginal) {
-            toast.error("Tarefa original não encontrada para atualizar o status.");
-            return;
-        }
-
+        if (!tarefaOriginal) { toast.error("Tarefa original não encontrada."); return; }
         try {
-            setTodasTarefas(prevTarefas => prevTarefas.map(t => 
-                t.id === tarefaId ? { ...t, status: novoStatus } : t
-            ));
-            
             await updateDoc(tarefaRef, { status: novoStatus, updatedAt: Timestamp.now() });
-            
             await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Status Alterado", `Status alterado de "${tarefaOriginal.status}" para "${novoStatus}".`);
             const dadosTarefaAtualizada = { ...tarefaOriginal, status: novoStatus };
             await sincronizarTarefaComProgramacao(tarefaId, dadosTarefaAtualizada, db, basePath);
-            
             toast.success("Status atualizado com sucesso!");
-
         } catch (error) {
             console.error("Erro na atualização rápida de status:", error);
             toast.error("Falha ao atualizar o status: " + error.message);
-            setTodasTarefas(prevTarefas => prevTarefas.map(t => 
-                t.id === tarefaId ? tarefaOriginal : t
-            ));
         }
     };
     
     const handleDeleteTarefa = async (tarefaId) => {
         const tarefaParaExcluir = todasTarefas.find(t => t.id === tarefaId);
-        if (!tarefaParaExcluir) {
-            toast.error("Tarefa não encontrada para exclusão.");
-            return;
-        }
-
-        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${tarefaParaExcluir.tarefa}"? Esta ação não pode ser desfeita.`)) {
+        if (!tarefaParaExcluir) { toast.error("Tarefa não encontrada."); return; }
+        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${tarefaParaExcluir.tarefa}"?`)) {
             const usuario = auth.currentUser;
-            
             try {
-                setTodasTarefas(prevTarefas => prevTarefas.filter(t => t.id !== tarefaId));
-
-                await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Excluída", `A tarefa "${tarefaParaExcluir.tarefa}" foi excluída permanentemente.`);
-
+                await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Excluída", `A tarefa "${tarefaParaExcluir.tarefa}" foi excluída.`);
                 if (tarefaParaExcluir.imagens && tarefaParaExcluir.imagens.length > 0) {
                     for (const url of tarefaParaExcluir.imagens) {
-                        try {
-                            const imagemRef = ref(storage, url);
-                            await deleteObject(imagemRef);
-                        } catch (storageError) {
-                            console.error("Erro ao excluir imagem do Storage (continuando processo):", url, storageError);
-                        }
+                        try { await deleteObject(ref(storage, url)); } catch (e) { console.error("Erro ao excluir imagem:", e); }
                     }
                 }
-                
                 await removerTarefaDaProgramacao(tarefaId, db, basePath);
                 await deleteDoc(doc(db, `${basePath}/tarefas_mapa`, tarefaId));
-
                 toast.success("Tarefa excluída com sucesso!");
-
             } catch (error) {
-                console.error("Erro no processo de exclusão da tarefa:", error);
+                console.error("Erro ao excluir tarefa:", error);
                 toast.error("Erro ao excluir tarefa: " + error.message);
-                setTodasTarefas(prevTarefas => [...prevTarefas, tarefaParaExcluir].sort((a, b) => b.createdAt.seconds - a.createdAt.seconds));
             }
         }
     };
     
     const TABLE_HEADERS = ["Tarefa", "Orientação", "Responsável(eis)", "Área", "Prioridade", "Período", "Turno", "Status", "Ações"];
+    const totalPages = Math.ceil(filteredTaskCount / TASKS_PER_PAGE);
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
@@ -1692,8 +1681,15 @@ const MapaAtividadesComponent = () => {
 
             {/* Filtros */}
             <div className="p-4 bg-white rounded-lg shadow-md mb-6">
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                     <div><label className="block text-sm font-medium text-gray-700">Buscar Tarefa/Orientação</label><input type="text" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Digite para buscar..." className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div><div><label className="block text-sm font-medium text-gray-700">Responsável</label><select value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value="TODOS">Todos</option><option value={SEM_RESPONSAVEL_VALUE}>--- SEM RESPONSÁVEL ---</option>{funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Status</label><select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODOS_OS_STATUS_VALUE}>Todos</option>{listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Prioridade</label><select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODAS_AS_PRIORIDADES_VALUE}>Todas</option>{listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Área</label><select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODAS_AS_AREAS_VALUE}>Todas</option>{listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Turno</label><select value={filtroTurno} onChange={(e) => setFiltroTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODOS_OS_TURNOS_VALUE}>Todos</option>{listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Início do Período</label><input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div><div><label className="block text-sm font-medium text-gray-700">Fim do Período</label><input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                     <div><label className="block text-sm font-medium text-gray-700">Buscar Tarefa/Orientação</label><input type="text" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} placeholder="Digite para buscar..." className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
+                     <div><label className="block text-sm font-medium text-gray-700">Responsável</label><select value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value="TODOS">Todos</option><option value={SEM_RESPONSAVEL_VALUE}>--- SEM RESPONSÁVEL ---</option>{funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></div>
+                     <div><label className="block text-sm font-medium text-gray-700">Status</label><select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODOS_OS_STATUS_VALUE}>Todos</option>{listasAuxiliares.status.filter(s => s !== "AGUARDANDO ALOCAÇÃO").map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                     <div><label className="block text-sm font-medium text-gray-700">Prioridade</label><select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODAS_AS_PRIORIDADES_VALUE}>Todas</option>{listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                     <div><label className="block text-sm font-medium text-gray-700">Área</label><select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODAS_AS_AREAS_VALUE}>Todas</option>{listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+                     <div><label className="block text-sm font-medium text-gray-700">Turno</label><select value={filtroTurno} onChange={(e) => setFiltroTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value={TODOS_OS_TURNOS_VALUE}>Todos</option>{listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                     <div><label className="block text-sm font-medium text-gray-700">Início do Período</label><input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
+                     <div><label className="block text-sm font-medium text-gray-700">Fim do Período</label><input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
                 </div>
                 <div className="mt-4 flex justify-end">
                     <button onClick={limparFiltros} className="text-sm text-blue-600 hover:text-blue-800 font-semibold flex items-center">
@@ -1712,11 +1708,9 @@ const MapaAtividadesComponent = () => {
                         {loading ? (
                             <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4">Carregando tarefas...</td></tr>
                         ) : tarefasExibidas.length === 0 ? (
-                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4 text-gray-500">Nenhuma tarefa encontrada.</td></tr>
+                            <tr><td colSpan={TABLE_HEADERS.length} className="text-center p-4 text-gray-500">Nenhuma tarefa encontrada para os filtros aplicados.</td></tr>
                         ) : (
-                            tarefasExibidas.map(tarefa => {
-                                const isStatusChangeDisabled = tarefa.status === 'AGUARDANDO ALOCAÇÃO';
-                                return (
+                            tarefasExibidas.map(tarefa => (
                                 <tr key={tarefa.id} className="hover:bg-gray-50">
                                     <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs whitespace-normal break-words"><div className="flex items-center"><span>{tarefa.tarefa}</span>{tarefa.imagens && tarefa.imagens.length > 0 && (<button onClick={() => handleOpenImagensModal(tarefa.imagens)} title="Ver Anexos" className="ml-2 text-blue-500 hover:text-blue-700"><LucidePaperclip size={16} /></button>)}</div></td>
                                     <td className="px-4 py-3 text-sm text-gray-700 max-w-sm whitespace-normal break-words">{tarefa.orientacao || '-'}</td>
@@ -1726,14 +1720,42 @@ const MapaAtividadesComponent = () => {
                                     <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{formatDate(tarefa.dataInicio)} a {formatDate(tarefa.dataProvavelTermino)}</td>
                                     <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{tarefa.turno || 'N/A'}</td>
                                     <td className="px-4 py-3 text-sm"><span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(tarefa.status)}`}>{tarefa.status}</span></td>
-                                    <td className="px-4 py-3 text-sm font-medium whitespace-nowrap"><div className="flex items-center space-x-2"><button onClick={() => !isStatusChangeDisabled && handleOpenStatusModal(tarefa)} title={isStatusChangeDisabled ? "Aloque esta tarefa primeiro" : "Alterar Status"} disabled={isStatusChangeDisabled} className={isStatusChangeDisabled ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:text-blue-800'}><LucideRefreshCw size={18}/></button><button onClick={() => handleOpenModal(tarefa)} title="Editar" className="text-gray-600 hover:text-gray-900"><LucideEdit size={18}/></button><button onClick={() => handleOpenHistoricoModal(tarefa.id)} title="Histórico" className="text-gray-600 hover:text-gray-900"><LucideHistory size={18}/></button><button onClick={() => handleDeleteTarefa(tarefa.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button></div></td>
+                                    <td className="px-4 py-3 text-sm font-medium whitespace-nowrap"><div className="flex items-center space-x-2"><button onClick={() => handleOpenStatusModal(tarefa)} title="Alterar Status" className={'text-blue-600 hover:text-blue-800'}><LucideRefreshCw size={18}/></button><button onClick={() => handleOpenModal(tarefa)} title="Editar" className="text-gray-600 hover:text-gray-900"><LucideEdit size={18}/></button><button onClick={() => handleOpenHistoricoModal(tarefa.id)} title="Histórico" className="text-gray-600 hover:text-gray-900"><LucideHistory size={18}/></button><button onClick={() => handleDeleteTarefa(tarefa.id)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={18}/></button></div></td>
                                 </tr>
                                 )
-                            })
+                            )
                         )}
                     </tbody>
                 </table>
             </div>
+            
+            {/* Controles de Paginação */}
+            {totalPages > 1 && (
+                <div className="flex justify-center items-center mt-6 py-2">
+                    <nav>
+                        <ul className="inline-flex items-center -space-x-px shadow-sm">
+                            <li>
+                                <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-2 ml-0 leading-tight text-gray-500 bg-white border border-gray-300 rounded-l-lg hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Anterior
+                                </button>
+                            </li>
+                            {Array.from({ length: totalPages }, (_, i) => i + 1).map(number => (
+                                <li key={number}>
+                                    <button onClick={() => paginate(number)} className={`px-3 py-2 leading-tight border border-gray-300 ${currentPage === number ? 'text-blue-600 bg-blue-50 hover:bg-blue-100 hover:text-blue-700' : 'text-gray-500 bg-white hover:bg-gray-100 hover:text-gray-700'}`}>
+                                        {number}
+                                    </button>
+                                </li>
+                            ))}
+                            <li>
+                                <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages} className="px-3 py-2 leading-tight text-gray-500 bg-white border border-gray-300 rounded-r-lg hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Próxima
+                                </button>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+            )}
+
 
             <TarefaFormModal isOpen={isModalOpen} onClose={handleCloseModal} tarefaExistente={editingTarefa} onSave={handleSaveTarefa}/>
             <ImagensTarefaModal isOpen={isImagensModalOpen} onClose={handleCloseImagensModal} imageUrls={imagensParaVer}/>
@@ -1744,8 +1766,8 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 7.4.0
-// [ALTERADO] A função 'handleSalvarRegistroDiario' agora cria uma anotação na tarefa principal com a conclusão/justificativa inserida.
+// Versão: 7.9.0
+// [ALTERADO] A função 'handleSalvarRegistroDiario' agora sincroniza o status do dia para o status principal da tarefa no Mapa de Atividades.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -1927,57 +1949,14 @@ const ProgramacaoSemanalComponent = () => {
         }
         setLoadingAtualizacao(true);
         try {
-            const novosDiasDaSemana = {};
-            const dataInicioSemanaDate = dadosProgramacao.dataInicioSemana.toDate();
-            const dataFimSemanaDate = dadosProgramacao.dataFimSemana.toDate();
-            let diaCorrenteNaSemana = new Date(Date.UTC(dataInicioSemanaDate.getUTCFullYear(), dataInicioSemanaDate.getUTCMonth(), dataInicioSemanaDate.getUTCDate()));
-            const dataFimSemanaUTC = new Date(Date.UTC(dataFimSemanaDate.getUTCFullYear(), dataFimSemanaDate.getUTCMonth(), dataFimSemanaDate.getUTCDate()));
-            dataFimSemanaUTC.setUTCHours(23,59,59,999);
-            while(diaCorrenteNaSemana.getTime() <= dataFimSemanaUTC.getTime()){
-                const diaFmt = diaCorrenteNaSemana.toISOString().split('T')[0];
-                novosDiasDaSemana[diaFmt] = {};
-                (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => { if(func && func.id) novosDiasDaSemana[diaFmt][func.id] = []; });
-                diaCorrenteNaSemana.setUTCDate(diaCorrenteNaSemana.getUTCDate() + 1);
-            }
             const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`), where("status", "in", ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"]));
-            const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
-            tarefasMapaSnap.forEach(docTarefaMapa => {
-                const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
-                if (!tarefaMapa.dataInicio || !(tarefaMapa.dataInicio instanceof Timestamp) || !tarefaMapa.dataProvavelTermino || !(tarefaMapa.dataProvavelTermino instanceof Timestamp) || !tarefaMapa.responsaveis || !Array.isArray(tarefaMapa.responsaveis) || tarefaMapa.responsaveis.length === 0) return;
-                let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa sem descrição";
-                if (tarefaMapa.prioridade) textoBaseTarefa += ` - ${tarefaMapa.prioridade}`;
-                let turnoParaTexto = "";
-                if (tarefaMapa.turno && typeof tarefaMapa.turno === 'string' && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) turnoParaTexto = `[${tarefaMapa.turno.toUpperCase()}] `;
-                const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
-                
-                const itemProg = { 
-                    mapaTaskId: tarefaMapa.id, 
-                    textoVisivel: textoVisivelFinal, 
-                    statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE', 
-                    mapaStatus: tarefaMapa.status, 
-                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO, 
-                    orientacao: tarefaMapa.orientacao || '',
-                    localizacao: tarefaMapa.area || '',
-                    conclusao: ''
-                };
+            const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
+            
+            for (const tarefaDoc of tarefasMapaSnap.docs) {
+                const tarefaData = { id: tarefaDoc.id, ...tarefaDoc.data() };
+                await sincronizarTarefaComProgramacao(tarefaDoc.id, tarefaData, db, basePath);
+            }
 
-                const dataInicioTarefaDate = tarefaMapa.dataInicio.toDate();
-                const dataFimTarefaDate = tarefaMapa.dataProvavelTermino.toDate();
-                let dataAtualTarefa = new Date(Date.UTC(dataInicioTarefaDate.getUTCFullYear(), dataInicioTarefaDate.getUTCMonth(), dataInicioTarefaDate.getUTCDate()));
-                const dataFimTarefaUTC = new Date(Date.UTC(dataFimTarefaDate.getUTCFullYear(), dataFimTarefaDate.getUTCMonth(), dataFimTarefaDate.getUTCDate()));
-                dataFimTarefaUTC.setUTCHours(23,59,59,999); 
-                while (dataAtualTarefa.getTime() <= dataFimTarefaUTC.getTime()) {
-                    const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
-                    if (dataAtualTarefa.getTime() >= dataInicioSemanaDate.getTime() && dataAtualTarefa.getTime() <= dataFimSemanaUTC.getTime()) {
-                        if (novosDiasDaSemana[diaFormatadoTarefa]) {
-                            tarefaMapa.responsaveis.forEach(respId => { if (novosDiasDaSemana[diaFormatadoTarefa][respId] && !novosDiasDaSemana[diaFormatadoTarefa][respId].find(t => t.mapaTaskId === tarefaMapa.id)) novosDiasDaSemana[diaFormatadoTarefa][respId].push({...itemProg}); });
-                        }
-                    }
-                    dataAtualTarefa.setUTCDate(dataAtualTarefa.getUTCDate() + 1);
-                }
-            });
-            const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
-            await updateDoc(semanaDocRef, { dias: novosDiasDaSemana, atualizadoEm: Timestamp.now(), atualizadoPor: authGlobal.currentUser?.uid || 'sistema' });
             toast.success("Programação da semana atualizada com base no Mapa de Atividades!");
         } catch (error) {
             console.error("[BotaoAtualizar] Erro ao atualizar programação da semana:", error);
@@ -2031,18 +2010,19 @@ const ProgramacaoSemanalComponent = () => {
 
     const handleSalvarRegistroDiario = async (tarefasAtualizadas) => {
         if (!semanaSelecionadaId || !dadosProgramacao) return;
-
+    
         const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
         try {
+            // 1. Atualiza a programação semanal com as conclusões e status locais
             const semanaDocSnap = await getDoc(semanaDocRef);
             if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
-
+    
             const novosDias = JSON.parse(JSON.stringify(semanaDocSnap.data().dias));
             const diaSendoAtualizado = diaParaRegistro;
             
             tarefasAtualizadas.forEach(tarefaAtualizada => {
                 const { responsavelId, mapaTaskId } = tarefaAtualizada;
-                if (novosDias[diaSendoAtualizado] && novosDias[diaSendoAtualizado][responsavelId]) {
+                if (novosDias[diaSendoAtualizado]?.[responsavelId]) {
                     const indice = novosDias[diaSendoAtualizado][responsavelId].findIndex(t => t.mapaTaskId === mapaTaskId);
                     if (indice !== -1) {
                         novosDias[diaSendoAtualizado][responsavelId][indice].conclusao = tarefaAtualizada.conclusao;
@@ -2050,29 +2030,49 @@ const ProgramacaoSemanalComponent = () => {
                     }
                 }
             });
-
+    
             await updateDoc(semanaDocRef, { dias: novosDias });
-
-            const usuarioEmail = authGlobal.currentUser?.email;
+    
+            const usuario = authGlobal.currentUser;
+            
+            // 2. Processa cada tarefa para registrar anotações e sincronizar o status principal
             for (const tarefa of tarefasAtualizadas) {
+                // Registra a anotação, se houver
                 if (tarefa.conclusao && tarefa.conclusao.trim() !== "") {
-                    await logAnotacaoTarefa(
-                        db,
-                        basePath,
-                        tarefa.mapaTaskId,
-                        usuarioEmail,
-                        tarefa.conclusao,
-                        diaParaRegistro
-                    );
+                    await logAnotacaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.email, tarefa.conclusao, diaParaRegistro);
+                }
+    
+                // Sincroniza o status do dia com a tarefa principal no Mapa de Atividades
+                if (tarefa.mapaTaskId && tarefa.statusLocal) {
+                    const tarefaMapaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefa.mapaTaskId);
+                    const tarefaMapaSnap = await getDoc(tarefaMapaDocRef);
+    
+                    if (tarefaMapaSnap.exists()) {
+                        const dadosMapa = tarefaMapaSnap.data();
+                        if (dadosMapa.status !== tarefa.statusLocal) {
+                            await updateDoc(tarefaMapaDocRef, { status: tarefa.statusLocal });
+                            
+                            await logAlteracaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.uid, usuario?.email, 
+                                "Status Sincronizado do Registro Diário", 
+                                `Status principal alterado de "${dadosMapa.status}" para "${tarefa.statusLocal}".`
+                            );
+    
+                            // Re-sincroniza a tarefa com a programação para atualizar cores e dados em todos os dias
+                            const dadosAtualizadosParaSync = { ...dadosMapa, status: tarefa.statusLocal };
+                            await sincronizarTarefaComProgramacao(tarefa.mapaTaskId, dadosAtualizadosParaSync, db, basePath);
+                        }
+                    }
                 }
             }
-
+    
+            // 3. Verifica se alguma tarefa foi totalmente concluída
             const taskIdsUnicos = [...new Set(tarefasAtualizadas.map(t => t.mapaTaskId))];
             for (const taskId of taskIdsUnicos) {
                 if(taskId) await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
             }
-
-            toast.success("Registros salvos e anotações criadas com sucesso!");
+    
+            toast.success("Registros salvos e sincronizados com o Mapa de Atividades!");
+    
         } catch (error) {
             console.error("Erro ao salvar registros do dia:", error);
             toast.error("Falha ao salvar os registros do dia: " + error.message);
