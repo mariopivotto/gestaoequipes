@@ -1,7 +1,7 @@
-// Versão: 6.2.0
-// [CORRIGIDO] Reintroduzido o AuthComponent (tela de login) e ajustada a lógica de autenticação no GlobalProvider.
+// Versão: 7.3.1
+// [CORRIGIDO] Adicionada a importação do hook 'useMemo' do React, que estava faltando e causando um erro.
 
-import React, { useState, useEffect, createContext, useContext, memo, useRef } from 'react';
+import React, { useState, useEffect, createContext, useContext, memo, useRef, useMemo } from 'react';
 import firebaseAppInstance from './firebaseConfig';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy } from 'firebase/firestore';
@@ -3008,19 +3008,34 @@ const RelatorioSemanal = () => {
     );
 };
 
-// Versão: 3.7.0
-// [ALTERADO] Layout do modal de registro diário modificado para "cards" e inclusão do campo de orientação.
+// Versão: 7.3.0
+// [ALTERADO] O modal "Registro do Dia" agora exibe todos os status disponíveis (exceto "Aguardando Alocação")
+// para permitir um acompanhamento diário mais detalhado.
 const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionarios, dia }) => {
+    const { listasAuxiliares } = useContext(GlobalContext); // Pega as listas do contexto
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
     const [loading, setLoading] = useState(false);
+
+    // Filtra os status permitidos para o dropdown
+    const statusPermitidos = useMemo(() => {
+        return (listasAuxiliares.status || []).filter(s => s !== 'AGUARDANDO ALOCAÇÃO');
+    }, [listasAuxiliares.status]);
 
     useEffect(() => {
         if (isOpen && tarefasDoDia) {
             const tarefasComResponsavel = tarefasDoDia.map(tarefa => {
                 const responsavel = funcionarios.find(f => f.id === tarefa.responsavelId);
+                
+                // Mapeia o status antigo 'PENDENTE' para 'PROGRAMADA' para consistência
+                let statusLocalInicial = tarefa.statusLocal || 'PROGRAMADA';
+                if (statusLocalInicial === 'PENDENTE') {
+                    statusLocalInicial = 'PROGRAMADA';
+                }
+
                 return {
                     ...tarefa,
-                    responsavelNome: responsavel ? responsavel.nome : 'Desconhecido'
+                    responsavelNome: responsavel ? responsavel.nome : 'Desconhecido',
+                    statusLocal: statusLocalInicial,
                 };
             });
             tarefasComResponsavel.sort((a, b) => a.responsavelNome.localeCompare(b.responsavelNome));
@@ -3050,6 +3065,7 @@ const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionari
             toast.error("Falha ao salvar as alterações.");
         } finally {
             setLoading(false);
+            onClose(); // Fecha o modal após salvar
         }
     };
     
@@ -3075,7 +3091,6 @@ const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionari
                                             <div>
                                                 <label className="text-xs font-bold text-gray-500 uppercase">Atividade</label>
                                                 <p className="text-gray-900">{tarefa.textoVisivel}</p>
-                                                {/* [NOVO v3.7.0] Exibição da Orientação */}
                                                 {tarefa.orientacao && (
                                                     <p className="text-sm text-gray-600 italic mt-2 pl-2 border-l-2 border-gray-300">
                                                         {tarefa.orientacao}
@@ -3099,12 +3114,14 @@ const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionari
                                             <div>
                                                 <label className="text-xs font-bold text-gray-500 uppercase">Status no Dia</label>
                                                 <select
-                                                    value={tarefa.statusLocal || 'PENDENTE'}
+                                                    value={tarefa.statusLocal || 'PROGRAMADA'}
                                                     onChange={(e) => handleStatusChange(index, e.target.value)}
                                                     className="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 mt-1"
                                                 >
-                                                    <option value="PENDENTE">Não Concluída / Pendente</option>
-                                                    <option value="CONCLUÍDA">Concluída</option>
+                                                    {/* Opções de status carregadas dinamicamente */}
+                                                    {statusPermitidos.map(s => (
+                                                        <option key={s} value={s}>{s}</option>
+                                                    ))}
                                                 </select>
                                             </div>
                                         </div>
