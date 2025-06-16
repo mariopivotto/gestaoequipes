@@ -5519,9 +5519,8 @@ const AlertaAtrasoModal = ({ isOpen, onClose, numeroDeTarefas, onVerTarefasClick
     );
 };
 
-// Versão: 9.0.0
-// [NOVO] Adicionado o gatilho que executa a função 'verificarEGerarTarefasFito' uma vez por sessão ao carregar o Dashboard.
-// Esta é a etapa final da integração do Controle Fitossanitário com o Mapa de Atividades.
+// Versão: 10.7.0
+// [ALTERADO] O card "Tarefas por Responsável" no Dashboard agora exclui as tarefas concluídas da contagem.
 const DashboardComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
@@ -5537,7 +5536,6 @@ const DashboardComponent = () => {
     const [highlightAtrasadas, setHighlightAtrasadas] = useState(false);
     const atrasadasCardRef = useRef(null);
 
-    // [NOVO] Efeito para executar o gatilho de verificação de tarefas fito
     useEffect(() => {
         if (db && appId) {
             const checkKey = `fitoCheckPerformed_${new Date().toISOString().split('T')[0]}`;
@@ -5661,13 +5659,16 @@ const DashboardComponent = () => {
             todasTarefas.forEach(tarefa => {
                 if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) { porStatus[tarefa.status]++; }
                 if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) { porPrioridade[tarefa.prioridade]++; }
-                if (tarefa.status !== "CANCELADA") {
+                
+                // Lógica de contagem por responsável - IGNORA CONCLUÍDAS E CANCELADAS
+                if (tarefa.status !== "CANCELADA" && tarefa.status !== "CONCLUÍDA") {
                     if (tarefa.responsaveis?.length > 0) {
                         tarefa.responsaveis.forEach(id => { if (porFuncionario[id]) porFuncionario[id].count++; });
                     } else {
                         porFuncionario["SEM_RESPONSAVEL"].count++;
                     }
                 }
+                
                 if (tarefa.dataProvavelTermino?.toDate && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
                     const dataTermino = tarefa.dataProvavelTermino.toDate();
                     dataTermino.setHours(0, 0, 0, 0);
