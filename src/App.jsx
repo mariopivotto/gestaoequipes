@@ -1897,9 +1897,8 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 8.7.2
-// [CORRIGIDO] Refatorada a função 'handleAtualizarProgramacaoDaSemana' para ser totalmente determinística
-// e resolver o problema de inconsistência ao clicar no botão de atualização várias vezes.
+// Versão: 10.5.0
+// [MELHORIA] Adicionadas bordas verticais mais espessas entre os dias da semana para melhorar a separação visual da grade.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2022,16 +2021,12 @@ const ProgramacaoSemanalComponent = () => {
     };
 
     const handleAtualizarProgramacaoDaSemana = async () => {
-        if (!semanaSelecionadaId) {
-            toast.error("Nenhuma semana selecionada para atualizar.");
-            return;
-        }
+        if (!semanaSelecionadaId) { toast.error("Nenhuma semana selecionada para atualizar."); return; }
         setLoadingAtualizacao(true);
         try {
             const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
             const semanaDocSnap = await getDoc(semanaDocRef);
             if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
-    
             const semanaData = semanaDocSnap.data();
             const dataInicioSemanaDate = converterParaDate(semanaData.dataInicioSemana);
             const dataFimSemanaDate = converterParaDate(semanaData.dataFimSemana);
@@ -2181,7 +2176,7 @@ const ProgramacaoSemanalComponent = () => {
             dataDia.setUTCDate(dataInicio.getUTCDate() + i);
             const diaFormatadoAtual = dataDia.toISOString().split('T')[0];
             const isHoje = diaFormatadoAtual === hojeFormatado;
-            dias.push(<th key={`header-dia-${i}`} className={`px-3 py-2 border text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>{dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA_PROG[i]}</th>);
+            dias.push(<th key={`header-dia-${i}`} className={`px-3 py-2 border-y border-y-gray-300 border-l border-l-gray-300 border-r-2 border-r-gray-300 text-xs font-medium text-white whitespace-nowrap ${isHoje ? 'bg-amber-500' : 'bg-teal-600'}`}>{dataDia.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {DIAS_SEMANA_PROG[i]}</th>);
         }
         return dias;
     };
@@ -2200,25 +2195,16 @@ const ProgramacaoSemanalComponent = () => {
             const isHoje = diaFormatado === hojeFormatado;
             const tarefasDoDiaParaFuncionario = dadosProgramacao.dias[diaFormatado]?.[funcionarioId] || [];
             celulas.push(
-                <td key={`${funcionarioId}-${diaFormatado}`} className={`border p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer hover:bg-gray-100 transition-colors ${isHoje ? 'border-l-4 border-l-amber-400' : ''}`} onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}>
+                <td key={`${funcionarioId}-${diaFormatado}`} className={`border-y border-y-gray-300 border-l border-l-gray-300 border-r-2 border-r-gray-300 p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer transition-colors ${isHoje ? 'bg-amber-50' : ''}`} onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}>
                     {tarefasDoDiaParaFuncionario.length === 0 
                         ? <span className="text-gray-400 italic text-xs">Vazio</span> 
                         : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
                             const taskColor = getAcaoColor(tarefaInst.acao);
                             return (
-                                <div 
-                                    key={tarefaInst.mapaTaskId || `task-${idx}`} 
-                                    className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} 
-                                    style={{ backgroundColor: taskColor }}
-                                    title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}
-                                >
-                                    <div className="font-semibold">
-                                        {tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}
-                                    </div>
+                                <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} style={{ backgroundColor: taskColor }} title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
+                                    <div className="font-semibold">{tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}</div>
                                     {tarefaInst.orientacao && (
-                                        <div className="font-normal italic opacity-90 mt-1 border-t border-white border-opacity-20 pt-0.5">
-                                            {tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}
-                                        </div>
+                                        <div className="font-normal italic opacity-90 mt-1 border-t border-white border-opacity-20 pt-0.5">{tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}</div>
                                     )}
                                 </div>
                             )
@@ -2251,11 +2237,17 @@ const ProgramacaoSemanalComponent = () => {
             </div>
             {loading ? <p className="text-center py-4">Carregando...</p> : !semanaSelecionadaId || !dadosProgramacao ? <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda ou não foi possível carregar os dados.</p> : (
                  <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-                    <table className="min-w-full border-collapse border border-gray-300 table-fixed">
+                    <table className="min-w-full border-separate border-spacing-0.5">
                         <caption className="text-lg font-semibold p-2 bg-teal-700 text-white">PROGRAMAÇÃO DIÁRIA - Semana de: {formatDateProg(dadosProgramacao.dataInicioSemana)} a {formatDateProg(dadosProgramacao.dataFimSemana)}</caption>
-                        <thead><tr key="header-row"><th className="border px-3 py-2 bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>{renderCabecalhoDias()}</tr></thead>
+                        <thead><tr key="header-row"><th className="border-y border-y-gray-300 border-l border-l-gray-300 px-3 py-2 bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>{renderCabecalhoDias()}</tr></thead>
                         <tbody>
-                            {(!contextFuncionarios || contextFuncionarios.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado.</td></tr>) : (contextFuncionarios.map(func => (<tr key={func.id}><td className="border px-3 py-2 font-semibold bg-teal-100 text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10">{func.nome}</td>{renderCelulasTarefas(func.id)}</tr>)))}
+                            {(!contextFuncionarios || contextFuncionarios.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado.</td></tr>) : 
+                                (contextFuncionarios.map((func, index) => (
+                                    <tr key={func.id}>
+                                        <td className={`border-y border-y-gray-300 border-l border-l-gray-300 px-3 py-2 font-semibold text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10 ${index % 2 === 0 ? 'bg-teal-50' : 'bg-teal-100'}`}>{func.nome}</td>
+                                        {renderCelulasTarefas(func.id)}
+                                    </tr>
+                                )))}
                         </tbody>
                     </table>
                 </div>
