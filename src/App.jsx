@@ -46,6 +46,27 @@ const formatDate = (timestamp) => {
     return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
 };
 
+// Versão 7.5.0
+// [NOVO] Adicionada função para formatar data e hora.
+const formatDateTime = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    let date;
+    if (timestamp instanceof Timestamp) {
+        date = timestamp.toDate();
+    } else if (timestamp && typeof timestamp.seconds === 'number') {
+        date = new Date(timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000);
+    } else if (timestamp instanceof Date) {
+        date = timestamp;
+    } else {
+        return 'Data inválida';
+    }
+    return date.toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+        timeZone: 'America/Sao_Paulo'
+    });
+};
+
 const converterParaDate = (valor) => {
     if (!valor) return null;
     if (valor instanceof Timestamp) return valor.toDate();
@@ -101,6 +122,26 @@ async function logAlteracaoFitossanitaria(db, basePath, registroId, usuarioEmail
         });
     } catch (error) {
         console.error("Erro ao registrar histórico do registro fitossanitário:", registroId, error);
+    }
+}
+
+// Versão: 7.4.0
+// [NOVO] Função para registrar uma anotação (log de texto) em uma tarefa do mapa.
+async function logAnotacaoTarefa(db, basePath, tarefaId, usuarioEmail, textoAnotacao, dataDoRegistro) {
+    if (!tarefaId || !textoAnotacao || textoAnotacao.trim() === "") {
+        return; // Não registra anotações vazias
+    }
+    try {
+        const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${tarefaId}/anotacoes`);
+        await addDoc(anotacoesRef, {
+            texto: textoAnotacao.trim(),
+            criadoEm: Timestamp.now(),
+            criadoPorEmail: usuarioEmail || "Desconhecido",
+            origem: "Registro do Dia - Programação Semanal",
+            dataDoRegistro: dataDoRegistro 
+        });
+    } catch (error) {
+        console.error("Erro ao registrar anotação da tarefa:", tarefaId, error);
     }
 }
 
@@ -936,242 +977,278 @@ const ConfiguracoesComponent = () => {
     );
 };
 
-// [ALTERADO v2.7.0] Componente TarefaFormModal atualizado para incluir upload de imagens
+// Versão: 7.6.0
+// [REVISADO] Refatorado o componente TarefaFormModal para garantir a busca e exibição corretas das anotações da tarefa.
+// A lógica de busca de anotações foi reforçada para ser mais resiliente.
 const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
-    const { listasAuxiliares, funcionarios, userId } = useContext(GlobalContext);
-    const [tarefa, setTarefa] = useState('');
-    const [prioridade, setPrioridade] = useState('');
-    const [area, setArea] = useState('');
-    const [acao, setAcao] = useState('');
-    const [responsaveis, setResponsaveis] = useState([]); 
-    const [status, setStatus] = useState('');
-    const [turno, setTurno] = useState('');
-    const [dataInicio, setDataInicio] = useState(''); 
-    const [dataProvavelTermino, setDataProvavelTermino] = useState(''); 
-    const [orientacao, setOrientacao] = useState('');
-    // [NOVO v2.7.0] Estados para gerenciar anexos de imagem
+    const { listasAuxiliares, funcionarios, userId, db, appId } = useContext(GlobalContext);
+    const [tarefa, setTarefa] = useState('');
+    const [prioridade, setPrioridade] = useState('');
+    const [area, setArea] = useState('');
+    const [acao, setAcao] = useState('');
+    const [responsaveis, setResponsaveis] = useState([]);
+    const [status, setStatus] = useState('');
+    const [turno, setTurno] = useState('');
+    const [dataInicio, setDataInicio] = useState('');
+    const [dataProvavelTermino, setDataProvavelTermino] = useState('');
+    const [orientacao, setOrientacao] = useState('');
     const [novosAnexos, setNovosAnexos] = useState([]);
     const [imagensAtuais, setImagensAtuais] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [anotacoes, setAnotacoes] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [loadingAnotacoes, setLoadingAnotacoes] = useState(false);
 
-    useEffect(() => {
-        if (tarefaExistente) {
-            setTarefa(tarefaExistente.tarefa || '');
-            setPrioridade(tarefaExistente.prioridade || '');
-            setArea(tarefaExistente.area || '');
-            setAcao(tarefaExistente.acao || '');
-            setResponsaveis(tarefaExistente.responsaveis || []); 
-            setStatus(tarefaExistente.status || 'PREVISTA');
-            setTurno(tarefaExistente.turno || '');
-            setDataInicio(tarefaExistente.dataInicio ? new Date(tarefaExistente.dataInicio.seconds * 1000).toISOString().split('T')[0] : '');
-            setDataProvavelTermino(tarefaExistente.dataProvavelTermino ? new Date(tarefaExistente.dataProvavelTermino.seconds * 1000).toISOString().split('T')[0] : '');
-            setOrientacao(tarefaExistente.orientacao || '');
-            // [NOVO v2.7.0] Carrega as imagens existentes
+    useEffect(() => {
+        if (tarefaExistente) {
+            setTarefa(tarefaExistente.tarefa || '');
+            setPrioridade(tarefaExistente.prioridade || '');
+            setArea(tarefaExistente.area || '');
+            setAcao(tarefaExistente.acao || '');
+            setResponsaveis(tarefaExistente.responsaveis || []);
+            setStatus(tarefaExistente.status || 'PREVISTA');
+            setTurno(tarefaExistente.turno || '');
+            setDataInicio(tarefaExistente.dataInicio ? new Date(tarefaExistente.dataInicio.seconds * 1000).toISOString().split('T')[0] : '');
+            setDataProvavelTermino(tarefaExistente.dataProvavelTermino ? new Date(tarefaExistente.dataProvavelTermino.seconds * 1000).toISOString().split('T')[0] : '');
+            setOrientacao(tarefaExistente.orientacao || '');
             setImagensAtuais(tarefaExistente.imagens || []);
-        } else {
-            setTarefa(''); setPrioridade(''); setArea(''); setAcao('');
-            setResponsaveis([]); setStatus('PREVISTA'); setTurno('');
-            setDataInicio(''); setDataProvavelTermino(''); setOrientacao('');
+        } else {
+            setTarefa(''); setPrioridade(''); setArea(''); setAcao('');
+            setResponsaveis([]); setStatus('PREVISTA'); setTurno('');
+            setDataInicio(''); setDataProvavelTermino(''); setOrientacao('');
             setImagensAtuais([]);
-        }
-        // [NOVO v2.7.0] Sempre limpa a seleção de novos arquivos ao abrir/mudar o modal
+            setAnotacoes([]);
+        }
         setNovosAnexos([]);
-    }, [tarefaExistente, isOpen]);
+    }, [tarefaExistente, isOpen]);
+
+    useEffect(() => {
+        if (isOpen && tarefaExistente?.id) {
+            setLoadingAnotacoes(true);
+            const basePath = `/artifacts/${appId}/public/data`;
+            const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${tarefaExistente.id}/anotacoes`);
+            const q = query(anotacoesRef, orderBy("criadoEm", "desc"));
+
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const fetchedAnotacoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setAnotacoes(fetchedAnotacoes);
+                setLoadingAnotacoes(false);
+            }, (error) => {
+                console.error("Erro ao carregar anotações:", error);
+                toast.error("Não foi possível carregar o histórico de anotações.");
+                setAnotacoes([]);
+                setLoadingAnotacoes(false);
+            });
+
+            return () => unsubscribe();
+        } else {
+            setAnotacoes([]);
+        }
+    }, [tarefaExistente, isOpen, db, appId]);
     
-    // [NOVO v2.7.0] Manipulador para seleção de arquivos
     const handleFileChange = (e) => {
         if (e.target.files) {
             setNovosAnexos(prev => [...prev, ...Array.from(e.target.files)]);
         }
     };
 
-    // [NOVO v2.7.0] Manipulador para remover um anexo da lista de novos uploads
     const handleRemoveNovoAnexo = (fileNameToRemove) => {
         setNovosAnexos(novosAnexos.filter(file => file.name !== fileNameToRemove));
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setLoading(true);
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
 
-        if (!status) {
-            alert("O campo Status é obrigatório.");
-            setLoading(false);
-            return;
-        }
-        
-        const novaTarefa = {
-            tarefa: tarefa.trim().toUpperCase(),
-            prioridade, area, acao,
-            responsaveis, 
-            status, turno,
-            dataInicio: dataInicio ? Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")) : null, 
-            dataProvavelTermino: dataProvavelTermino ? Timestamp.fromDate(new Date(dataProvavelTermino + "T00:00:00Z")) : null, 
-            orientacao: orientacao.trim(),
-            // [NOVO v2.7.0] Mantém as imagens atuais que não foram removidas
-            imagens: imagensAtuais, 
-            ...(tarefaExistente ? { updatedAt: Timestamp.now(), criadoPor: tarefaExistente.criadoPor || userId, createdAt: tarefaExistente.createdAt || Timestamp.now() } : { criadoPor: userId, createdAt: Timestamp.now(), updatedAt: Timestamp.now() })
-        };
+        if (!status) {
+            alert("O campo Status é obrigatório.");
+            setLoading(false);
+            return;
+        }
 
-        if (!novaTarefa.tarefa || !novaTarefa.prioridade || !novaTarefa.area || !novaTarefa.acao) {
-            alert("Os campos Tarefa, Prioridade, Área e Ação são obrigatórios.");
-            setLoading(false);
-            return;
-        }
-        if (novaTarefa.dataInicio && novaTarefa.dataProvavelTermino && novaTarefa.dataProvavelTermino.toDate() < novaTarefa.dataInicio.toDate()) {
-            alert("A Data Provável de Término não pode ser anterior à Data de Início.");
-            setLoading(false);
-            return;
-        }
-        
-        // [ALTERADO v2.7.0] A função onSave agora também recebe os novos arquivos para fazer o upload
-        await onSave(novaTarefa, novosAnexos, tarefaExistente ? tarefaExistente.id : null);
-        setLoading(false);
-        onClose();
-    };
-    
-    const handleResponsavelChange = (e) => {
-        const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
-        setResponsaveis(selectedOptions);
-    };
+        const novaTarefa = {
+            tarefa: tarefa.trim().toUpperCase(),
+            prioridade, area, acao,
+            responsaveis,
+            status, turno,
+            dataInicio: dataInicio ? Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")) : null,
+            dataProvavelTermino: dataProvavelTermino ? Timestamp.fromDate(new Date(dataProvavelTermino + "T00:00:00Z")) : null,
+            orientacao: orientacao.trim(),
+            imagens: imagensAtuais,
+            ...(tarefaExistente ? { updatedAt: Timestamp.now(), criadoPor: tarefaExistente.criadoPor || userId, createdAt: tarefaExistente.createdAt || Timestamp.now() } : { criadoPor: userId, createdAt: Timestamp.now(), updatedAt: Timestamp.now() })
+        };
 
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={tarefaExistente ? "Editar Tarefa" : "Adicionar Nova Tarefa"} width="max-w-3xl">
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
-                    <select 
-                        value={tarefa} 
-                        onChange={(e) => setTarefa(e.target.value)} 
-                        required 
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    >
-                        <option value="">Selecione uma Tarefa...</option>
-                        {listasAuxiliares.tarefas.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
-                        <select value={prioridade} onChange={(e) => setPrioridade(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Selecione...</option>
-                            {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Área</label>
-                        <select value={area} onChange={(e) => setArea(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Selecione...</option>
-                            {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Ação</label>
-                        <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Selecione...</option>
-                            {listasAuxiliares.acoes.map(ac => <option key={ac} value={ac}>{ac}</option>)}
-                        </select>
-                    </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Status</label>
-                        <select value={status} onChange={(e) => setStatus(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Selecione...</option>
-                            {listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Responsável(eis)</label>
-                    <select multiple value={responsaveis} onChange={handleResponsavelChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-32">
-                        {funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Turno</label>
-                        <select value={turno} onChange={(e) => setTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Selecione...</option>
-                            {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Data de Início</label>
-                        <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Data Provável de Término</label>
-                        <input type="date" value={dataProvavelTermino} onChange={(e) => setDataProvavelTermino(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"/>
-                    </div>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Orientação</label>
-                    <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
-                </div>
+        if (!novaTarefa.tarefa || !novaTarefa.prioridade || !novaTarefa.area || !novaTarefa.acao) {
+            alert("Os campos Tarefa, Prioridade, Área e Ação são obrigatórios.");
+            setLoading(false);
+            return;
+        }
+        if (novaTarefa.dataInicio && novaTarefa.dataProvavelTermino && novaTarefa.dataProvavelTermino.toDate() < novaTarefa.dataInicio.toDate()) {
+            alert("A Data Provável de Término não pode ser anterior à Data de Início.");
+            setLoading(false);
+            return;
+        }
 
-                {/* [NOVO v2.7.0] Seção de Anexos */}
-                <div className="pt-4 border-t">
+        await onSave(novaTarefa, novosAnexos, tarefaExistente ? tarefaExistente.id : null);
+        setLoading(false);
+        onClose();
+    };
+
+    const handleResponsavelChange = (e) => {
+        const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+        setResponsaveis(selectedOptions);
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={tarefaExistente ? "Editar Tarefa" : "Adicionar Nova Tarefa"} width="max-w-3xl">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Campos do formulário (sem alterações) */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Tarefa (Descrição)</label>
+                    <select value={tarefa} onChange={(e) => setTarefa(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Selecione uma Tarefa...</option>
+                        {listasAuxiliares.tarefas.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Prioridade</label>
+                        <select value={prioridade} onChange={(e) => setPrioridade(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Selecione...</option>
+                            {listasAuxiliares.prioridades.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Área</label>
+                        <select value={area} onChange={(e) => setArea(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Selecione...</option>
+                            {listasAuxiliares.areas.map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Ação</label>
+                        <select value={acao} onChange={(e) => setAcao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Selecione...</option>
+                            {listasAuxiliares.acoes.map(ac => <option key={ac} value={ac}>{ac}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Status</label>
+                        <select value={status} onChange={(e) => setStatus(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Selecione...</option>
+                            {listasAuxiliares.status.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Responsável(eis)</label>
+                    <select multiple value={responsaveis} onChange={handleResponsavelChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-32">
+                        {funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Turno</label>
+                        <select value={turno} onChange={(e) => setTurno(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Selecione...</option>
+                            {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Data de Início</label>
+                        <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Data Provável de Término</label>
+                        <input type="date" value={dataProvavelTermino} onChange={(e) => setDataProvavelTermino(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Orientação</label>
+                    <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+
+                {/* Seção de Anotações (Revisada) */}
+                {tarefaExistente && (
+                    <div className="pt-4 mt-4 border-t">
+                        <h4 className="text-md font-semibold text-gray-700 mb-3 flex items-center">
+                            <LucideStickyNote size={18} className="mr-2 text-gray-500" />
+                            Anotações da Tarefa
+                        </h4>
+                        {loadingAnotacoes ? (
+                           <p className="text-sm text-gray-500 italic px-3">Carregando anotações...</p>
+                        ) : anotacoes.length > 0 ? (
+                            <div className="space-y-3 max-h-48 overflow-y-auto pr-2 bg-gray-100 p-3 rounded-lg border">
+                                {anotacoes.map(anotacao => (
+                                    <div key={anotacao.id} className="p-3 bg-white shadow-sm rounded-md border-l-4 border-blue-300">
+                                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{anotacao.texto}</p>
+                                        <div className="text-xs text-gray-500 mt-2 pt-2 border-t text-right">
+                                            <p className="font-medium">
+                                                Origem: {anotacao.origem || 'Manual'}
+                                                {anotacao.dataDoRegistro && ` (${new Date(anotacao.dataDoRegistro + 'T12:00:00Z').toLocaleDateString('pt-BR', {timeZone: 'UTC'})})`}
+                                            </p>
+                                            <p>
+                                                Por: {anotacao.criadoPorEmail} em {formatDateTime(anotacao.criadoEm)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-gray-500 italic px-3">Nenhuma anotação encontrada.</p>
+                        )}
+                    </div>
+                )}
+
+                {/* Seção de Anexos (sem alterações) */}
+                <div className="pt-4 mt-4 border-t">
                     <h4 className="text-md font-semibold text-gray-700 mb-2">Anexos</h4>
-                    
                     {imagensAtuais.length > 0 && (
                         <div className="mb-4">
                             <p className="text-sm font-medium text-gray-600 mb-2">Imagens Salvas:</p>
                             <div className="flex flex-wrap gap-2">
                                 {imagensAtuais.map((url, index) => (
                                     <div key={index} className="relative">
-                                        <img src={url} alt={`Anexo ${index + 1}`} className="w-20 h-20 object-cover rounded-md"/>
+                                        <img src={url} alt={`Anexo ${index + 1}`} className="w-20 h-20 object-cover rounded-md" />
                                     </div>
                                 ))}
                             </div>
                         </div>
                     )}
-                    
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Adicionar Novas Imagens</label>
-                        <input
-                            type="file"
-                            multiple
-                            accept="image/*"
-                            onChange={handleFileChange}
-                            className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                        />
+                        <input type="file" multiple accept="image/*" onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                     </div>
-
                     {novosAnexos.length > 0 && (
                         <div className="mt-2">
-                             <p className="text-sm font-medium text-gray-600 mb-2">Imagens para Enviar:</p>
-                             <div className="flex flex-wrap gap-2">
+                            <p className="text-sm font-medium text-gray-600 mb-2">Imagens para Enviar:</p>
+                            <div className="flex flex-wrap gap-2">
                                 {novosAnexos.map((file, index) => (
                                     <div key={index} className="relative group">
-                                        <img src={URL.createObjectURL(file)} alt={file.name} className="w-20 h-20 object-cover rounded-md"/>
-                                        <button 
-                                            type="button"
-                                            onClick={() => handleRemoveNovoAnexo(file.name)}
-                                            className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            title="Remover"
-                                        >
-                                           <LucideX size={14} />
+                                        <img src={URL.createObjectURL(file)} alt={file.name} className="w-20 h-20 object-cover rounded-md" />
+                                        <button type="button" onClick={() => handleRemoveNovoAnexo(file.name)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity" title="Remover">
+                                            <LucideX size={14} />
                                         </button>
                                     </div>
                                 ))}
-                             </div>
+                            </div>
                         </div>
                     )}
                 </div>
 
-                <div className="pt-4 flex justify-end space-x-2">
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400">
-                        {loading ? 'Salvando...' : (tarefaExistente ? 'Atualizar Tarefa' : 'Adicionar Tarefa')}
-                    </button>
-                </div>
-            </form>
-        </Modal>
-    );
+                <div className="pt-4 flex justify-end space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400">
+                        {loading ? 'Salvando...' : (tarefaExistente ? 'Atualizar Tarefa' : 'Adicionar Tarefa')}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
 };
 
 // Versão: 2.9.4
@@ -1667,8 +1744,8 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 3.8.1
-// [ALTERADO] Exibe a orientação da tarefa diretamente na célula da Programação Semanal.
+// Versão: 7.4.0
+// [ALTERADO] A função 'handleSalvarRegistroDiario' agora cria uma anotação na tarefa principal com a conclusão/justificativa inserida.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -1976,12 +2053,26 @@ const ProgramacaoSemanalComponent = () => {
 
             await updateDoc(semanaDocRef, { dias: novosDias });
 
+            const usuarioEmail = authGlobal.currentUser?.email;
+            for (const tarefa of tarefasAtualizadas) {
+                if (tarefa.conclusao && tarefa.conclusao.trim() !== "") {
+                    await logAnotacaoTarefa(
+                        db,
+                        basePath,
+                        tarefa.mapaTaskId,
+                        usuarioEmail,
+                        tarefa.conclusao,
+                        diaParaRegistro
+                    );
+                }
+            }
+
             const taskIdsUnicos = [...new Set(tarefasAtualizadas.map(t => t.mapaTaskId))];
             for (const taskId of taskIdsUnicos) {
                 if(taskId) await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
             }
 
-            toast.success("Registros do dia salvos com sucesso!");
+            toast.success("Registros salvos e anotações criadas com sucesso!");
         } catch (error) {
             console.error("Erro ao salvar registros do dia:", error);
             toast.error("Falha ao salvar os registros do dia: " + error.message);
@@ -2506,25 +2597,24 @@ const ConclusaoTarefaModal = ({ isOpen, onClose, onSave, tarefa }) => {
 };
 
 
-// Versão: 3.3.0
-// Componente Modal para Gerenciar Tarefas da Célula da Programação (MODIFICADO para registrar conclusão)
+// Versão: 7.7.0
+// [ALTERADO] O modal "Gerenciar Tarefas" da programação agora busca e exibe as anotações de cada tarefa abaixo de suas orientações.
 const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, responsavelId, tarefasDaCelula, semanaId, onAlteracaoSalva }) => {
     const { db, appId, funcionarios, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
     const [loading, setLoading] = useState(false);
     const [dadosCompletosTarefas, setDadosCompletosTarefas] = useState({});
-    
-    // [NOVO v3.3.0] Estados para controlar o modal de conclusão
     const [isConclusaoModalOpen, setIsConclusaoModalOpen] = useState(false);
     const [tarefaParaConcluir, setTarefaParaConcluir] = useState(null);
     const [tarefaIndexParaConcluir, setTarefaIndexParaConcluir] = useState(null);
+    const [anotacoesPorTarefa, setAnotacoesPorTarefa] = useState({}); // [NOVO] Estado para as anotações
 
     useEffect(() => {
         if (isOpen && tarefasDaCelula && tarefasDaCelula.length > 0) {
             const tarefasCopiadas = JSON.parse(JSON.stringify(tarefasDaCelula.map(t => ({
                 ...t,
                 turno: t.turno || TURNO_DIA_INTEIRO,
-                conclusao: t.conclusao || '' // Garante que a propriedade exista
+                conclusao: t.conclusao || ''
             }))));
             setTarefasEditaveis(tarefasCopiadas);
 
@@ -2551,6 +2641,37 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
             setDadosCompletosTarefas({});
         }
     }, [tarefasDaCelula, isOpen, appId, db]);
+    
+    // [NOVO] Hook para buscar as anotações de cada tarefa no modal
+    useEffect(() => {
+        if (isOpen && tarefasDaCelula && tarefasDaCelula.length > 0) {
+            const unsubscribers = [];
+            setAnotacoesPorTarefa({}); 
+
+            tarefasDaCelula.forEach(tarefa => {
+                if (tarefa.mapaTaskId) {
+                    const basePath = `/artifacts/${appId}/public/data`;
+                    const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${tarefa.mapaTaskId}/anotacoes`);
+                    const q = query(anotacoesRef, orderBy("criadoEm", "desc"));
+
+                    const unsubscribe = onSnapshot(q, (snapshot) => {
+                        const fetchedAnotacoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        setAnotacoesPorTarefa(prev => ({
+                            ...prev,
+                            [tarefa.mapaTaskId]: fetchedAnotacoes
+                        }));
+                    }, (error) => {
+                         console.error(`Erro ao carregar anotações para a tarefa ${tarefa.mapaTaskId}:`, error);
+                    });
+                    unsubscribers.push(unsubscribe);
+                }
+            });
+
+            return () => {
+                unsubscribers.forEach(unsub => unsub());
+            };
+        }
+    }, [tarefasDaCelula, isOpen, db, appId]);
 
     const responsavelNome = funcionarios.find(f => f.id === responsavelId)?.nome || responsavelId;
     const dataExibicao = diaFormatado ? new Date(diaFormatado + "T00:00:00Z").toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Data Inválida';
@@ -2631,6 +2752,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                         const tarefaCompleta = dadosCompletosTarefas[tarefa.mapaTaskId];
                         const imagens = tarefaCompleta?.imagens || [];
                         const isConcluida = tarefa.statusLocal === 'CONCLUÍDA';
+                        const notasDaTarefa = anotacoesPorTarefa[tarefa.mapaTaskId] || [];
 
                         return (
                             <div key={tarefa.mapaTaskId || index} className={`p-3 rounded-md shadow-sm border ${isConcluida ? 'border-green-300 bg-green-50' : 'border-blue-300 bg-blue-50'}`}>
@@ -2641,7 +2763,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                                         </span>
                                         {tarefa.conclusao && (
                                             <p className="text-xs text-gray-600 mt-1 pl-1 border-l-2 border-gray-400">
-                                                <strong>Conclusão:</strong> {tarefa.conclusao}
+                                                <strong>Conclusão do dia:</strong> {tarefa.conclusao}
                                             </p>
                                         )}
                                     </div>
@@ -2664,33 +2786,52 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                                 </div>
                                 
                                 <div className="mt-2 pt-2 border-t border-gray-300 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
+                                    <div className="space-y-2">
                                         {tarefa.orientacao && (
                                             <div className="mb-2">
                                                 <strong className="block font-medium text-gray-800 text-sm mb-1">Orientação:</strong>
-                                                <p className="text-sm text-gray-700">{tarefa.orientacao}</p>
+                                                <p className="text-sm text-gray-700 whitespace-pre-wrap">{tarefa.orientacao}</p>
                                             </div>
                                         )}
-                                        <div className="mt-2">
+                                        <div className="pt-2 border-t border-gray-200">
+                                            <strong className="block font-medium text-gray-800 text-sm mb-1">Anotações:</strong>
+                                            {notasDaTarefa.length > 0 ? (
+                                                <div className="space-y-1.5 max-h-24 overflow-y-auto bg-gray-50 p-2 rounded">
+                                                    {notasDaTarefa.map(anotacao => (
+                                                        <div key={anotacao.id} className="text-xs p-1.5 bg-white border-l-2 border-gray-400">
+                                                            <p className="whitespace-pre-wrap">{anotacao.texto}</p>
+                                                            <p className="text-right text-gray-500 mt-1">
+                                                                - {anotacao.criadoPorEmail.split('@')[0]} em {formatDateTime(anotacao.criadoEm)}
+                                                            </p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-gray-500 italic">Nenhuma anotação.</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        <div>
                                             <label htmlFor={`turno-tarefa-${index}`} className="block text-xs font-medium text-gray-600 mb-0.5">Turno:</label>
                                             <select id={`turno-tarefa-${index}`} value={tarefa.turno || TURNO_DIA_INTEIRO} onChange={(e) => handleTurnoChange(index, e.target.value)} className="block w-full p-1.5 text-xs border-gray-300 rounded-md shadow-sm">
                                                 {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
                                             </select>
                                         </div>
-                                    </div>
-                                    
-                                    {imagens.length > 0 && (
-                                        <div>
-                                            <strong className="block font-medium text-gray-800 text-sm mb-1">Anexos:</strong>
-                                            <div className="flex flex-wrap gap-2">
-                                                {imagens.map((url, imgIndex) => (
-                                                    <a key={imgIndex} href={url} target="_blank" rel="noopener noreferrer" title="Clique para ampliar">
-                                                        <img src={url} alt={`Anexo ${imgIndex + 1}`} className="w-16 h-16 object-cover rounded-md border-2 border-white shadow-md" loading="lazy"/>
-                                                    </a>
-                                                ))}
+                                        {imagens.length > 0 && (
+                                            <div>
+                                                <strong className="block font-medium text-gray-800 text-sm mb-1">Anexos:</strong>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {imagens.map((url, imgIndex) => (
+                                                        <a key={imgIndex} href={url} target="_blank" rel="noopener noreferrer" title="Clique para ampliar">
+                                                            <img src={url} alt={`Anexo ${imgIndex + 1}`} className="w-16 h-16 object-cover rounded-md border-2 border-white shadow-md" loading="lazy"/>
+                                                        </a>
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )
@@ -2715,8 +2856,9 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
 };
 
 
-// Versão: 3.7.1
-// [ALTERADO] A coluna de conclusão no relatório semanal agora exibe o status e a justificativa de forma estruturada.
+// Versão: 7.8.0
+// [ALTERADO] O Relatório Semanal agora busca e exibe o histórico completo de anotações de cada tarefa.
+// [ALTERADO] A coluna "Conclusão" agora reflete o status exato registrado para o dia.
 const RelatorioSemanal = () => {
     const { db, appId, funcionarios: contextFuncionarios } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2725,6 +2867,7 @@ const RelatorioSemanal = () => {
     const [loading, setLoading] = useState(true);
     const [loadingReport, setLoadingReport] = useState(false);
     const [showReport, setShowReport] = useState(false);
+    const [anotacoesDasTarefas, setAnotacoesDasTarefas] = useState({});
 
     const basePath = `/artifacts/${appId}/public/data`;
 
@@ -2736,7 +2879,7 @@ const RelatorioSemanal = () => {
             const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setSemanas(fetchedSemanas);
             if (fetchedSemanas.length > 0 && !semanaSelecionadaId) {
-                setSemanaSelecionadaId(fetchedSemanas [0].id);
+                setSemanaSelecionadaId(fetchedSemanas[0].id);
             }
             setLoading(false);
         }, error => {
@@ -2761,17 +2904,43 @@ const RelatorioSemanal = () => {
         }
         setLoadingReport(true);
         setShowReport(false);
+        setAnotacoesDasTarefas({});
 
         try {
             const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
             const semanaDocSnap = await getDoc(semanaDocRef);
 
-            if (semanaDocSnap.exists()) {
-                setDadosRelatorio({ id: semanaDocSnap.id, ...semanaDocSnap.data() });
-                setShowReport(true);
-            } else {
+            if (!semanaDocSnap.exists()) {
                 toast.error("Não foi possível encontrar os dados para a semana selecionada.");
+                setLoadingReport(false);
+                return;
             }
+            
+            const semanaData = { id: semanaDocSnap.id, ...semanaDocSnap.data() };
+            
+            const taskIds = new Set();
+            Object.values(semanaData.dias || {}).forEach(dia => {
+                Object.values(dia).forEach(tarefasDoResponsavel => {
+                    tarefasDoResponsavel.forEach(tarefa => {
+                        if (tarefa.mapaTaskId) taskIds.add(tarefa.mapaTaskId);
+                    });
+                });
+            });
+
+            const anotacoesMap = {};
+            const promises = Array.from(taskIds).map(async (taskId) => {
+                const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${taskId}/anotacoes`);
+                const q = query(anotacoesRef, orderBy("criadoEm", "asc"));
+                const anotacoesSnap = await getDocs(q);
+                anotacoesMap[taskId] = anotacoesSnap.docs.map(doc => doc.data());
+            });
+
+            await Promise.all(promises);
+            
+            setAnotacoesDasTarefas(anotacoesMap);
+            setDadosRelatorio(semanaData);
+            setShowReport(true);
+
         } catch (error) {
             console.error("Erro ao gerar relatório semanal:", error);
             toast.error("Falha ao gerar o relatório: " + error.message);
@@ -2799,51 +2968,24 @@ const RelatorioSemanal = () => {
             priWin.document.write(`
                 <style>
                     @media print { 
-                        body { 
-                            font-family: Calibri, Arial, sans-serif;
-                            font-size: 11pt;
-                            line-height: 1.3; 
-                            color: #000; 
-                        } 
+                        body { font-family: Calibri, Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #000; } 
                         .print-header { text-align: center; margin-bottom: 25px; } 
                         .print-header img { max-height: 45px; margin-bottom: 10px; } 
                         .print-header h1 { margin-bottom: 5px; font-size: 14pt; color: #000; } 
                         .print-header p { font-size: 12pt; color: #555; margin-top: 0; }
-                        
-                        h4 { 
-                            font-size: 12pt !important; font-weight: bold !important; text-align: left !important;
-                            text-transform: capitalize !important; padding-bottom: 4px !important; margin-top: 20px !important;
-                            margin-bottom: 10px !important; border-bottom: 1.5px solid #888 !important; 
-                            background-color: transparent !important; color: black !important;
-                            padding: 0 !important; border-radius: 0 !important;
-                        } 
-
+                        h4 { font-size: 12pt !important; font-weight: bold !important; text-align: left !important; text-transform: capitalize !important; padding-bottom: 4px !important; margin-top: 20px !important; margin-bottom: 10px !important; border-bottom: 1.5px solid #888 !important; background-color: transparent !important; color: black !important; padding: 0 !important; border-radius: 0 !important; } 
                         table { width: 100%; border-collapse: collapse; } 
                         tr { page-break-inside: avoid; } 
                         thead { display: table-header-group; } 
-                        
-                        th { 
-                            background-color: #E8E8E8 !important; 
-                            color: #000000 !important;
-                            font-weight: bold; 
-                            font-size: 11pt;
-                            text-transform: uppercase;
-                            padding: 5px;
-                            border: 1px solid #7F7F7F;
-                        }
-                        
-                        td { 
-                            border: 1px solid #7F7F7F;
-                            padding: 5px; 
-                            text-align: left; 
-                            vertical-align: top;
-                        } 
-                        
-                        td[rowspan] { font-weight: normal; }
-                        .task-block strong, .conclusion-block strong { font-weight: bold; display: block; }
-                        .task-block p, .conclusion-block p { margin: 0; padding: 0; border: 0; font-style: normal; display: block; } 
+                        th { background-color: #E8E8E8 !important; color: #000000 !important; font-weight: bold; font-size: 10pt; text-transform: uppercase; padding: 5px; border: 1px solid #7F7F7F; }
+                        td { border: 1px solid #7F7F7F; padding: 5px; text-align: left; vertical-align: top; } 
+                        .task-block strong, .conclusion-block strong, .notes-block strong { font-weight: bold; display: block; }
+                        .task-block p, .conclusion-block p, .notes-block p, .notes-block li { margin: 0; padding: 0; border: 0; font-style: normal; display: block; } 
                         .conclusion-block p { padding-top: 2px; }
                         .italic-placeholder { font-style: italic; color: #555; }
+                        .notes-block { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ccc; }
+                        .notes-block ul { margin: 4px 0 0 16px; padding: 0; list-style: disc; }
+                        .notes-block li { margin-bottom: 4px; }
                     }
                 </style>
             `);
@@ -2851,13 +2993,7 @@ const RelatorioSemanal = () => {
             priWin.document.write(printContents);
             priWin.document.write('</body></html>');
             priWin.document.close();
-
-            priWin.onafterprint = function() {
-                if (document.body.contains(printFrame)) {
-                    document.body.removeChild(printFrame);
-                }
-            };
-
+            priWin.onafterprint = () => document.body.removeChild(printFrame);
             priWin.focus();
             priWin.print();
         };
@@ -2878,25 +3014,13 @@ const RelatorioSemanal = () => {
         }
         return dias;
     };
-
-    const renderConclusionCell = (tarefa) => {
-        const isConcluida = tarefa.statusLocal === 'CONCLUÍDA';
-        const hasRecord = tarefa.conclusao && tarefa.conclusao.trim() !== '';
-
-        if (!hasRecord) {
-            return <span className="text-gray-500 italic italic-placeholder">Aguardando registro de Conclusão</span>;
-        }
-
-        return (
-            <div className="conclusion-block">
-                <strong className={isConcluida ? 'text-green-700' : 'text-orange-700'}>
-                    {isConcluida ? '[CONCLUÍDA]' : '[NÃO CONCLUÍDA / PENDENTE]'}
-                </strong>
-                <p className="text-sm text-gray-800 pt-1">{tarefa.conclusao}</p>
-            </div>
-        );
-    };
-
+    
+    const getStatusClass = (status) => {
+        if (status === "CONCLUÍDA") return 'font-bold text-green-700';
+        if (status === "CANCELADA") return 'font-bold text-red-700';
+        if (status === "EM OPERAÇÃO") return 'font-bold text-cyan-700';
+        return 'font-bold text-gray-700';
+    }
 
     return (
         <div>
@@ -2905,13 +3029,7 @@ const RelatorioSemanal = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                     <div>
                         <label htmlFor="semanaRelatorio" className="block text-sm font-medium text-gray-700">Selecione a Semana:</label>
-                        <select
-                            id="semanaRelatorio"
-                            value={semanaSelecionadaId}
-                            onChange={(e) => setSemanaSelecionadaId(e.target.value)}
-                            disabled={loading || semanas.length === 0}
-                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2"
-                        >
+                        <select id="semanaRelatorio" value={semanaSelecionadaId} onChange={(e) => setSemanaSelecionadaId(e.target.value)} disabled={loading || semanas.length === 0} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2">
                             {loading && <option>Carregando semanas...</option>}
                             {!loading && semanas.length === 0 && <option>Nenhuma semana encontrada</option>}
                             {semanas.map(s => (
@@ -2922,11 +3040,7 @@ const RelatorioSemanal = () => {
                         </select>
                     </div>
                      <div className="text-right">
-                        <button
-                            onClick={handleGerarRelatorio}
-                            disabled={loadingReport || !semanaSelecionadaId}
-                            className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-md flex items-center justify-center disabled:bg-gray-400"
-                        >
+                        <button onClick={handleGerarRelatorio} disabled={loadingReport || !semanaSelecionadaId} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-md flex items-center justify-center disabled:bg-gray-400">
                             <LucideFileText size={18} className="mr-2"/>
                             {loadingReport ? "Gerando..." : "Gerar Relatório"}
                         </button>
@@ -2958,10 +3072,10 @@ const RelatorioSemanal = () => {
                                         <table className="min-w-full divide-y divide-gray-200 border">
                                             <thead className="bg-gray-50">
                                                 <tr>
-                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[20%]">Responsável</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">Responsável</th>
                                                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">Localização</th>
-                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[40%]">Atividade</th>
-                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[25%]">Conclusão</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[45%]">Atividade</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[25%]">Conclusão do Dia</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
@@ -2976,21 +3090,34 @@ const RelatorioSemanal = () => {
                                                                     {func.nome}
                                                                 </td>
                                                             )}
-                                                            <td className="px-3 py-2 align-top">
-                                                                {t.localizacao || '-'}
-                                                            </td>
+                                                            <td className="px-3 py-2 align-top">{t.localizacao || '-'}</td>
                                                             <td className="px-3 py-2 align-top">
                                                                 <div className="task-block">
                                                                     <strong>{t.textoVisivel}</strong>
-                                                                    {t.orientacao && (
-                                                                        <p className="orientation-print">
-                                                                            {t.orientacao}
-                                                                        </p>
-                                                                    )}
+                                                                    {t.orientacao && <p className="text-sm italic text-gray-600 mt-1">{t.orientacao}</p>}
+                                                                </div>
+                                                                <div className="notes-block">
+                                                                    <strong className="text-xs">Anotações Históricas:</strong>
+                                                                    {(anotacoesDasTarefas[t.mapaTaskId] && anotacoesDasTarefas[t.mapaTaskId].length > 0) ? (
+                                                                        <ul className="text-xs text-gray-700 mt-1 list-disc pl-4">
+                                                                            {anotacoesDasTarefas[t.mapaTaskId].map((nota, idx) => (
+                                                                                <li key={idx} className="mb-1">
+                                                                                   {nota.texto} <span className="text-gray-400">({formatDateTime(nota.criadoEm)})</span>
+                                                                                </li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    ) : <p className="text-xs text-gray-500 italic">Nenhuma.</p>}
                                                                 </div>
                                                             </td>
                                                             <td className="px-3 py-2 align-top">
-                                                                {renderConclusionCell(t)}
+                                                                <div className="conclusion-block">
+                                                                    <strong className={getStatusClass(t.statusLocal)}>
+                                                                        {`[${t.statusLocal || 'PENDENTE'}]`}
+                                                                    </strong>
+                                                                    <p className="text-sm text-gray-800 pt-1">
+                                                                        {t.conclusao || <span className="italic-placeholder">Aguardando registro...</span>}
+                                                                    </p>
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     ));
