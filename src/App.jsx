@@ -328,10 +328,10 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 8.7.0
-// [ALTERADO] A sincronização agora inclui a 'Ação' da tarefa para permitir a colorização baseada nela.
+// Versão: 11.0.0
+// [CORRIGIDO] Refatorada a função de sincronização para preservar corretamente o status das tarefas ao atualizar a programação semanal,
+// evitando que as alterações feitas no Mapa de Atividades sejam revertidas.
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
-    // 1. Memoriza o progresso diário existente antes de qualquer alteração.
     const progressoDiarioSalvo = new Map();
     const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
     const todasSemanasSnap = await getDocs(todasSemanasQuery);
@@ -341,10 +341,8 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         for (const diaKey in dias) {
             for (const respKey in dias[diaKey]) {
                 const tarefa = dias[diaKey][respKey].find(t => t.mapaTaskId === tarefaId);
-                // Salva apenas se houver algum progresso registrado
                 if (tarefa && (tarefa.statusLocal || tarefa.conclusao)) {
-                    const mapKey = `${diaKey}_${respKey}`;
-                    progressoDiarioSalvo.set(mapKey, {
+                    progressoDiarioSalvo.set(`${diaKey}_${respKey}`, {
                         statusLocal: tarefa.statusLocal,
                         conclusao: tarefa.conclusao
                     });
@@ -353,10 +351,8 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         }
     });
 
-    // 2. Remove todas as instâncias antigas da tarefa na programação ("Nuke").
     await removerTarefaDaProgramacao(tarefaId, db, basePath);
 
-    // 3. Verifica se a tarefa deve ser (re)adicionada à programação.
     const statusValidosParaProgramacao = ["PROGRAMADA", "CONCLUÍDA", "EM OPERAÇÃO"];
     if (!statusValidosParaProgramacao.includes(tarefaData.status)) {
         return;
@@ -366,89 +362,69 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         return;
     }
 
-    // 4. Prepara os dados base da tarefa para recriá-la na programação.
     let textoBaseTarefa = tarefaData.tarefa || "Tarefa sem descrição";
     if (tarefaData.prioridade) textoBaseTarefa += ` - ${tarefaData.prioridade}`;
-    let turnoParaTexto = "";
-    if (tarefaData.turno && tarefaData.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
-        turnoParaTexto = `[${tarefaData.turno.toUpperCase()}] `;
-    }
+    let turnoParaTexto = (tarefaData.turno && tarefaData.turno.toUpperCase() !== TURNO_DIA_INTEIRO) ? `[${tarefaData.turno.toUpperCase()}] ` : "";
     const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
 
     const dataInicioLoop = tarefaData.dataInicio.toDate();
     const dataFimLoop = tarefaData.dataProvavelTermino.toDate();
+    
+    // É mais eficiente buscar e modificar a estrutura de semanas uma vez
+    const semanasData = todasSemanasSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    const alteracoesPorSemana = new Map();
-    todasSemanasSnap.forEach(semanaDocSnap => {
-        alteracoesPorSemana.set(semanaDocSnap.id, {
-            ...semanaDocSnap.data(),
-            dias: JSON.parse(JSON.stringify(semanaDocSnap.data().dias || {}))
-        });
+    semanasData.forEach(semanaDataModificada => {
+        const inicioSemana = converterParaDate(semanaDataModificada.dataInicioSemana);
+        const fimSemana = converterParaDate(semanaDataModificada.dataFimSemana);
+
+        if (!inicioSemana || !fimSemana) return;
+
+        let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
+        const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
+        dataFimLoopUTC.setUTCHours(23, 59, 59, 999);
+        
+        while (dataAtual.getTime() <= dataFimLoopUTC.getTime()) {
+            if (dataAtual.getTime() >= inicioSemana.getTime() && dataAtual.getTime() <= fimSemana.getTime()) {
+                const diaFormatado = dataAtual.toISOString().split('T')[0];
+                if (!semanaDataModificada.dias[diaFormatado]) semanaDataModificada.dias[diaFormatado] = {};
+                
+                tarefaData.responsaveis.forEach(responsavelId => {
+                    const progressoSalvo = progressoDiarioSalvo.get(`${diaFormatado}_${responsavelId}`);
+                    
+                    const itemTarefaProgramacao = {
+                        mapaTaskId: tarefaId,
+                        textoVisivel: textoVisivelFinal,
+                        statusLocal: progressoSalvo?.statusLocal || (tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE'),
+                        conclusao: progressoSalvo?.conclusao || '',
+                        mapaStatus: tarefaData.status,
+                        acao: tarefaData.acao || '',
+                        turno: tarefaData.turno || TURNO_DIA_INTEIRO,
+                        orientacao: tarefaData.orientacao || '',
+                        localizacao: tarefaData.area || '',
+                    };
+                    
+                    if (!semanaDataModificada.dias[diaFormatado][responsavelId]) {
+                        semanaDataModificada.dias[diaFormatado][responsavelId] = [];
+                    }
+                    if (!semanaDataModificada.dias[diaFormatado][responsavelId].find(t => t.mapaTaskId === tarefaId)) {
+                        semanaDataModificada.dias[diaFormatado][responsavelId].push({ ...itemTarefaProgramacao });
+                    }
+                });
+            }
+            dataAtual.setUTCDate(dataAtual.getUTCDate() + 1);
+        }
     });
 
-    // 5. Recria a tarefa na programação ("Pave"), mas agora usando os dados de progresso memorizados.
-    let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
-    const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
-    dataFimLoopUTC.setUTCHours(23, 59, 59, 999);
+    const batch = writeBatch(db);
+    semanasData.forEach(semana => {
+        const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semana.id);
+        batch.update(semanaDocRef, { dias: semana.dias });
+    });
 
-    let algumaSemanaModificadaNaAdicao = false;
-
-    while (dataAtual.getTime() <= dataFimLoopUTC.getTime()) {
-        const diaFormatado = dataAtual.toISOString().split('T')[0];
-
-        for (const semanaDataModificada of alteracoesPorSemana.values()) {
-            const inicioSemana = converterParaDate(semanaDataModificada.dataInicioSemana);
-            const fimSemana = converterParaDate(semanaDataModificada.dataFimSemana);
-
-            if (inicioSemana && fimSemana) {
-                const inicioSemanaUTC = new Date(Date.UTC(inicioSemana.getUTCFullYear(), inicioSemana.getUTCMonth(), inicioSemana.getUTCDate()));
-                const fimSemanaUTCloop = new Date(Date.UTC(fimSemana.getUTCFullYear(), fimSemana.getUTCMonth(), fimSemana.getUTCDate()));
-                fimSemanaUTCloop.setUTCHours(23, 59, 59, 999);
-
-                if (dataAtual.getTime() >= inicioSemanaUTC.getTime() && dataAtual.getTime() <= fimSemanaUTCloop.getTime()) {
-                    if (!semanaDataModificada.dias[diaFormatado]) semanaDataModificada.dias[diaFormatado] = {};
-                    
-                    tarefaData.responsaveis.forEach(responsavelId => {
-                        const progressoSalvo = progressoDiarioSalvo.get(`${diaFormatado}_${responsavelId}`);
-                        
-                        const itemTarefaProgramacao = {
-                            mapaTaskId: tarefaId,
-                            textoVisivel: textoVisivelFinal,
-                            statusLocal: progressoSalvo?.statusLocal || (tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE'),
-                            conclusao: progressoSalvo?.conclusao || '',
-                            mapaStatus: tarefaData.status,
-                            acao: tarefaData.acao || '', // <-- CAMPO ADICIONADO
-                            turno: tarefaData.turno || TURNO_DIA_INTEIRO,
-                            orientacao: tarefaData.orientacao || '',
-                            localizacao: tarefaData.area || '',
-                        };
-                        
-                        if (!semanaDataModificada.dias[diaFormatado][responsavelId]) {
-                            semanaDataModificada.dias[diaFormatado][responsavelId] = [];
-                        }
-
-                        if (!semanaDataModificada.dias[diaFormatado][responsavelId].find(t => t.mapaTaskId === tarefaId)) {
-                            semanaDataModificada.dias[diaFormatado][responsavelId].push({ ...itemTarefaProgramacao });
-                            algumaSemanaModificadaNaAdicao = true;
-                        }
-                    });
-                }
-            }
-        }
-        dataAtual.setUTCDate(dataAtual.getUTCDate() + 1);
-    }
-
-    if (algumaSemanaModificadaNaAdicao) {
-        const batch = writeBatch(db);
-        alteracoesPorSemana.forEach((dadosModificados, semanaId) => {
-            const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaId);
-            batch.set(semanaDocRef, dadosModificados);
-        });
-        try {
-            await batch.commit();
-        } catch (error) {
-            console.error("[sincronizar] Erro ao commitar batch de adição na programação semanal:", error);
-        }
+    try {
+        await batch.commit();
+    } catch (error) {
+        console.error("[sincronizar] Erro ao commitar batch na programação semanal:", error);
     }
 }
 
