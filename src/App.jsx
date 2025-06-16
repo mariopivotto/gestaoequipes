@@ -2189,8 +2189,8 @@ const ProgramacaoSemanalComponent = () => {
     );
 };
 
-// Versão: 6.8.2
-// [NOVO] Componente criado para agrupar as funcionalidades de Fitossanitário em abas.
+// Versão: 8.3.0
+// [ALTERADO] Adicionada a nova aba "Aplicações" e reordenado o menu.
 const ControleFitossanitarioComponent = () => {
     const [activeTab, setActiveTab] = useState('planos');
 
@@ -2216,12 +2216,14 @@ const ControleFitossanitarioComponent = () => {
             <div className="border-b border-gray-200 mb-6">
                 <nav className="flex space-x-2">
                     <TabButton tabName="planos" currentTab={activeTab} setTab={setActiveTab}>Planos de Aplicação</TabButton>
+                    <TabButton tabName="aplicacoes" currentTab={activeTab} setTab={setActiveTab}>Aplicações</TabButton>
                     <TabButton tabName="calendario" currentTab={activeTab} setTab={setActiveTab}>Calendário de Aplicações</TabButton>
                     <TabButton tabName="historico" currentTab={activeTab} setTab={setActiveTab}>Histórico de Aplicações</TabButton>
                 </nav>
             </div>
             <div>
                 {activeTab === 'planos' && <PlanosFitossanitariosComponent />}
+                {activeTab === 'aplicacoes' && <RegistroAplicacaoComponent />}
                 {activeTab === 'calendario' && <CalendarioFitossanitarioComponent />}
                 {activeTab === 'historico' && <HistoricoFitossanitarioComponent />}
             </div>
@@ -3704,8 +3706,8 @@ const RelatoriosComponent = () => {
 };
 
 
-// Versão: 4.9.0
-// [ALTERADO] Adicionado o campo "Planta / Local" ao formulário.
+// Versão: 8.2.0
+// [ALTERADO] O modal de registro de aplicação não preenche mais a dosagem e as áreas a partir do plano selecionado.
 const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, funcionarios, planoParaRegistrar, registroExistente }) => {
     const [dataAplicacao, setDataAplicacao] = useState('');
     const [produto, setProduto] = useState('');
@@ -3713,7 +3715,7 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
     const [areas, setAreas] = useState([]);
     const [responsavel, setResponsavel] = useState('');
     const [observacoes, setObservacoes] = useState('');
-    const [plantaLocal, setPlantaLocal] = useState(''); // [NOVO v4.9.0] Estado para o novo campo.
+    const [plantaLocal, setPlantaLocal] = useState('');
     const [loading, setLoading] = useState(false);
     const [dadosOrigem, setDadosOrigem] = useState(null);
 
@@ -3728,23 +3730,23 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
                 setAreas(registroExistente.areas || []);
                 setResponsavel(registroExistente.responsavel || '');
                 setObservacoes(registroExistente.observacoes || '');
-                setPlantaLocal(registroExistente.plantaLocal || ''); // [NOVO v4.9.0]
+                setPlantaLocal(registroExistente.plantaLocal || '');
                 setDadosOrigem({ planoId: registroExistente.planoId, planoNome: registroExistente.planoNome });
             } else if (planoParaRegistrar) {
-                // Modo Registro Planejado
+                // Modo Registro a partir de um Plano
                 setDataAplicacao(hojeFormatado);
                 setProduto(planoParaRegistrar.produto || '');
-                setAreas(planoParaRegistrar.areas || []);
-                setDosagem(planoParaRegistrar.dosagemPadrao || '');
+                setDosagem(''); // Campo reiniciado
+                setAreas([]);   // Campo reiniciado
                 setResponsavel('');
                 setObservacoes('');
-                setPlantaLocal(''); // [NOVO v4.9.0]
+                setPlantaLocal('');
                 setDadosOrigem({ planoId: planoParaRegistrar.id, planoNome: planoParaRegistrar.nome });
             } else {
                 // Modo Registro Manual
                 setDataAplicacao(hojeFormatado);
                 setProduto(''); setDosagem(''); setAreas([]); setResponsavel(''); setObservacoes('');
-                setPlantaLocal(''); // [NOVO v4.9.0]
+                setPlantaLocal('');
                 setDadosOrigem(null);
             }
         }
@@ -3764,7 +3766,7 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
             areas,
             responsavel,
             observacoes: observacoes.trim(),
-            plantaLocal: plantaLocal.trim(), // [NOVO v4.9.0]
+            plantaLocal: plantaLocal.trim(),
             planoId: dadosOrigem?.planoId || null,
             planoNome: dadosOrigem?.planoNome || null,
         };
@@ -3776,14 +3778,13 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
     
     const getModalTitle = () => {
         if (registroExistente) return "Editar Registro de Aplicação";
-        if (planoParaRegistrar) return `Registrar: ${planoParaRegistrar.nome}`;
+        if (planoParaRegistrar) return `Registrar Aplicação: ${planoParaRegistrar.nome}`;
         return "Adicionar Registro Manual";
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={getModalTitle()}>
             <form onSubmit={handleSave} className="space-y-4">
-                {/* O JSX do formulário com o novo campo */}
                 <div><label className="block text-sm font-medium text-gray-700">Data da Aplicação *</label><input type="date" value={dataAplicacao} onChange={e => setDataAplicacao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3791,7 +3792,6 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
                     <div><label className="block text-sm font-medium text-gray-700">Dosagem</label><input type="text" value={dosagem} onChange={e => setDosagem(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" placeholder="Ex: 10ml / 1L"/></div>
                 </div>
 
-                {/* [NOVO v4.9.0] Novo campo "Planta / Local" */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Planta / Local Específico</label>
                     <input type="text" value={plantaLocal} onChange={e => setPlantaLocal(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" placeholder="Ex: Oliveira 3, Canteiro de rosas"/>
@@ -3806,14 +3806,12 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
     );
 };
 
-// Versão: 4.5.0
-// [CORRIGIDO] Conteúdo completo do formulário para o Modal de Planos de Aplicação.
+// Versão: 8.2.0
+// [REMOVIDO] Removidos os campos "Dosagem Padrão" e "Áreas" para tornar os planos mais genéricos.
 const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente }) => {
     const { listasAuxiliares } = useContext(GlobalContext);
     const [nome, setNome] = useState('');
     const [produto, setProduto] = useState('');
-    const [dosagemPadrao, setDosagemPadrao] = useState('');
-    const [areas, setAreas] = useState([]);
     const [frequencia, setFrequencia] = useState('UNICA');
     const [diasIntervalo, setDiasIntervalo] = useState(7);
     const [dataInicio, setDataInicio] = useState('');
@@ -3825,8 +3823,6 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
             if (planoExistente) {
                 setNome(planoExistente.nome || '');
                 setProduto(planoExistente.produto || '');
-                setDosagemPadrao(planoExistente.dosagemPadrao || '');
-                setAreas(planoExistente.areas || []);
                 setFrequencia(planoExistente.frequencia || 'UNICA');
                 setDiasIntervalo(planoExistente.diasIntervalo || 7);
                 setDataInicio(planoExistente.dataInicio ? new Date(planoExistente.dataInicio.seconds * 1000).toISOString().split('T')[0] : '');
@@ -3834,8 +3830,6 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
             } else {
                 setNome('');
                 setProduto('');
-                setDosagemPadrao('');
-                setAreas([]);
                 setFrequencia('UNICA');
                 setDiasIntervalo(7);
                 setDataInicio(new Date().toISOString().split('T')[0]);
@@ -3846,8 +3840,8 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
 
     const handleSave = async (e) => {
         e.preventDefault();
-        if (!nome || !produto || !dataInicio || areas.length === 0) {
-            toast.error("Os campos Nome, Produto, Data de Início e Áreas são obrigatórios.");
+        if (!nome || !produto || !dataInicio) {
+            toast.error("Os campos Nome do Plano, Produto Principal e Data de Início são obrigatórios.");
             return;
         }
         setLoading(true);
@@ -3855,8 +3849,8 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
             ...(planoExistente && { id: planoExistente.id }),
             nome: nome.trim(),
             produto: produto.trim(),
-            dosagemPadrao: dosagemPadrao.trim(),
-            areas,
+            dosagemPadrao: '', // Removido da UI
+            areas: [],       // Removido da UI
             frequencia,
             diasIntervalo: frequencia === 'INTERVALO_DIAS' ? diasIntervalo : null,
             dataInicio: Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z")),
@@ -3881,24 +3875,11 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
             <form onSubmit={handleSave} className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Nome do Plano *</label>
-                    <input type="text" value={nome} onChange={e => setNome(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: Adubação de Crescimento - Oliveiras" />
-                </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Produto Principal *</label>
-                        <input type="text" value={produto} onChange={e => setProduto(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: Calda Bordalesa" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Dosagem Padrão</label>
-                        <input type="text" value={dosagemPadrao} onChange={e => setDosagemPadrao(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: 10ml / 1L" />
-                    </div>
+                    <input type="text" value={nome} onChange={e => setNome(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: Adubação de Crescimento" />
                 </div>
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Área(s) de Aplicação *</label>
-                    <select multiple value={areas} onChange={e => setAreas(Array.from(e.target.selectedOptions, option => option.value))} required className="mt-1 block w-full border-gray-300 rounded-md h-32">
-                        {(listasAuxiliares.areas || []).sort().map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p>
+                    <label className="block text-sm font-medium text-gray-700">Produto Principal *</label>
+                    <input type="text" value={produto} onChange={e => setProduto(e.target.value)} required className="mt-1 block w-full border-gray-300 rounded-md" placeholder="Ex: Calda Bordalesa" />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -3948,20 +3929,20 @@ const PlanoAplicacaoModal = ({ isOpen, onClose, onSave, onRemove, planoExistente
     );
 };
 
-// Versão: 4.3.2
-// [CORRIGIDO] Adicionado valor padrão à prop 'planosDoDia' para evitar erro caso seja indefinida.
-const SelecionarPlanoModal = ({ isOpen, onClose, planosDoDia = [], onSelectPlano }) => {
+// Versão: 8.4.0
+// [ALTERADO] O modal agora exibe todos os planos ativos disponíveis, em vez de apenas os pendentes.
+const SelecionarPlanoModal = ({ isOpen, onClose, planosDisponiveis = [], onSelectPlano }) => {
     if (!isOpen) return null;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Selecionar Aplicação Planejada" width="max-w-xl">
+        <Modal isOpen={isOpen} onClose={onClose} title="Selecionar Plano de Aplicação" width="max-w-xl">
             <div className="space-y-3">
-                <p className="text-sm text-gray-600">Os seguintes planos de aplicação estão programados para hoje ou estão atrasados. Selecione um para registrar a aplicação.</p>
-                {planosDoDia.length === 0 ? (
-                    <p className="text-center py-4 text-gray-500">Nenhum plano programado para hoje.</p>
+                <p className="text-sm text-gray-600">Selecione um plano base para registrar uma nova aplicação.</p>
+                {planosDisponiveis.length === 0 ? (
+                    <p className="text-center py-4 text-gray-500">Nenhum plano de aplicação ativo foi encontrado.</p>
                 ) : (
                     <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
-                        {planosDoDia.map(plano => (
+                        {planosDisponiveis.map(plano => (
                             <button
                                 key={plano.id}
                                 onClick={() => onSelectPlano(plano)}
@@ -3969,7 +3950,6 @@ const SelecionarPlanoModal = ({ isOpen, onClose, planosDoDia = [], onSelectPlano
                             >
                                 <p className="font-semibold text-blue-800">{plano.nome}</p>
                                 <p className="text-xs text-gray-700">Produto: {plano.produto}</p>
-                                <p className="text-xs text-gray-700">Áreas: {plano.areas.join(', ')}</p>
                             </button>
                         ))}
                     </div>
@@ -4342,40 +4322,37 @@ const AgendaDiariaComponent = () => {
     );
 };
 
-// Versão: 5.3.0
-// [ALTERADO] Torna os eventos do calendário clicáveis, abrindo um modal com os detalhes do plano.
+// Versão: 8.5.0
+// [ALTERADO] O Calendário agora busca e exibe também o histórico de aplicações realizadas, além das planejadas.
 const CalendarioFitossanitarioComponent = () => {
     const { db, appId, auth } = useContext(GlobalContext);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [planos, setPlanos] = useState([]);
+    const [registros, setRegistros] = useState([]); // [NOVO] Estado para o histórico
     const [eventos, setEventos] = useState({});
     const [loading, setLoading] = useState(true);
 
-    // [NOVO v5.3.0] Estados para controlar o modal de detalhes do plano
     const [isPlanoModalOpen, setIsPlanoModalOpen] = useState(false);
     const [planoSelecionado, setPlanoSelecionado] = useState(null);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
+    const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`); // [NOVO] Referência para o histórico
 
     const gerarOcorrenciasDoPlano = (plano, ano) => {
         const ocorrencias = [];
         if (!plano.ativo || !plano.dataInicio?.toDate) return ocorrencias;
-
         let dataAtual = plano.dataInicio.toDate();
-        let i = 0; // Adicionado para garantir ID único
+        let i = 0;
         while (dataAtual.getFullYear() <= ano) {
             if (dataAtual.getFullYear() >= ano - 1) {
                 ocorrencias.push({
-                    id: `${plano.id}-${i++}`,
-                    title: plano.nome,
-                    date: new Date(dataAtual.getTime()),
-                    produto: plano.produto,
-                    planoId: plano.id, // [NOVO v5.3.0] Referência direta ao ID do plano
-                    color: `hsl(${plano.nome.length * 20 % 360}, 70%, 80%)`
+                    id: `${plano.id}-${i++}`, title: plano.nome, date: new Date(dataAtual.getTime()),
+                    produto: plano.produto, planoId: plano.id, type: 'planned',
+                    color: `hsl(200, 70%, 90%)` // Cor para eventos planejados
                 });
             }
-
+            if (plano.frequencia === 'UNICA') return ocorrencias;
             switch (plano.frequencia) {
                 case 'SEMANAL': dataAtual.setDate(dataAtual.getDate() + 7); break;
                 case 'QUINZENAL': dataAtual.setDate(dataAtual.getDate() + 14); break;
@@ -4387,34 +4364,66 @@ const CalendarioFitossanitarioComponent = () => {
         return ocorrencias;
     };
 
+    // Efeito para buscar os planos
     useEffect(() => {
+        setLoading(true);
         const q = query(planosCollectionRef, where("ativo", "==", true));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const planosAtivos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setPlanos(planosAtivos);
+            setPlanos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
         }, error => { console.error("Erro ao carregar planos:", error); setLoading(false); });
         return () => unsubscribe();
-    }, []);
-
+    }, [db, appId]);
+    
+    // [NOVO] Efeito para buscar o histórico de aplicações
     useEffect(() => {
-        if (planos.length > 0) {
-            const todosOsEventos = {};
-            const anoAtual = currentDate.getFullYear();
-            
-            planos.forEach(plano => {
-                const ocorrencias = gerarOcorrenciasDoPlano(plano, anoAtual);
-                ocorrencias.forEach(oc => {
+        const q = query(registrosCollectionRef);
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setRegistros(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, error => { console.error("Erro ao carregar histórico de aplicações:", error); });
+        return () => unsubscribe();
+    }, [db, appId]);
+
+    // Efeito para processar e combinar os eventos para o calendário
+    useEffect(() => {
+        if (loading) return;
+
+        const todosOsEventos = {};
+        const anoAtual = currentDate.getFullYear();
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+
+        // 1. Processa os planos para gerar eventos futuros
+        planos.forEach(plano => {
+            const ocorrencias = gerarOcorrenciasDoPlano(plano, anoAtual);
+            ocorrencias.forEach(oc => {
+                if (oc.date.getTime() >= hoje.getTime()) { // Mostra apenas planos para hoje ou futuro
                     const dataString = oc.date.toISOString().split('T')[0];
                     if (!todosOsEventos[dataString]) { todosOsEventos[dataString] = []; }
                     todosOsEventos[dataString].push(oc);
-                });
+                }
             });
-            setEventos(todosOsEventos);
-        }
-    }, [planos, currentDate]);
+        });
 
-    // [NOVO v5.3.0] Função para abrir o modal de detalhes do plano
+        // 2. Processa o histórico para gerar eventos passados
+        registros.forEach(registro => {
+            if (!registro.dataAplicacao?.toDate) return;
+            const dataAplicacao = registro.dataAplicacao.toDate();
+            const dataString = dataAplicacao.toISOString().split('T')[0];
+            if (!todosOsEventos[dataString]) { todosOsEventos[dataString] = []; }
+
+            // Adiciona evento do histórico, evitando duplicatas visuais no mesmo dia se já houver um evento planejado
+            if (!todosOsEventos[dataString].some(e => e.type === 'historical' && e.id === registro.id)) {
+                todosOsEventos[dataString].push({
+                    id: registro.id, title: `[R] ${registro.produto}`, date: dataAplicacao,
+                    recordId: registro.id, type: 'historical', color: `hsl(145, 60%, 85%)` // Cor para eventos realizados
+                });
+            }
+        });
+
+        setEventos(todosOsEventos);
+    }, [planos, registros, currentDate, loading]);
+
     const handleOpenPlanoModal = (evento) => {
         const planoEncontrado = planos.find(p => p.id === evento.planoId);
         if (planoEncontrado) {
@@ -4423,10 +4432,8 @@ const CalendarioFitossanitarioComponent = () => {
         }
     };
     
-    // [NOVO v5.3.0] Funções de salvar e remover para passar ao modal
     const handleSavePlano = async (planoData) => { const usuario = auth.currentUser; const dadosParaSalvar = { ...planoData, updatedAt: Timestamp.now(), userEmail: usuario?.email || 'unknown', }; try { if (planoData.id) { const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, planoData.id); await updateDoc(planoDocRef, dadosParaSalvar); toast.success("Plano atualizado com sucesso!"); } else { await addDoc(planosCollectionRef, { ...dadosParaSalvar, createdAt: Timestamp.now() }); toast.success("Plano criado com sucesso!"); } } catch (error) { console.error("Erro ao salvar plano:", error); toast.error("Falha ao salvar o plano."); } };
     const handleRemovePlano = async (planoId) => { try { await deleteDoc(doc(db, `${basePath}/planos_fitossanitarios`, planoId)); toast.success("Plano excluído com sucesso!"); setIsPlanoModalOpen(false); } catch (error) { console.error("Erro ao excluir plano:", error); toast.error("Falha ao excluir o plano."); } };
-
     const changeMonth = (offset) => { setCurrentDate(prevDate => { const newDate = new Date(prevDate); newDate.setMonth(newDate.getMonth() + offset); return newDate; }); };
 
     const renderCalendar = () => {
@@ -4446,12 +4453,11 @@ const CalendarioFitossanitarioComponent = () => {
                     <strong className={`text-sm ${isToday ? 'text-blue-600 font-bold' : ''}`}>{day}</strong>
                     <div className="flex-grow overflow-y-auto mt-1 space-y-1 pr-1">
                         {dayEvents.map(event => (
-                            // [ALTERADO v5.3.0] Evento agora é um botão clicável
                             <button
                                 key={event.id}
-                                onClick={() => handleOpenPlanoModal(event)}
-                                title={event.produto}
-                                className="w-full text-left text-xs p-1 rounded-md text-gray-800 hover:ring-2 hover:ring-blue-400 transition-all"
+                                onClick={() => event.type === 'planned' && handleOpenPlanoModal(event)}
+                                title={event.title}
+                                className={`w-full text-left text-xs p-1 rounded-md text-gray-800 transition-all ${event.type === 'planned' ? 'hover:ring-2 hover:ring-blue-400' : 'cursor-default'}`}
                                 style={{backgroundColor: event.color}}
                             >
                                 {event.title}
@@ -4466,7 +4472,7 @@ const CalendarioFitossanitarioComponent = () => {
     
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Calendário de Aplicações Programadas</h2>
+            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Calendário de Aplicações</h2>
             
             <div className="bg-white p-4 rounded-lg shadow-md">
                 <div className="flex justify-between items-center mb-4">
@@ -4478,7 +4484,7 @@ const CalendarioFitossanitarioComponent = () => {
                 </div>
                 
                 {loading ? (
-                    <p className="text-center py-10">Carregando planos...</p>
+                    <p className="text-center py-10">Carregando dados...</p>
                 ) : (
                     <>
                         <div className="grid grid-cols-7 text-center font-bold text-gray-600 border-b pb-2">
@@ -4491,7 +4497,6 @@ const CalendarioFitossanitarioComponent = () => {
                 )}
             </div>
 
-            {/* [NOVO v5.3.0] Renderiza o modal de detalhes quando um plano é selecionado */}
             {isPlanoModalOpen && (
                 <PlanoAplicacaoModal
                     isOpen={isPlanoModalOpen}
@@ -4782,8 +4787,161 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
-// Versão: 5.1.0
-// [NOVO] Adicionado um sistema de avisos com contagem regressiva para as próximas aplicações nos cards de planos.
+// Versão: 8.6.0
+// [NOVO] Adicionado um histórico visual de aplicações na aba "Aplicações", com filtro por plano.
+const RegistroAplicacaoComponent = () => {
+    const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
+    
+    // Estados para os modais e criação
+    const [isRegistroModalOpen, setIsRegistroModalOpen] = useState(false);
+    const [planoParaRegistrar, setPlanoParaRegistrar] = useState(null);
+    const [isSelecionarPlanoModalOpen, setIsSelecionarPlanoModalOpen] = useState(false);
+    const [todosPlanosAtivos, setTodosPlanosAtivos] = useState([]);
+    const [loadingPlanos, setLoadingPlanos] = useState(true);
+
+    // Estados para o novo histórico visual
+    const [historicoAplicacoes, setHistoricoAplicacoes] = useState([]);
+    const [loadingHistorico, setLoadingHistorico] = useState(true);
+    const [planoFiltro, setPlanoFiltro] = useState('TODOS');
+
+    const basePath = `/artifacts/${appId}/public/data`;
+    const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`);
+    const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
+    
+    // Efeito para buscar todos os planos ativos (para o filtro e modais)
+    useEffect(() => {
+        setLoadingPlanos(true);
+        const q = query(planosCollectionRef, where("ativo", "==", true), orderBy("nome"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setTodosPlanosAtivos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoadingPlanos(false);
+        }, error => {
+            console.error("Erro ao carregar planos ativos:", error);
+            setLoadingPlanos(false);
+        });
+        return () => unsubscribe();
+    }, [db, appId]);
+
+    // Efeito para buscar o histórico completo de aplicações
+    useEffect(() => {
+        setLoadingHistorico(true);
+        const q = query(registrosCollectionRef, orderBy("dataAplicacao", "desc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setHistoricoAplicacoes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoadingHistorico(false);
+        }, error => {
+            console.error("Erro ao carregar histórico de aplicações:", error);
+            setLoadingHistorico(false);
+        });
+        return () => unsubscribe();
+    }, [db, appId]);
+
+    // Memo para filtrar o histórico exibido com base no plano selecionado
+    const aplicacoesExibidas = useMemo(() => {
+        if (planoFiltro === 'TODOS') {
+            return historicoAplicacoes;
+        }
+        return historicoAplicacoes.filter(app => app.planoId === planoFiltro);
+    }, [planoFiltro, historicoAplicacoes]);
+
+    const handleOpenRegistroManual = () => { setPlanoParaRegistrar(null); setIsRegistroModalOpen(true); };
+    const handleOpenSelecaoPlano = () => setIsSelecionarPlanoModalOpen(true);
+    const handleSelecionarPlano = (plano) => { setPlanoParaRegistrar(plano); setIsSelecionarPlanoModalOpen(false); setIsRegistroModalOpen(true); };
+
+    const handleSaveRegistro = async (dadosDoForm) => {
+        const usuarioEmail = auth.currentUser?.email;
+        const batch = writeBatch(db);
+        try {
+            const novoRegistroRef = doc(registrosCollectionRef);
+            batch.set(novoRegistroRef, { ...dadosDoForm, createdAt: Timestamp.now(), createdBy: usuarioEmail });
+            if (dadosDoForm.planoId) {
+                const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId);
+                batch.update(planoDocRef, { ultimaAplicacao: dadosDoForm.dataAplicacao });
+            }
+            await batch.commit();
+            await logAlteracaoFitossanitaria(db, basePath, novoRegistroRef.id, usuarioEmail, "Registro Criado");
+            toast.success("Aplicação registrada com sucesso!");
+        } catch (error) { 
+            toast.error("Falha ao salvar o registro."); 
+            console.error(error); 
+        }
+    };
+
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <h2 className="text-2xl font-semibold text-gray-800">Registrar Aplicações</h2>
+                <div className="flex items-center gap-2">
+                    <button onClick={handleOpenSelecaoPlano} disabled={loadingPlanos} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400">
+                        <LucideCheckSquare size={20} className="mr-2"/> Registrar Aplicação Planejada
+                    </button>
+                    <button onClick={handleOpenRegistroManual} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
+                        <LucidePlusCircle size={20} className="mr-2"/> Adicionar Registro Manual
+                    </button>
+                </div>
+            </div>
+
+            <RegistroAplicacaoModal isOpen={isRegistroModalOpen} onClose={() => setIsRegistroModalOpen(false)} onSave={handleSaveRegistro} listasAuxiliares={listasAuxiliares} funcionarios={funcionarios} planoParaRegistrar={planoParaRegistrar} registroExistente={null} />
+            <SelecionarPlanoModal isOpen={isSelecionarPlanoModalOpen} onClose={() => setIsSelecionarPlanoModalOpen(false)} planosDisponiveis={todosPlanosAtivos} onSelectPlano={handleSelecionarPlano} />
+
+            <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
+                <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+                    <h3 className="text-xl font-semibold text-gray-700">Visualizar Aplicações Realizadas</h3>
+                    <div className="flex items-center gap-2">
+                        <label htmlFor="planoFiltro" className="text-sm font-medium text-gray-700">Filtrar por Plano:</label>
+                        <select
+                            id="planoFiltro"
+                            value={planoFiltro}
+                            onChange={e => setPlanoFiltro(e.target.value)}
+                            disabled={loadingPlanos}
+                            className="p-2 border border-gray-300 rounded-md shadow-sm"
+                        >
+                            <option value="TODOS">Todos os Planos</option>
+                            {todosPlanosAtivos.map(plano => (
+                                <option key={plano.id} value={plano.id}>{plano.nome}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                {["Data", "Produto", "Origem (Plano)", "Planta / Local", "Área(s)", "Responsável", "Observações"].map(h => 
+                                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+                                )}
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {loadingHistorico ? (
+                                <tr><td colSpan="7" className="text-center p-4">Carregando histórico...</td></tr>
+                            ) : aplicacoesExibidas.length === 0 ? (
+                                <tr><td colSpan="7" className="text-center p-4 text-gray-500">Nenhuma aplicação encontrada para o filtro selecionado.</td></tr>
+                            ) : (
+                                aplicacoesExibidas.map(reg => (
+                                    <tr key={reg.id}>
+                                        <td className="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">{formatDate(reg.dataAplicacao)}</td>
+                                        <td className="px-4 py-3 text-sm font-semibold text-gray-900">{reg.produto}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700">{reg.planoNome || <span className="italic text-gray-500">Manual</span>}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700">{reg.plantaLocal || '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal">{reg.areas.join(', ')}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{reg.responsavel}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-700 max-w-sm whitespace-normal">{reg.observacoes || '-'}</td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Versão: 8.5.1
+// [CORRIGIDO] Ajustada a lógica de cálculo de datas para corrigir o erro de "off-by-one day"
+// que marcava planos do dia como atrasados, devido a inconsistências de fuso horário.
 const PlanosFitossanitariosComponent = () => {
     const { db, appId, auth } = useContext(GlobalContext);
     const [planos, setPlanos] = useState([]);
@@ -4816,29 +4974,55 @@ const PlanosFitossanitariosComponent = () => {
         return () => unsubscribe();
     }, []);
 
-    // ... (funções de save, remove, etc. permanecem as mesmas)
-    const calcularProximaAplicacao = (plano) => { if (!plano.ativo) return null; const agora = new Date(); agora.setUTCHours(0, 0, 0, 0); const ultima = plano.ultimaAplicacao ? plano.ultimaAplicacao.toDate() : null; let proxima = plano.dataInicio.toDate(); proxima.setUTCHours(0,0,0,0); if (ultima) { let dataBaseCalculo = new Date(ultima); dataBaseCalculo.setUTCHours(0,0,0,0); switch (plano.frequencia) { case 'SEMANAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 7); break; case 'QUINZENAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 14); break; case 'MENSAL': dataBaseCalculo.setUTCMonth(dataBaseCalculo.getUTCMonth() + 1); break; case 'INTERVALO_DIAS': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + (plano.diasIntervalo || 1)); break; default: return null; } proxima = dataBaseCalculo; } if (proxima < agora && plano.frequencia !== 'UNICA') { let dataBase = new Date(agora); let dataTeste = new Date(proxima); while(dataTeste < dataBase) { switch (plano.frequencia) { case 'SEMANAL': dataTeste.setUTCDate(dataTeste.getUTCDate() + 7); break; case 'QUINZENAL': dataTeste.setUTCDate(dataTeste.getUTCDate() + 14); break; case 'MENSAL': dataTeste.setUTCMonth(dataTeste.getUTCMonth() + 1); break; case 'INTERVALO_DIAS': dataTeste.setUTCDate(dataTeste.getUTCDate() + (plano.diasIntervalo || 1)); break; default: break;} } return dataTeste; } return proxima; };
-    const handleSavePlano = async (planoData) => { const usuario = auth.currentUser; const dadosParaSalvar = { ...planoData, updatedAt: Timestamp.now(), userEmail: usuario?.email || 'unknown', }; try { if (planoData.id) { const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, planoData.id); await updateDoc(planoDocRef, dadosParaSalvar); toast.success("Plano atualizado com sucesso!"); } else { await addDoc(planosCollectionRef, { ...dadosParaSalvar, createdAt: Timestamp.now() }); toast.success("Plano criado com sucesso!"); } } catch (error) { console.error("Erro ao salvar plano:", error); toast.error("Falha ao salvar o plano."); } };
-    const handleRemovePlano = async (planoId) => { try { await deleteDoc(doc(db, `${basePath}/planos_fitossanitarios`, planoId)); toast.success("Plano excluído com sucesso!"); } catch (error) { console.error("Erro ao excluir plano:", error); toast.error("Falha ao excluir o plano."); } };
-    const handleOpenModal = (plano = null) => { setEditingPlano(plano); setIsModalOpen(true); };
-    const handleOpenHistoricoModal = (plano) => { setPlanoParaVerHistorico(plano); setIsHistoricoModalOpen(true); };
-    const handleCloseHistoricoModal = () => { setIsHistoricoModalOpen(false); setPlanoParaVerHistorico(null); };
-    const getFrequenciaLabel = (plano) => { switch (plano.frequencia) { case 'UNICA': return 'Única'; case 'SEMANAL': return 'Semanal'; case 'QUINZENAL': return 'Quinzenal'; case 'MENSAL': return 'Mensal'; case 'INTERVALO_DIAS': return `A cada ${plano.diasIntervalo} dias`; default: return 'N/A'; } };
+    const calcularProximaAplicacao = (plano) => {
+        if (!plano.ativo || !plano.dataInicio?.toDate) return null;
     
-    // [NOVO v5.1.0] Função para calcular a contagem regressiva e o status visual.
+        const agoraUTC = new Date();
+        agoraUTC.setUTCHours(0, 0, 0, 0);
+    
+        const ultima = plano.ultimaAplicacao ? plano.ultimaAplicacao.toDate() : null;
+        let proxima = plano.dataInicio.toDate();
+    
+        if (ultima) {
+            let dataBaseCalculo = ultima;
+            switch (plano.frequencia) {
+                case 'SEMANAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 7); break;
+                case 'QUINZENAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 14); break;
+                case 'MENSAL': dataBaseCalculo.setUTCMonth(dataBaseCalculo.getUTCMonth() + 1); break;
+                case 'INTERVALO_DIAS': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + (plano.diasIntervalo || 1)); break;
+                default: return proxima;
+            }
+            proxima = dataBaseCalculo;
+        }
+    
+        // Avança a data para a próxima ocorrência válida a partir de hoje
+        if (proxima < agoraUTC && plano.frequencia !== 'UNICA') {
+            while (proxima < agoraUTC) {
+                switch (plano.frequencia) {
+                    case 'SEMANAL': proxima.setUTCDate(proxima.getUTCDate() + 7); break;
+                    case 'QUINZENAL': proxima.setUTCDate(proxima.getUTCDate() + 14); break;
+                    case 'MENSAL': proxima.setUTCMonth(proxima.getUTCMonth() + 1); break;
+                    case 'INTERVALO_DIAS': proxima.setUTCDate(proxima.getUTCDate() + (plano.diasIntervalo || 1)); break;
+                    default: break;
+                }
+            }
+        }
+        return proxima;
+    };
+    
     const getContagemRegressivaInfo = (proximaAplicacao) => {
         if (!proximaAplicacao) {
             return { status: 'CONCLUIDO', texto: 'Plano Concluído', cor: 'bg-green-100 text-green-800' };
         }
 
-        const hoje = new Date();
-        hoje.setHours(0, 0, 0, 0);
-        
-        const proxima = new Date(proximaAplicacao);
-        proxima.setHours(0, 0, 0, 0);
+        const hojeUTC = new Date();
+        hojeUTC.setUTCHours(0, 0, 0, 0);
 
-        const diffTime = proxima - hoje;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const proximaUTC = new Date(proximaAplicacao);
+        proximaUTC.setUTCHours(0, 0, 0, 0);
+
+        const diffTime = proximaUTC.getTime() - hojeUTC.getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
         if (diffDays < 0) {
             return { status: 'ATRASADO', texto: `Atrasado há ${Math.abs(diffDays)} dia(s)`, cor: 'bg-red-200 text-red-900 font-bold' };
@@ -4853,6 +5037,13 @@ const PlanosFitossanitariosComponent = () => {
         return { status: 'NORMAL', texto: `Próx. aplicação em ${diffDays} dias`, cor: 'bg-gray-100 text-gray-700' };
     };
 
+    const handleSavePlano = async (planoData) => { const usuario = auth.currentUser; const dadosParaSalvar = { ...planoData, updatedAt: Timestamp.now(), userEmail: usuario?.email || 'unknown', }; try { if (planoData.id) { const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, planoData.id); await updateDoc(planoDocRef, dadosParaSalvar); toast.success("Plano atualizado com sucesso!"); } else { await addDoc(planosCollectionRef, { ...dadosParaSalvar, createdAt: Timestamp.now() }); toast.success("Plano criado com sucesso!"); } } catch (error) { console.error("Erro ao salvar plano:", error); toast.error("Falha ao salvar o plano."); } };
+    const handleRemovePlano = async (planoId) => { try { await deleteDoc(doc(db, `${basePath}/planos_fitossanitarios`, planoId)); toast.success("Plano excluído com sucesso!"); } catch (error) { console.error("Erro ao excluir plano:", error); toast.error("Falha ao excluir o plano."); } };
+    const handleOpenModal = (plano = null) => { setEditingPlano(plano); setIsModalOpen(true); };
+    const handleOpenHistoricoModal = (plano) => { setPlanoParaVerHistorico(plano); setIsHistoricoModalOpen(true); };
+    const handleCloseHistoricoModal = () => { setIsHistoricoModalOpen(false); setPlanoParaVerHistorico(null); };
+    const getFrequenciaLabel = (plano) => { switch (plano.frequencia) { case 'UNICA': return 'Única'; case 'SEMANAL': return 'Semanal'; case 'QUINZENAL': return 'Quinzenal'; case 'MENSAL': return 'Mensal'; case 'INTERVALO_DIAS': return `A cada ${plano.diasIntervalo} dias`; default: return 'N/A'; } };
+    
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
@@ -4873,13 +5064,11 @@ const PlanosFitossanitariosComponent = () => {
                  ) : (
                     planos.map(plano => {
                         const proximaAplicacao = calcularProximaAplicacao(plano);
-                        // [NOVO v5.1.0] Chama a nova função para obter o status da contagem
                         const contagemInfo = getContagemRegressivaInfo(proximaAplicacao);
 
                         return (
                         <div key={plano.id} className="bg-white rounded-lg shadow-md flex flex-col justify-between border-l-4" style={{borderColor: plano.ativo ? '#10B981' : '#6B7280'}}>
                             <div>
-                                {/* [NOVO v5.1.0] O aviso de contagem regressiva é exibido aqui */}
                                 {plano.ativo && (
                                     <div className={`p-2 text-center text-sm mb-3 rounded-t-md ${contagemInfo.cor}`}>
                                         {contagemInfo.texto}
@@ -4896,7 +5085,6 @@ const PlanosFitossanitariosComponent = () => {
                                     <p className="text-sm text-gray-600 font-medium">{plano.produto}</p>
                                     <div className="mt-3 text-xs space-y-1">
                                         <p><strong className="font-semibold">Frequência:</strong> {getFrequenciaLabel(plano)}</p>
-                                        <p><strong className="font-semibold">Áreas:</strong> {plano.areas.join(', ')}</p>
                                     </div>
                                 </div>
                             </div>
@@ -4918,25 +5106,19 @@ const PlanosFitossanitariosComponent = () => {
     );
 };
 
-// Versão: 4.9.1
-// [CORRIGIDO] Lógica de detecção de alterações no 'handleSaveRegistro' para incluir todos os campos do formulário.
+// Versão: 8.3.0
+// [ALTERADO] Componente simplificado para exibir apenas o histórico. A lógica de criação foi movida para o novo componente RegistroAplicacaoComponent.
 const HistoricoFitossanitarioComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
     const [registros, setRegistros] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isRegistroModalOpen, setIsRegistroModalOpen] = useState(false);
-    const [planoParaRegistrar, setPlanoParaRegistrar] = useState(null);
-    const [isSelecionarPlanoModalOpen, setIsSelecionarPlanoModalOpen] = useState(false);
-    const [planosDodia, setPlanosDodia] = useState([]);
-    const [loadingPlanos, setLoadingPlanos] = useState(true);
-
     const [editingRegistro, setEditingRegistro] = useState(null);
     const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
     const [selectedRegistroId, setSelectedRegistroId] = useState(null);
     
     const basePath = `/artifacts/${appId}/public/data`;
     const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`);
-    const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
 
     useEffect(() => {
         const q = query(registrosCollectionRef, orderBy("dataAplicacao", "desc"));
@@ -4948,51 +5130,31 @@ const HistoricoFitossanitarioComponent = () => {
         return () => unsubscribe();
     }, []);
 
-    const calcularProximaAplicacao = (plano, dataDeReferencia) => { if (!plano.ativo || !plano.dataInicio?.toDate) return null; const dataReferenciaUTC = new Date(dataDeReferencia); dataReferenciaUTC.setUTCHours(0, 0, 0, 0); const ultimaAplicacao = plano.ultimaAplicacao ? plano.ultimaAplicacao.toDate() : null; let proximaAplicacao = plano.dataInicio.toDate(); proximaAplicacao.setUTCHours(0, 0, 0, 0); if (ultimaAplicacao) { let dataBaseCalculo = new Date(ultimaAplicacao); dataBaseCalculo.setUTCHours(0, 0, 0, 0); switch (plano.frequencia) { case 'SEMANAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 7); break; case 'QUINZENAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 14); break; case 'MENSAL': dataBaseCalculo.setUTCMonth(dataBaseCalculo.getUTCMonth() + 1); break; case 'INTERVALO_DIAS': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + (plano.diasIntervalo || 1)); break; default: return null; } proximaAplicacao = dataBaseCalculo; } if (proximaAplicacao < dataReferenciaUTC && plano.frequencia !== 'UNICA') { while (proximaAplicacao < dataReferenciaUTC) { switch (plano.frequencia) { case 'SEMANAL': proximaAplicacao.setUTCDate(proximaAplicacao.getUTCDate() + 7); break; case 'QUINZENAL': proximaAplicacao.setUTCDate(proximaAplicacao.getUTCDate() + 14); break; case 'MENSAL': proximaAplicacao.setUTCMonth(proximaAplicacao.getUTCMonth() + 1); break; case 'INTERVALO_DIAS': proximaAplicacao.setUTCDate(proximaAplicacao.getUTCDate() + (plano.diasIntervalo || 1)); break; default: break;} } } return proximaAplicacao; };
-    useEffect(() => { const q = query(planosCollectionRef, where("ativo", "==", true)); const unsubscribe = onSnapshot(q, (snapshot) => { const planosAtivos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); const hoje = new Date(); const hojeUTC = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), hoje.getUTCDate())); const planosFiltrados = planosAtivos.filter(plano => { const proxima = calcularProximaAplicacao(plano, hojeUTC); return proxima && proxima <= hojeUTC; }); setPlanosDodia(planosFiltrados); setLoadingPlanos(false); }, error => { console.error("Erro ao carregar planos do dia:", error); setLoadingPlanos(false); }); return () => unsubscribe(); }, []);
-    
-    const handleOpenRegistroManual = () => { setEditingRegistro(null); setPlanoParaRegistrar(null); setIsRegistroModalOpen(true); };
-    const handleOpenSelecaoPlano = () => setIsSelecionarPlanoModalOpen(true);
-    const handleSelecionarPlano = (plano) => { setPlanoParaRegistrar(plano); setEditingRegistro(null); setIsSelecionarPlanoModalOpen(false); setIsRegistroModalOpen(true); };
-    const handleOpenEditModal = (registro) => { setEditingRegistro(registro); setPlanoParaRegistrar(null); setIsRegistroModalOpen(true); };
+    const handleOpenEditModal = (registro) => { setEditingRegistro(registro); setIsRegistroModalOpen(true); };
     const handleOpenHistoricoModal = (registroId) => { setSelectedRegistroId(registroId); setIsHistoricoModalOpen(true); };
     
+    // Esta função agora lida apenas com a edição de um registro existente
     const handleSaveRegistro = async (dadosDoForm, registroOriginal) => {
+        if (!registroOriginal) return; // Segurança para garantir que só edite
+
         const usuarioEmail = auth.currentUser?.email;
-        if (registroOriginal) {
-            const registroRef = doc(db, `${basePath}/controleFitossanitario`, registroOriginal.id);
-            const detalhes = [];
-            // [CORRIGIDO v4.9.1] Lógica de comparação completa
-            if (formatDate(registroOriginal.dataAplicacao) !== formatDate(dadosDoForm.dataAplicacao)) detalhes.push(`Data: de "${formatDate(registroOriginal.dataAplicacao)}" para "${formatDate(dadosDoForm.dataAplicacao)}".`);
-            if (registroOriginal.produto !== dadosDoForm.produto) detalhes.push(`Produto: de "${registroOriginal.produto}" para "${dadosDoForm.produto}".`);
-            if ((registroOriginal.dosagem || '') !== dadosDoForm.dosagem) detalhes.push(`Dosagem: de "${registroOriginal.dosagem || 'N/A'}" para "${dadosDoForm.dosagem}".`);
-            if ((registroOriginal.plantaLocal || '') !== dadosDoForm.plantaLocal) detalhes.push(`Planta/Local: de "${registroOriginal.plantaLocal || 'N/A'}" para "${dadosDoForm.plantaLocal}".`);
-            if ((registroOriginal.areas || []).join(',') !== (dadosDoForm.areas || []).join(',')) detalhes.push(`Áreas alteradas.`);
-            if (registroOriginal.responsavel !== dadosDoForm.responsavel) detalhes.push(`Responsável: de "${registroOriginal.responsavel}" para "${dadosDoForm.responsavel}".`);
-            if ((registroOriginal.observacoes || '') !== dadosDoForm.observacoes) detalhes.push(`Observações alteradas.`);
+        const registroRef = doc(db, `${basePath}/controleFitossanitario`, registroOriginal.id);
+        const detalhes = [];
+        if (formatDate(registroOriginal.dataAplicacao) !== formatDate(dadosDoForm.dataAplicacao)) detalhes.push(`Data: de "${formatDate(registroOriginal.dataAplicacao)}" para "${formatDate(dadosDoForm.dataAplicacao)}".`);
+        if (registroOriginal.produto !== dadosDoForm.produto) detalhes.push(`Produto: de "${registroOriginal.produto}" para "${dadosDoForm.produto}".`);
+        if ((registroOriginal.dosagem || '') !== dadosDoForm.dosagem) detalhes.push(`Dosagem: de "${registroOriginal.dosagem || 'N/A'}" para "${dadosDoForm.dosagem}".`);
+        if ((registroOriginal.plantaLocal || '') !== dadosDoForm.plantaLocal) detalhes.push(`Planta/Local: de "${registroOriginal.plantaLocal || 'N/A'}" para "${dadosDoForm.plantaLocal}".`);
+        if ((registroOriginal.areas || []).join(',') !== (dadosDoForm.areas || []).join(',')) detalhes.push(`Áreas alteradas.`);
+        if (registroOriginal.responsavel !== dadosDoForm.responsavel) detalhes.push(`Responsável: de "${registroOriginal.responsavel}" para "${dadosDoForm.responsavel}".`);
+        if ((registroOriginal.observacoes || '') !== dadosDoForm.observacoes) detalhes.push(`Observações alteradas.`);
 
-            try {
-                await updateDoc(registroRef, { ...dadosDoForm, updatedAt: Timestamp.now() });
-                if (detalhes.length > 0) {
-                    await logAlteracaoFitossanitaria(db, basePath, registroOriginal.id, usuarioEmail, "Registro Editado", detalhes.join('\n'));
-                }
-                toast.success("Registro atualizado com sucesso!");
-            } catch (error) { toast.error("Falha ao atualizar registro."); console.error(error); }
-
-        } else {
-            const batch = writeBatch(db);
-            try {
-                const novoRegistroRef = doc(registrosCollectionRef);
-                batch.set(novoRegistroRef, { ...dadosDoForm, createdAt: Timestamp.now(), createdBy: usuarioEmail });
-                if (dadosDoForm.planoId) {
-                    const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId);
-                    batch.update(planoDocRef, { ultimaAplicacao: dadosDoForm.dataAplicacao });
-                }
-                await batch.commit();
-                await logAlteracaoFitossanitaria(db, basePath, novoRegistroRef.id, usuarioEmail, "Registro Criado");
-                toast.success("Registro salvo com sucesso!");
-            } catch (error) { toast.error("Falha ao salvar o registro."); console.error(error); }
-        }
+        try {
+            await updateDoc(registroRef, { ...dadosDoForm, updatedAt: Timestamp.now() });
+            if (detalhes.length > 0) {
+                await logAlteracaoFitossanitaria(db, basePath, registroOriginal.id, usuarioEmail, "Registro Editado", detalhes.join('\n'));
+            }
+            toast.success("Registro atualizado com sucesso!");
+        } catch (error) { toast.error("Falha ao atualizar registro."); console.error(error); }
     };
 
     const handleDeleteRegistro = async (registro) => {
@@ -5006,22 +5168,22 @@ const HistoricoFitossanitarioComponent = () => {
     
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                <h2 className="text-2xl font-semibold text-gray-800">Histórico de Aplicações</h2>
-                <div className="flex items-center gap-2">
-                    <button onClick={handleOpenSelecaoPlano} disabled={loadingPlanos} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm relative disabled:bg-gray-400">
-                        <LucideCheckSquare size={20} className="mr-2"/> Registrar Aplicação Planejada
-                        {!loadingPlanos && planosDodia.length > 0 && ( <span className="absolute -top-2 -right-2 flex h-6 w-6"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-6 w-6 bg-red-500 text-white text-xs items-center justify-center">{planosDodia.length}</span></span>)}
-                    </button>
-                    <button onClick={handleOpenRegistroManual} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
-                        <LucidePlusCircle size={20} className="mr-2"/> Adicionar Registro Manual
-                    </button>
-                </div>
-            </div>
+            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Histórico de Todas as Aplicações</h2>
             
-            <RegistroAplicacaoModal isOpen={isRegistroModalOpen} onClose={() => setIsRegistroModalOpen(false)} onSave={handleSaveRegistro} listasAuxiliares={listasAuxiliares} funcionarios={funcionarios} planoParaRegistrar={planoParaRegistrar} registroExistente={editingRegistro} />
-            <SelecionarPlanoModal isOpen={isSelecionarPlanoModalOpen} onClose={() => setIsSelecionarPlanoModalOpen(false)} planosDoDia={planosDodia} onSelectPlano={handleSelecionarPlano} />
-            <HistoricoAplicacaoModal isOpen={isHistoricoModalOpen} onClose={() => setIsHistoricoModalOpen(false)} registroId={selectedRegistroId} />
+            <RegistroAplicacaoModal 
+                isOpen={isRegistroModalOpen} 
+                onClose={() => setIsRegistroModalOpen(false)} 
+                onSave={handleSaveRegistro} 
+                listasAuxiliares={listasAuxiliares} 
+                funcionarios={funcionarios} 
+                planoParaRegistrar={null} 
+                registroExistente={editingRegistro}
+            />
+            <HistoricoAplicacaoModal 
+                isOpen={isHistoricoModalOpen} 
+                onClose={() => setIsHistoricoModalOpen(false)} 
+                registroId={selectedRegistroId} 
+            />
 
             <div className="bg-white shadow-md rounded-lg overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
