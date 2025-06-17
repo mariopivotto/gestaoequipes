@@ -133,16 +133,16 @@ const getStatusColor = (status) => {
 const getAcaoColor = (acao) => {
     switch (acao) {
         case 'MANUTENÇÃO | MUDAS':
-            return '#63d474';
+            return '#81deab';
         case 'MANUTENÇÃO | PATIO':
-            return '#478ffc';
+            return '#83c1e6';
         case 'MELHORIAS | ESTRUTURAIS':
-            return '#f7f372';
+            return '#d9d680';
         case 'MANUTENÇÃO | PREVENTIVA':
         case 'MANUTENÇÃO | TRATAMENTO':
-            return '#fc83f2';
+            return '#a289d6';
         default:
-            return '#4a4948';
+            return '#b3b2b1';
     }
 };
 
