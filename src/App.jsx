@@ -328,8 +328,9 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 8.7.0
-// [ALTERADO] A sincronização agora inclui a 'Ação' da tarefa para permitir a colorização baseada nela.
+// Versão: 8.7.1
+// [CORRIGIDO] A lógica de sincronização foi ajustada para garantir que, ao definir uma tarefa como 'CONCLUÍDA' no Mapa,
+// todas as suas instâncias na programação semanal também sejam marcadas como 'CONCLUÍDA', resolvendo o problema de "reset" de status.
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
     // 1. Memoriza o progresso diário existente antes de qualquer alteração.
     const progressoDiarioSalvo = new Map();
@@ -386,7 +387,7 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         });
     });
 
-    // 5. Recria a tarefa na programação ("Pave"), mas agora usando os dados de progresso memorizados.
+    // 5. Recria a tarefa na programação ("Pave"), aplicando a nova lógica de status.
     let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
     const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
     dataFimLoopUTC.setUTCHours(23, 59, 59, 999);
@@ -414,10 +415,11 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
                         const itemTarefaProgramacao = {
                             mapaTaskId: tarefaId,
                             textoVisivel: textoVisivelFinal,
-                            statusLocal: progressoSalvo?.statusLocal || (tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE'),
+                            // [CORRIGIDO] Se o status principal for 'CONCLUÍDA', força o status local. Caso contrário, preserva o progresso diário ou define como 'PENDENTE'.
+                            statusLocal: tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : (progressoSalvo?.statusLocal || 'PENDENTE'),
                             conclusao: progressoSalvo?.conclusao || '',
                             mapaStatus: tarefaData.status,
-                            acao: tarefaData.acao || '', // <-- CAMPO ADICIONADO
+                            acao: tarefaData.acao || '',
                             turno: tarefaData.turno || TURNO_DIA_INTEIRO,
                             orientacao: tarefaData.orientacao || '',
                             localizacao: tarefaData.area || '',
@@ -1905,8 +1907,9 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 10.5.1
-// [CORRIGIDO] Alterada a cor do texto dos cards na programação semanal de branco para preto para melhorar a legibilidade.
+// Versão: 10.5.2
+// [CORRIGIDO] A função 'handleAtualizarProgramacaoDaSemana' (botão "Atualizar com Mapa") agora reflete
+// corretamente o status 'CONCLUÍDA' das tarefas do Mapa de Atividades na grade da programação semanal.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2062,9 +2065,16 @@ const ProgramacaoSemanalComponent = () => {
                 let turnoParaTexto = (tarefaMapa.turno && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO) ? `[${tarefaMapa.turno.toUpperCase()}] ` : "";
                 
                 const itemProg = {
-                    mapaTaskId: tarefaMapa.id, textoVisivel: turnoParaTexto + textoBaseTarefa, statusLocal: 'PENDENTE',
-                    mapaStatus: tarefaMapa.status, turno: tarefaMapa.turno || TURNO_DIA_INTEIRO, orientacao: tarefaMapa.orientacao || '',
-                    localizacao: tarefaMapa.area || '', acao: tarefaMapa.acao || '', conclusao: ''
+                    mapaTaskId: tarefaMapa.id,
+                    textoVisivel: turnoParaTexto + textoBaseTarefa,
+                    // [CORRIGIDO] Verifica o status principal da tarefa para definir o status local corretamente.
+                    statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
+                    mapaStatus: tarefaMapa.status,
+                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO,
+                    orientacao: tarefaMapa.orientacao || '',
+                    localizacao: tarefaMapa.area || '',
+                    acao: tarefaMapa.acao || '',
+                    conclusao: ''
                 };
     
                 let dataAtualTarefa = converterParaDate(tarefaMapa.dataInicio);
