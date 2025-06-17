@@ -3795,9 +3795,9 @@ const RelatoriosComponent = () => {
 };
 
 
-// Versão: 10.1.0
-// [ALTERADO] O campo "Agendar Próxima Aplicação" agora é preenchido e travado automaticamente com base na frequência do plano selecionado.
-// A seção de reagendamento agora fica oculta para registros manuais.
+// Versão: 10.1.1
+// [CORRIGIDO] O formulário de edição de um registro de aplicação agora é corretamente preenchido com os dados existentes.
+// [MELHORIA] Ocultadas as opções de reagendamento e criação de tarefa no mapa ao editar um registro.
 const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, funcionarios, planoParaRegistrar, registroExistente }) => {
     const [dataAplicacao, setDataAplicacao] = useState('');
     const [produto, setProduto] = useState('');
@@ -3813,30 +3813,36 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
 
     useEffect(() => {
         if (isOpen) {
-            setCriarTarefaNoMapa(true);
             const hojeFormatado = new Date().toISOString().split('T')[0];
 
             if (registroExistente) {
-                // Modo Edição (não implementado para reagendamento, por segurança)
-                setReagendamento('NENHUM');
-                //... (resto da lógica de edição)
+                // [CORRIGIDO] Modo Edição agora preenche os campos do formulário
+                setDataAplicacao(registroExistente.dataAplicacao ? new Date(registroExistente.dataAplicacao.seconds * 1000).toISOString().split('T')[0] : '');
+                setProduto(registroExistente.produto || '');
+                setDosagem(registroExistente.dosagem || '');
+                setAreas(registroExistente.areas || []);
+                setResponsavel(registroExistente.responsavel || '');
+                setObservacoes(registroExistente.observacoes || '');
+                setPlantaLocal(registroExistente.plantaLocal || '');
+                setDadosOrigem({ planoId: registroExistente.planoId || null, planoNome: registroExistente.planoNome || null });
+                setReagendamento('NENHUM'); // Reagendamento não é editável
+                setCriarTarefaNoMapa(false); // Não cria nova tarefa ao editar
             } else if (planoParaRegistrar) {
                 // Modo Baseado em Plano
+                setCriarTarefaNoMapa(true);
                 setDataAplicacao(hojeFormatado);
                 setProduto(planoParaRegistrar.produto || '');
                 setDadosOrigem({ planoId: planoParaRegistrar.id, planoNome: planoParaRegistrar.nome });
-                
-                // Define o reagendamento com base na frequência do plano
                 const freqDoPlano = planoParaRegistrar.frequencia;
                 setReagendamento(freqDoPlano === 'UNICA' ? 'NENHUM' : freqDoPlano || 'NENHUM');
-
                 setDosagem(''); setAreas([]); setResponsavel(''); setObservacoes(''); setPlantaLocal('');
             } else {
                 // Modo Manual
+                setCriarTarefaNoMapa(true);
                 setDataAplicacao(hojeFormatado);
                 setProduto(''); setDosagem(''); setAreas([]); setResponsavel(''); setObservacoes('');
                 setPlantaLocal(''); setDadosOrigem(null);
-                setReagendamento('NENHUM'); // Garante que não há reagendamento
+                setReagendamento('NENHUM');
             }
         }
     }, [registroExistente, planoParaRegistrar, isOpen]);
@@ -3869,7 +3875,7 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={getModalTitle()}>
             <form onSubmit={handleSave} className="space-y-4">
-                {/* Campos existentes do formulário... */}
+                {/* Campos do formulário */}
                 <div><label className="block text-sm font-medium text-gray-700">Data da Aplicação *</label><input type="date" value={dataAplicacao} onChange={e => setDataAplicacao(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/></div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className="block text-sm font-medium text-gray-700">Produto Aplicado *</label><input type="text" value={produto} onChange={e => setProduto(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" /></div>
@@ -3880,27 +3886,29 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
                 <div><label className="block text-sm font-medium text-gray-700">Responsável *</label><select value={responsavel} onChange={e => setResponsavel(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value="">Selecione um funcionário...</option>{funcionarios.map(f => <option key={f.id} value={f.nome}>{f.nome}</option>)}</select></div>
                 <div><label className="block text-sm font-medium text-gray-700">Observações</label><textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm"></textarea></div>
 
-                {/* Seção de Reagendamento e Criação de Tarefa */}
-                <div className="pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {planoParaRegistrar && ( // Só mostra a opção de reagendamento se for baseado em plano
-                        <div>
-                            <label htmlFor="reagendamento" className="block text-sm font-medium text-gray-700">Agendar Próxima Aplicação</label>
-                            <select id="reagendamento" value={reagendamento} disabled={true} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed">
-                                <option value="NENHUM">Não reagendar</option>
-                                <option value="SEMANAL">Em 7 dias (Semanal)</option>
-                                <option value="QUINZENAL">Em 15 dias (Quinzenal)</option>
-                                <option value="MENSAL">Em 30 dias (Mensal)</option>
-                            </select>
+                {/* Seção de Reagendamento e Criação de Tarefa (Oculta em modo de edição) */}
+                {!registroExistente && (
+                    <div className="pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {planoParaRegistrar && (
+                            <div>
+                                <label htmlFor="reagendamento" className="block text-sm font-medium text-gray-700">Agendar Próxima Aplicação</label>
+                                <select id="reagendamento" value={reagendamento} disabled={true} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed">
+                                    <option value="NENHUM">Não reagendar</option>
+                                    <option value="SEMANAL">Em 7 dias (Semanal)</option>
+                                    <option value="QUINZENAL">Em 15 dias (Quinzenal)</option>
+                                    <option value="MENSAL">Em 30 dias (Mensal)</option>
+                                </select>
+                            </div>
+                        )}
+                         <div className={!planoParaRegistrar ? 'md:col-span-2' : ''}>
+                            <label className="block text-sm font-medium text-gray-700 opacity-0">Opção</label>
+                            <label className="flex items-center cursor-pointer mt-1 bg-gray-50 p-2 rounded-md h-full">
+                                <input type="checkbox" checked={criarTarefaNoMapa} onChange={(e) => setCriarTarefaNoMapa(e.target.checked)} className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                                <span className="ml-2 text-sm text-gray-700">Criar tarefa no Mapa</span>
+                            </label>
                         </div>
-                    )}
-                     <div className={!planoParaRegistrar ? 'md:col-span-2' : ''}> {/* Ocupa toda a largura se o reagendamento estiver oculto */}
-                        <label className="block text-sm font-medium text-gray-700 opacity-0">Opção</label>
-                        <label className="flex items-center cursor-pointer mt-1 bg-gray-50 p-2 rounded-md h-full">
-                            <input type="checkbox" checked={criarTarefaNoMapa} onChange={(e) => setCriarTarefaNoMapa(e.target.checked)} className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                            <span className="ml-2 text-sm text-gray-700">Criar tarefa no Mapa</span>
-                        </label>
                     </div>
-                </div>
+                )}
 
                 <div className="pt-4 flex justify-end space-x-2"><button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button><button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400">{loading ? 'Salvando...' : 'Salvar Registro'}</button></div>
             </form>
@@ -4442,119 +4450,205 @@ const AgendaDiariaComponent = () => {
     );
 };
 
-// Versão: 8.5.0
-// [ALTERADO] O Calendário agora busca e exibe também o histórico de aplicações realizadas, além das planejadas.
+// Versão: 9.0.1
+// [ALTERADO] O calendário agora exibe tarefas de aplicação com qualquer status (Programada, Em Operação, Concluída, etc.), sem removê-las da visão.
+// [MELHORIA] A cor do evento no calendário agora reflete dinamicamente o status atual da tarefa.
+
+const VisualizarAplicacaoModal = ({ isOpen, onClose, aplicacao }) => {
+    if (!isOpen || !aplicacao) return null;
+
+    const getStatusInfo = () => {
+        switch (aplicacao.status) {
+            case 'Realizada':
+                return { text: 'Realizada (Registro Histórico)', color: 'bg-green-100 text-green-800' };
+            case 'PROGRAMADA':
+                return { text: 'Programada', color: 'bg-blue-100 text-blue-800' };
+            case 'EM OPERAÇÃO':
+                return { text: 'Em Operação', color: 'bg-cyan-100 text-cyan-800' };
+            case 'CONCLUÍDA':
+                return { text: 'Concluída', color: 'bg-green-100 text-green-800' };
+            case 'CANCELADA':
+                 return { text: 'Cancelada', color: 'bg-red-100 text-red-800' };
+            case 'PENDENTE_APROVACAO_FITO':
+                return { text: 'Pendente de Aprovação', color: 'bg-yellow-100 text-yellow-800' };
+            default:
+                return { text: aplicacao.status, color: 'bg-gray-100 text-gray-800' };
+        }
+    };
+
+    const statusInfo = getStatusInfo();
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Detalhes da Aplicação" width="max-w-2xl">
+            <div className="space-y-4 p-2">
+                <div className={`p-4 rounded-lg ${statusInfo.color}`}>
+                    <div className="flex justify-between items-center">
+                        <h3 className="text-lg font-bold">{aplicacao.produto}</h3>
+                        <span className={`px-3 py-1 text-sm font-semibold rounded-full ${statusInfo.color}`}>{statusInfo.text}</span>
+                    </div>
+                    <p className="text-sm mt-1">Data: <strong>{formatDate(aplicacao.data)}</strong></p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pt-4">
+                    <div>
+                        <label className="text-sm font-semibold text-gray-600">Responsável</label>
+                        <p className="text-base text-gray-900">{aplicacao.responsavel || 'Não definido'}</p>
+                    </div>
+                     <div>
+                        <label className="text-sm font-semibold text-gray-600">Origem</label>
+                        <p className="text-base text-gray-900">{aplicacao.origem || 'Não definida'}</p>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="text-sm font-semibold text-gray-600">Área(s)</label>
+                        <p className="text-base text-gray-900">{aplicacao.areas ? aplicacao.areas.join(', ') : 'Não definida'}</p>
+                    </div>
+                    <div>
+                        <label className="text-sm font-semibold text-gray-600">Dosagem</label>
+                        <p className="text-base text-gray-900">{aplicacao.dosagem || 'Não informada'}</p>
+                    </div>
+                    <div>
+                        <label className="text-sm font-semibold text-gray-600">Planta / Local Específico</label>
+                        <p className="text-base text-gray-900">{aplicacao.plantaLocal || 'Não informado'}</p>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="text-sm font-semibold text-gray-600">Observações / Orientação</label>
+                        <p className="text-base text-gray-900 whitespace-pre-wrap">{aplicacao.observacoes || 'Nenhuma'}</p>
+                    </div>
+                </div>
+
+                <div className="pt-5 flex justify-end">
+                    <button type="button" onClick={onClose} className="px-6 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
+                        Fechar
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+
 const CalendarioFitossanitarioComponent = () => {
-    const { db, appId, auth } = useContext(GlobalContext);
+    const { db, appId, funcionarios } = useContext(GlobalContext);
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [planos, setPlanos] = useState([]);
-    const [registros, setRegistros] = useState([]); // [NOVO] Estado para o histórico
+    const [registros, setRegistros] = useState([]);
+    const [tarefasFito, setTarefasFito] = useState([]);
     const [eventos, setEventos] = useState({});
     const [loading, setLoading] = useState(true);
 
-    const [isPlanoModalOpen, setIsPlanoModalOpen] = useState(false);
-    const [planoSelecionado, setPlanoSelecionado] = useState(null);
+    const [isVisualizarModalOpen, setIsVisualizarModalOpen] = useState(false);
+    const [aplicacaoSelecionada, setAplicacaoSelecionada] = useState(null);
 
     const basePath = `/artifacts/${appId}/public/data`;
-    const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
-    const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`); // [NOVO] Referência para o histórico
+    const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`);
+    const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
-    const gerarOcorrenciasDoPlano = (plano, ano) => {
-        const ocorrencias = [];
-        if (!plano.ativo || !plano.dataInicio?.toDate) return ocorrencias;
-        let dataAtual = plano.dataInicio.toDate();
-        let i = 0;
-        while (dataAtual.getFullYear() <= ano) {
-            if (dataAtual.getFullYear() >= ano - 1) {
-                ocorrencias.push({
-                    id: `${plano.id}-${i++}`, title: plano.nome, date: new Date(dataAtual.getTime()),
-                    produto: plano.produto, planoId: plano.id, type: 'planned',
-                    color: `hsl(200, 70%, 90%)` // Cor para eventos planejados
-                });
-            }
-            if (plano.frequencia === 'UNICA') return ocorrencias;
-            switch (plano.frequencia) {
-                case 'SEMANAL': dataAtual.setDate(dataAtual.getDate() + 7); break;
-                case 'QUINZENAL': dataAtual.setDate(dataAtual.getDate() + 14); break;
-                case 'MENSAL': dataAtual.setMonth(dataAtual.getMonth() + 1); break;
-                case 'INTERVALO_DIAS': dataAtual.setDate(dataAtual.getDate() + (plano.diasIntervalo || 1)); break;
-                default: return ocorrencias;
-            }
-        }
-        return ocorrencias;
-    };
-
-    // Efeito para buscar os planos
     useEffect(() => {
         setLoading(true);
-        const q = query(planosCollectionRef, where("ativo", "==", true));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setPlanos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false);
-        }, error => { console.error("Erro ao carregar planos:", error); setLoading(false); });
-        return () => unsubscribe();
-    }, [db, appId]);
-    
-    // [NOVO] Efeito para buscar o histórico de aplicações
-    useEffect(() => {
-        const q = query(registrosCollectionRef);
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        const qRegistros = query(registrosCollectionRef);
+        const unsubRegistros = onSnapshot(qRegistros, (snapshot) => {
             setRegistros(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }, error => { console.error("Erro ao carregar histórico de aplicações:", error); });
-        return () => unsubscribe();
+        }, error => console.error("Erro ao carregar registros de aplicação:", error));
+
+        const qTarefas = query(tarefasCollectionRef, 
+            where("origem", "in", ["Controle Fitossanitário", "Registro Fito (App)", "Reagendamento Fito"]),
+        );
+        const unsubTarefas = onSnapshot(qTarefas, (snapshot) => {
+            setTarefasFito(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, error => console.error("Erro ao carregar tarefas fito:", error));
+
+        // Aguarda um pequeno instante para garantir que ambos os listeners iniciem
+        Promise.all([new Promise(res => setTimeout(res, 150)), new Promise(res => setTimeout(res, 150))]).then(() => {
+            setLoading(false);
+        });
+
+        return () => {
+            unsubRegistros();
+            unsubTarefas();
+        };
     }, [db, appId]);
 
-    // Efeito para processar e combinar os eventos para o calendário
     useEffect(() => {
         if (loading) return;
 
         const todosOsEventos = {};
-        const anoAtual = currentDate.getFullYear();
-        const hoje = new Date();
-        hoje.setHours(0, 0, 0, 0);
+        const idsDeTarefasRenderizadas = new Set();
 
-        // 1. Processa os planos para gerar eventos futuros
-        planos.forEach(plano => {
-            const ocorrencias = gerarOcorrenciasDoPlano(plano, anoAtual);
-            ocorrencias.forEach(oc => {
-                if (oc.date.getTime() >= hoje.getTime()) { // Mostra apenas planos para hoje ou futuro
-                    const dataString = oc.date.toISOString().split('T')[0];
-                    if (!todosOsEventos[dataString]) { todosOsEventos[dataString] = []; }
-                    todosOsEventos[dataString].push(oc);
-                }
+        // 1. Processa as tarefas primeiro, pois elas representam o estado atual da operação
+        tarefasFito.forEach(tarefa => {
+            if (!tarefa.dataInicio?.toDate) return;
+            const dataString = tarefa.dataInicio.toDate().toISOString().split('T')[0];
+            if (!todosOsEventos[dataString]) todosOsEventos[dataString] = [];
+
+            let cor;
+            switch (tarefa.status) {
+                case 'CONCLUÍDA': cor = 'hsl(145, 60%, 90%)'; break;
+                case 'EM OPERAÇÃO': cor = 'hsl(185, 60%, 90%)'; break;
+                case 'CANCELADA': cor = 'hsl(0, 60%, 92%)'; break;
+                case 'PROGRAMADA': cor = 'hsl(200, 70%, 90%)'; break;
+                case 'PENDENTE_APROVACAO_FITO': cor = 'hsl(50, 80%, 90%)'; break;
+                default: cor = 'hsl(0, 0%, 90%)';
+            }
+            
+            todosOsEventos[dataString].push({
+                id: tarefa.id,
+                produto: tarefa.tarefa,
+                data: tarefa.dataInicio,
+                status: tarefa.status,
+                origem: tarefa.origemPlanoId ? `Plano (${tarefa.origem})` : tarefa.origem,
+                areas: [tarefa.area],
+                responsavel: (tarefa.responsaveis || []).map(rId => funcionarios.find(f => f.id === rId)?.nome || rId).join(', '),
+                dosagem: null, // Informação não disponível diretamente na tarefa
+                plantaLocal: null, // Informação não disponível diretamente na tarefa
+                observacoes: tarefa.orientacao,
+                cor: cor,
+             });
+             idsDeTarefasRenderizadas.add(tarefa.id);
+        });
+
+        // 2. Processa o histórico (registros), mas apenas se uma tarefa correspondente já não foi renderizada
+        registros.forEach(reg => {
+            // Um registro pode não ter uma tarefa correspondente (ex: dados legados)
+            const tarefaCorrespondenteId = tarefasFito.find(t => t.origemRegistroId === reg.id)?.id;
+            
+            if (tarefaCorrespondenteId && idsDeTarefasRenderizadas.has(tarefaCorrespondenteId)) {
+                // Se a tarefa já foi adicionada, não adiciona o registro histórico para evitar duplicidade.
+                return;
+            }
+
+            if (!reg.dataAplicacao?.toDate) return;
+            const dataString = reg.dataAplicacao.toDate().toISOString().split('T')[0];
+            if (!todosOsEventos[dataString]) todosOsEventos[dataString] = [];
+
+            todosOsEventos[dataString].push({
+                id: reg.id,
+                produto: reg.produto,
+                data: reg.dataAplicacao,
+                status: 'Realizada',
+                origem: reg.planoNome || 'Manual (Histórico)',
+                areas: reg.areas,
+                responsavel: reg.responsavel,
+                dosagem: reg.dosagem,
+                plantaLocal: reg.plantaLocal,
+                observacoes: reg.observacoes,
+                cor: 'hsl(145, 60%, 90%)',
             });
         });
 
-        // 2. Processa o histórico para gerar eventos passados
-        registros.forEach(registro => {
-            if (!registro.dataAplicacao?.toDate) return;
-            const dataAplicacao = registro.dataAplicacao.toDate();
-            const dataString = dataAplicacao.toISOString().split('T')[0];
-            if (!todosOsEventos[dataString]) { todosOsEventos[dataString] = []; }
-
-            // Adiciona evento do histórico, evitando duplicatas visuais no mesmo dia se já houver um evento planejado
-            if (!todosOsEventos[dataString].some(e => e.type === 'historical' && e.id === registro.id)) {
-                todosOsEventos[dataString].push({
-                    id: registro.id, title: `[R] ${registro.produto}`, date: dataAplicacao,
-                    recordId: registro.id, type: 'historical', color: `hsl(145, 60%, 85%)` // Cor para eventos realizados
-                });
-            }
-        });
-
         setEventos(todosOsEventos);
-    }, [planos, registros, currentDate, loading]);
+    }, [registros, tarefasFito, loading, funcionarios]);
 
-    const handleOpenPlanoModal = (evento) => {
-        const planoEncontrado = planos.find(p => p.id === evento.planoId);
-        if (planoEncontrado) {
-            setPlanoSelecionado(planoEncontrado);
-            setIsPlanoModalOpen(true);
-        }
+    const handleOpenVisualizarModal = (aplicacao) => {
+        setAplicacaoSelecionada(aplicacao);
+        setIsVisualizarModalOpen(true);
     };
     
-    const handleSavePlano = async (planoData) => { const usuario = auth.currentUser; const dadosParaSalvar = { ...planoData, updatedAt: Timestamp.now(), userEmail: usuario?.email || 'unknown', }; try { if (planoData.id) { const planoDocRef = doc(db, `${basePath}/planos_fitossanitarios`, planoData.id); await updateDoc(planoDocRef, dadosParaSalvar); toast.success("Plano atualizado com sucesso!"); } else { await addDoc(planosCollectionRef, { ...dadosParaSalvar, createdAt: Timestamp.now() }); toast.success("Plano criado com sucesso!"); } } catch (error) { console.error("Erro ao salvar plano:", error); toast.error("Falha ao salvar o plano."); } };
-    const handleRemovePlano = async (planoId) => { try { await deleteDoc(doc(db, `${basePath}/planos_fitossanitarios`, planoId)); toast.success("Plano excluído com sucesso!"); setIsPlanoModalOpen(false); } catch (error) { console.error("Erro ao excluir plano:", error); toast.error("Falha ao excluir o plano."); } };
-    const changeMonth = (offset) => { setCurrentDate(prevDate => { const newDate = new Date(prevDate); newDate.setMonth(newDate.getMonth() + offset); return newDate; }); };
+    const changeMonth = (offset) => {
+        setCurrentDate(prevDate => {
+            const newDate = new Date(prevDate);
+            newDate.setMonth(newDate.getMonth() + offset);
+            return newDate;
+        });
+    };
 
     const renderCalendar = () => {
         const month = currentDate.getMonth();
@@ -4562,7 +4656,11 @@ const CalendarioFitossanitarioComponent = () => {
         const firstDayOfMonth = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const days = [];
-        for (let i = 0; i < firstDayOfMonth; i++) { days.push(<div key={`empty-${i}`} className="border p-2 bg-gray-50"></div>); }
+
+        for (let i = 0; i < firstDayOfMonth; i++) {
+            days.push(<div key={`empty-${i}`} className="border p-2 bg-gray-50"></div>);
+        }
+
         for (let day = 1; day <= daysInMonth; day++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const dayEvents = eventos[dateStr] || [];
@@ -4575,12 +4673,12 @@ const CalendarioFitossanitarioComponent = () => {
                         {dayEvents.map(event => (
                             <button
                                 key={event.id}
-                                onClick={() => event.type === 'planned' && handleOpenPlanoModal(event)}
-                                title={event.title}
-                                className={`w-full text-left text-xs p-1 rounded-md text-gray-800 transition-all ${event.type === 'planned' ? 'hover:ring-2 hover:ring-blue-400' : 'cursor-default'}`}
-                                style={{backgroundColor: event.color}}
+                                onClick={() => handleOpenVisualizarModal(event)}
+                                title={event.produto}
+                                className={`w-full text-left text-xs p-1 rounded-md text-gray-800 transition-all hover:ring-2 hover:ring-blue-400 ${event.status === 'CANCELADA' ? 'line-through opacity-70' : ''}`}
+                                style={{backgroundColor: event.cor}}
                             >
-                                {event.title}
+                                {event.produto}
                             </button>
                         ))}
                     </div>
@@ -4594,6 +4692,12 @@ const CalendarioFitossanitarioComponent = () => {
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Calendário de Aplicações</h2>
             
+            <VisualizarAplicacaoModal 
+                isOpen={isVisualizarModalOpen}
+                onClose={() => setIsVisualizarModalOpen(false)}
+                aplicacao={aplicacaoSelecionada}
+            />
+
             <div className="bg-white p-4 rounded-lg shadow-md">
                 <div className="flex justify-between items-center mb-4">
                     <button onClick={() => changeMonth(-1)} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">&lt; Anterior</button>
@@ -4616,16 +4720,6 @@ const CalendarioFitossanitarioComponent = () => {
                     </>
                 )}
             </div>
-
-            {isPlanoModalOpen && (
-                <PlanoAplicacaoModal
-                    isOpen={isPlanoModalOpen}
-                    onClose={() => setIsPlanoModalOpen(false)}
-                    onSave={handleSavePlano}
-                    onRemove={handleRemovePlano}
-                    planoExistente={planoSelecionado}
-                />
-            )}
         </div>
     );
 };
@@ -4907,8 +5001,9 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
-// Versão: 10.3.2
-// [CORRIGIDO] A função 'handleAprovarTarefa' agora preserva o campo "Ação" ao mudar o status da tarefa para "PROGRAMADA".
+// Versão: 10.4.0
+// [ALTERADO] Ao registrar uma nova aplicação, o sistema agora cria apenas uma Tarefa 'Programada' no Mapa de Atividades,
+// em vez de criar também um Registro no histórico, eliminando a duplicação de eventos no calendário.
 const RegistroAplicacaoComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
     
@@ -4994,7 +5089,6 @@ const RegistroAplicacaoComponent = () => {
             const planos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTodosPlanosAtivos(planos);
             const futuras = planos.flatMap(plano => gerarProximasOcorrencias(plano, HORIZONTE_DIAS_FUTURAS)).sort((a, b) => a.dataPrevista - b.dataPrevista);
-            // setAplicacoesFuturas(futuras); // Esta linha está sendo sobreposta pelo useEffect abaixo
             setLoadingPlanos(false);
         }, error => { console.error("Erro ao carregar planos ativos:", error); setLoadingPlanos(false); });
         return () => unsubscribe();
@@ -5029,37 +5123,50 @@ const RegistroAplicacaoComponent = () => {
     const handleSelecionarPlano = (plano) => { setPlanoParaRegistrar(plano); setIsSelecionarPlanoModalOpen(false); setIsRegistroModalOpen(true); };
 
     const handleSaveRegistro = async (dadosDoForm, registroOriginal, criarTarefa, reagendamento) => {
-        if (registroOriginal) return;
+        if (registroOriginal) return; // Não deve editar por aqui, apenas criar.
+
         const usuario = auth.currentUser;
         const batch = writeBatch(db);
-        const novoRegistroRef = doc(registrosCollectionRef);
+        
         try {
-            batch.set(novoRegistroRef, { ...dadosDoForm, createdAt: Timestamp.now(), createdBy: usuario?.email });
-            if (dadosDoForm.planoId) {
-                batch.update(doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId), { ultimaAplicacao: dadosDoForm.dataAplicacao });
-            }
-
-            let acaoDaTarefa = "APLICAÇÃO FITOSSANITÁRIA";
-            if (dadosDoForm.planoId) {
-                const planoCorrespondente = todosPlanosAtivos.find(p => p.id === dadosDoForm.planoId);
-                if (planoCorrespondente && planoCorrespondente.acao) {
-                    acaoDaTarefa = planoCorrespondente.acao;
-                }
-            }
-            
+            // [CORRIGIDO] Lógica principal: Criar apenas a TAREFA, não mais o registro histórico.
             if (criarTarefa) {
+                let acaoDaTarefa = "APLICAÇÃO FITOSSANITÁRIA";
+                if (dadosDoForm.planoId) {
+                    const planoCorrespondente = todosPlanosAtivos.find(p => p.id === dadosDoForm.planoId);
+                    if (planoCorrespondente && planoCorrespondente.acao) {
+                        acaoDaTarefa = planoCorrespondente.acao;
+                    }
+                }
                 const responsavelObj = funcionarios.find(f => f.nome === dadosDoForm.responsavel);
                 const tarefaData = {
-                    tarefa: `APLICAÇÃO REGISTRADA: ${dadosDoForm.produto}`, orientacao: `Registro da aplicação: ${dadosDoForm.observacoes || 'Sem observações.'}. Planta/Local: ${dadosDoForm.plantaLocal || 'N/A'}.`,
-                    status: "PROGRAMADA", prioridade: "P2 - MEDIO PRAZO", acao: acaoDaTarefa, turno: "DIA INTEIRO",
-                    dataInicio: dadosDoForm.dataAplicacao, dataProvavelTermino: dadosDoForm.dataAplicacao,
-                    responsaveis: responsavelObj ? [responsavelObj.id] : [], area: dadosDoForm.areas.join(', '),
-                    criadoPor: usuario?.uid, criadoPorEmail: usuario?.email, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
-                    origem: "Registro Fito (App)", origemRegistroId: novoRegistroRef.id 
+                    tarefa: `APLICAÇÃO FITO: ${dadosDoForm.produto}`,
+                    orientacao: `Dosagem: ${dadosDoForm.dosagem || 'N/A'}. Planta/Local: ${dadosDoForm.plantaLocal || 'N/A'}. Observações: ${dadosDoForm.observacoes || 'N/A'}.`,
+                    status: "PROGRAMADA",
+                    prioridade: "P2 - MEDIO PRAZO",
+                    acao: acaoDaTarefa,
+                    turno: "DIA INTEIRO",
+                    dataInicio: dadosDoForm.dataAplicacao,
+                    dataProvavelTermino: dadosDoForm.dataAplicacao,
+                    responsaveis: responsavelObj ? [responsavelObj.id] : [],
+                    area: dadosDoForm.areas.join(', '),
+                    criadoPor: usuario?.uid,
+                    criadoPorEmail: usuario?.email,
+                    createdAt: Timestamp.now(),
+                    updatedAt: Timestamp.now(),
+                    origem: "Registro Fito (App)",
+                    origemPlanoId: dadosDoForm.planoId,
                 };
-                batch.set(doc(tarefasCollectionRef), tarefaData);
+                const novaTarefaRef = doc(tarefasCollectionRef);
+                batch.set(novaTarefaRef, tarefaData);
+
+                // Se houver um plano, atualiza a data da última aplicação para o cálculo da próxima
+                 if (dadosDoForm.planoId) {
+                    batch.update(doc(db, `${basePath}/planos_fitossanitarios`, dadosDoForm.planoId), { ultimaAplicacao: dadosDoForm.dataAplicacao });
+                }
             }
 
+            // A lógica de reagendamento continua a mesma, pois ela já cria uma tarefa futura.
             if (reagendamento !== 'NENHUM') {
                 const dataAtual = dadosDoForm.dataAplicacao.toDate();
                 let dataFutura = new Date(dataAtual.getTime());
@@ -5070,32 +5177,34 @@ const RegistroAplicacaoComponent = () => {
                 const tarefaFuturaData = {
                     tarefa: `APLICAÇÃO FITO: ${dadosDoForm.produto}`,
                     orientacao: `Aplicação recorrente baseada no registro anterior. Observações: ${dadosDoForm.observacoes || 'N/A'}. Local: ${dadosDoForm.plantaLocal || 'N/A'}.`,
-                    status: "PENDENTE_APROVACAO_FITO", prioridade: "P2 - MEDIO PRAZO", acao: acaoDaTarefa,
+                    status: "PENDENTE_APROVACAO_FITO", prioridade: "P2 - MEDIO PRAZO", acao: dadosDoForm.acao || "MANUTENÇÃO | PREVENTIVA",
                     turno: "DIA INTEIRO", dataInicio: Timestamp.fromDate(dataFutura), dataProvavelTermino: Timestamp.fromDate(dataFutura),
                     responsaveis: responsavelObj ? [responsavelObj.id] : [], area: dadosDoForm.areas.join(', '),
                     criadoPor: usuario?.uid, criadoPorEmail: usuario?.email, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
-                    origem: "Reagendamento Fito", origemRegistroId: novoRegistroRef.id, origemPlanoId: dadosDoForm.planoId
+                    origem: "Reagendamento Fito", origemPlanoId: dadosDoForm.planoId
                 };
                 batch.set(doc(tarefasCollectionRef), tarefaFuturaData);
             }
+            
             await batch.commit();
-            await logAlteracaoFitossanitaria(db, basePath, novoRegistroRef.id, usuario?.email, "Registro Criado");
-            toast.success("Aplicação registrada com sucesso!");
-        } catch (error) { toast.error("Falha ao salvar o registro."); console.error(error); }
+            toast.success("Aplicação programada com sucesso!");
+
+        } catch (error) { 
+            toast.error("Falha ao programar a aplicação."); 
+            console.error(error); 
+        }
     };
     
     const handleAprovarTarefa = async (tarefaPendente) => {
         if (!window.confirm(`Deseja aprovar e programar a tarefa "${tarefaPendente.tarefa}"?`)) return;
         try {
             const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, tarefaPendente.id);
-            // Atualiza o status e garante que a ação seja preservada
             await updateDoc(tarefaRef, {
                 status: 'PROGRAMADA',
-                acao: tarefaPendente.acao, // Garante que a ação não seja perdida
+                acao: tarefaPendente.acao,
                 updatedAt: Timestamp.now()
             });
             toast.success("Tarefa aprovada e enviada para a programação!");
-            // A atualização da lista agora é feita pelo listener do useEffect
         } catch (error) {
             console.error("Erro ao aprovar tarefa:", error);
             toast.error("Falha ao aprovar a tarefa.");
@@ -5147,7 +5256,7 @@ const RegistroAplicacaoComponent = () => {
 
             <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
                 <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
-                    <h3 className="text-xl font-semibold text-gray-700">Visualizar Aplicações Realizadas</h3>
+                    <h3 className="text-xl font-semibold text-gray-700">Visualizar Histórico de Aplicações Concluídas</h3>
                     <div className="flex items-center gap-2">
                         <label htmlFor="planoFiltro" className="text-sm font-medium text-gray-700">Filtrar por Plano:</label>
                         <select id="planoFiltro" value={planoFiltro} onChange={e => setPlanoFiltro(e.target.value)} disabled={loadingPlanos} className="p-2 border border-gray-300 rounded-md shadow-sm">
