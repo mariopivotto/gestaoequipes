@@ -5507,8 +5507,8 @@ const AlertaAtrasoModal = ({ isOpen, onClose, numeroDeTarefas, onVerTarefasClick
     );
 };
 
-// Versão: 10.7.1
-// [ALTERADO] O card "Tarefas por Prioridade" no Dashboard agora também exclui as tarefas concluídas da contagem.
+// Versão: 10.7.2
+// [MELHORIA] Adicionada a exibição das orientações das tarefas nos cards "Prazo Próximo" e "Pendentes de Alocação" do Dashboard.
 const DashboardComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
@@ -5645,22 +5645,17 @@ const DashboardComponent = () => {
             let proximoPrazo = [], atrasadas = [], pendentesAtrasadas = [];
 
             todasTarefas.forEach(tarefa => {
-                // Contagem para o card "Tarefas por Status" (inclui todos os status)
                 if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) {
                     porStatus[tarefa.status]++;
                 }
                 
-                // Contagem para os cards "Tarefas por Responsável" e "Tarefas por Prioridade"
-                // IGNORA CONCLUÍDAS E CANCELADAS
                 if (tarefa.status !== "CANCELADA" && tarefa.status !== "CONCLUÍDA") {
-                    // Contagem por responsável
                     if (tarefa.responsaveis?.length > 0) {
                         tarefa.responsaveis.forEach(id => { if (porFuncionario[id]) porFuncionario[id].count++; });
                     } else {
                         porFuncionario["SEM_RESPONSAVEL"].count++;
                     }
 
-                    // Contagem por prioridade
                     if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) {
                         porPrioridade[tarefa.prioridade]++;
                     }
@@ -5763,7 +5758,11 @@ const DashboardComponent = () => {
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
                         <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                            {stats.proximoPrazo.map(tarefa => (<li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300"><p className="font-semibold text-sm text-yellow-800">{tarefa.tarefa}</p><p className="text-xs text-yellow-700 mt-1">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className="font-bold">{tarefa.status}</span></p></li>))}
+                            {stats.proximoPrazo.map(tarefa => (<li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300">
+                                <p className="font-semibold text-sm text-yellow-800">{tarefa.tarefa}</p>
+                                {tarefa.orientacao && <p className="text-xs italic text-yellow-800 mt-1">{tarefa.orientacao}</p>}
+                                <p className="text-xs text-yellow-700 mt-1">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className="font-bold">{tarefa.status}</span></p>
+                                </li>))}
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
                 </div>
@@ -5771,7 +5770,13 @@ const DashboardComponent = () => {
                     <h3 className="text-xl font-semibold text-orange-600 mb-4 flex items-center"><LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação</h3>
                     {stats.pendentesAtrasadas.length > 0 ? (
                         <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                            {stats.pendentesAtrasadas.map(tarefa => (<li key={tarefa.id} className="p-3 border rounded-md bg-orange-50 border-orange-300"><p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p><p className="text-xs text-orange-700">Criada em: {formatDateDash(tarefa.createdAt)}</p></li>))}
+                            {stats.pendentesAtrasadas.map(tarefa => (
+                                <li key={tarefa.id} className="p-3 border rounded-md bg-orange-50 border-orange-300">
+                                    <p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p>
+                                    {tarefa.orientacao && <p className="text-xs italic text-orange-800 mt-1">{tarefa.orientacao}</p>}
+                                    <p className="text-xs text-orange-700 mt-1">Criada em: {formatDateDash(tarefa.createdAt)}</p>
+                                </li>
+                            ))}
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa aguardando alocação.</p>}
                 </div>
