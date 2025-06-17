@@ -328,9 +328,9 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 8.7.1
-// [CORRIGIDO] A lógica de sincronização foi ajustada para garantir que, ao definir uma tarefa como 'CONCLUÍDA' no Mapa,
-// todas as suas instâncias na programação semanal também sejam marcadas como 'CONCLUÍDA', resolvendo o problema de "reset" de status.
+// Versão: 8.7.2
+// [CORRIGIDO] Ajustada a lógica de sincronização individual de tarefas para que o status diário
+// reflita o status principal atual, a menos que um progresso manual já tenha sido registrado para o dia.
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
     // 1. Memoriza o progresso diário existente antes de qualquer alteração.
     const progressoDiarioSalvo = new Map();
@@ -342,7 +342,6 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         for (const diaKey in dias) {
             for (const respKey in dias[diaKey]) {
                 const tarefa = dias[diaKey][respKey].find(t => t.mapaTaskId === tarefaId);
-                // Salva apenas se houver algum progresso registrado
                 if (tarefa && (tarefa.statusLocal || tarefa.conclusao)) {
                     const mapKey = `${diaKey}_${respKey}`;
                     progressoDiarioSalvo.set(mapKey, {
@@ -415,8 +414,8 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
                         const itemTarefaProgramacao = {
                             mapaTaskId: tarefaId,
                             textoVisivel: textoVisivelFinal,
-                            // [CORRIGIDO] Se o status principal for 'CONCLUÍDA', força o status local. Caso contrário, preserva o progresso diário ou define como 'PENDENTE'.
-                            statusLocal: tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : (progressoSalvo?.statusLocal || 'PENDENTE'),
+                            // [CORRIGIDO] Prioriza o progresso salvo, senão usa o status principal da tarefa.
+                            statusLocal: progressoSalvo?.statusLocal || tarefaData.status,
                             conclusao: progressoSalvo?.conclusao || '',
                             mapaStatus: tarefaData.status,
                             acao: tarefaData.acao || '',
@@ -1118,9 +1117,8 @@ const ConfiguracoesComponent = () => {
     );
 };
 
-// Versão: 7.6.0
-// [REVISADO] Refatorado o componente TarefaFormModal para garantir a busca e exibição corretas das anotações da tarefa.
-// A lógica de busca de anotações foi reforçada para ser mais resiliente.
+// Versão: 7.6.1
+// [NOVO] Adicionada a funcionalidade de excluir anotações individuais diretamente do modal de edição de tarefa.
 const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
     const { listasAuxiliares, funcionarios, userId, db, appId } = useContext(GlobalContext);
     const [tarefa, setTarefa] = useState('');
@@ -1194,6 +1192,24 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
 
     const handleRemoveNovoAnexo = (fileNameToRemove) => {
         setNovosAnexos(novosAnexos.filter(file => file.name !== fileNameToRemove));
+    };
+    
+    const handleDeleteAnotacao = async (tarefaId, anotacaoId) => {
+        if (!tarefaId || !anotacaoId) {
+            toast.error("ID da tarefa ou anotação inválido.");
+            return;
+        }
+        if (window.confirm("Tem certeza que deseja excluir esta anotação? A ação não pode ser desfeita.")) {
+            try {
+                const basePath = `/artifacts/${appId}/public/data`;
+                const anotacaoRef = doc(db, `${basePath}/tarefas_mapa/${tarefaId}/anotacoes`, anotacaoId);
+                await deleteDoc(anotacaoRef);
+                toast.success("Anotação excluída.");
+            } catch (error) {
+                console.error("Erro ao excluir anotação:", error);
+                toast.error("Não foi possível excluir a anotação.");
+            }
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -1313,7 +1329,7 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
                     <textarea value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
                 </div>
 
-                {/* Seção de Anotações (Revisada) */}
+                {/* Seção de Anotações (com botão de exclusão) */}
                 {tarefaExistente && (
                     <div className="pt-4 mt-4 border-t">
                         <h4 className="text-md font-semibold text-gray-700 mb-3 flex items-center">
@@ -1325,17 +1341,27 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
                         ) : anotacoes.length > 0 ? (
                             <div className="space-y-3 max-h-48 overflow-y-auto pr-2 bg-gray-100 p-3 rounded-lg border">
                                 {anotacoes.map(anotacao => (
-                                    <div key={anotacao.id} className="p-3 bg-white shadow-sm rounded-md border-l-4 border-blue-300">
-                                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{anotacao.texto}</p>
-                                        <div className="text-xs text-gray-500 mt-2 pt-2 border-t text-right">
-                                            <p className="font-medium">
-                                                Origem: {anotacao.origem || 'Manual'}
-                                                {anotacao.dataDoRegistro && ` (${new Date(anotacao.dataDoRegistro + 'T12:00:00Z').toLocaleDateString('pt-BR', {timeZone: 'UTC'})})`}
-                                            </p>
-                                            <p>
-                                                Por: {anotacao.criadoPorEmail} em {formatDateTime(anotacao.criadoEm)}
-                                            </p>
+                                    <div key={anotacao.id} className="p-3 bg-white shadow-sm rounded-md border-l-4 border-blue-300 flex justify-between items-start gap-4">
+                                        <div className="flex-grow">
+                                            <p className="text-sm text-gray-800 whitespace-pre-wrap">{anotacao.texto}</p>
+                                            <div className="text-xs text-gray-500 mt-2 pt-2 border-t text-right">
+                                                <p className="font-medium">
+                                                    Origem: {anotacao.origem || 'Manual'}
+                                                    {anotacao.dataDoRegistro && ` (${new Date(anotacao.dataDoRegistro + 'T12:00:00Z').toLocaleDateString('pt-BR', {timeZone: 'UTC'})})`}
+                                                </p>
+                                                <p>
+                                                    Por: {anotacao.criadoPorEmail} em {formatDateTime(anotacao.criadoEm)}
+                                                </p>
+                                            </div>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteAnotacao(tarefaExistente.id, anotacao.id)}
+                                            title="Excluir Anotação"
+                                            className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 flex-shrink-0"
+                                        >
+                                            <LucideTrash2 size={16} />
+                                        </button>
                                     </div>
                                 ))}
                             </div>
@@ -1907,9 +1933,9 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 10.5.2
+// Versão: 10.5.3
 // [CORRIGIDO] A função 'handleAtualizarProgramacaoDaSemana' (botão "Atualizar com Mapa") agora reflete
-// corretamente o status 'CONCLUÍDA' das tarefas do Mapa de Atividades na grade da programação semanal.
+// corretamente todos os status da tarefa principal (e.g., 'EM OPERAÇÃO') no status diário.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2067,8 +2093,7 @@ const ProgramacaoSemanalComponent = () => {
                 const itemProg = {
                     mapaTaskId: tarefaMapa.id,
                     textoVisivel: turnoParaTexto + textoBaseTarefa,
-                    // [CORRIGIDO] Verifica o status principal da tarefa para definir o status local corretamente.
-                    statusLocal: tarefaMapa.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE',
+                    statusLocal: tarefaMapa.status, // [CORRIGIDO] Usa o status principal da tarefa como padrão
                     mapaStatus: tarefaMapa.status,
                     turno: tarefaMapa.turno || TURNO_DIA_INTEIRO,
                     orientacao: tarefaMapa.orientacao || '',
