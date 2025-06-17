@@ -328,10 +328,10 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 11.0.0
-// [CORRIGIDO] Refatorada a função de sincronização para preservar corretamente o status das tarefas ao atualizar a programação semanal,
-// evitando que as alterações feitas no Mapa de Atividades sejam revertidas.
+// Versão: 8.7.0
+// [ALTERADO] A sincronização agora inclui a 'Ação' da tarefa para permitir a colorização baseada nela.
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
+    // 1. Memoriza o progresso diário existente antes de qualquer alteração.
     const progressoDiarioSalvo = new Map();
     const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
     const todasSemanasSnap = await getDocs(todasSemanasQuery);
@@ -341,8 +341,10 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         for (const diaKey in dias) {
             for (const respKey in dias[diaKey]) {
                 const tarefa = dias[diaKey][respKey].find(t => t.mapaTaskId === tarefaId);
+                // Salva apenas se houver algum progresso registrado
                 if (tarefa && (tarefa.statusLocal || tarefa.conclusao)) {
-                    progressoDiarioSalvo.set(`${diaKey}_${respKey}`, {
+                    const mapKey = `${diaKey}_${respKey}`;
+                    progressoDiarioSalvo.set(mapKey, {
                         statusLocal: tarefa.statusLocal,
                         conclusao: tarefa.conclusao
                     });
@@ -351,8 +353,10 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         }
     });
 
+    // 2. Remove todas as instâncias antigas da tarefa na programação ("Nuke").
     await removerTarefaDaProgramacao(tarefaId, db, basePath);
 
+    // 3. Verifica se a tarefa deve ser (re)adicionada à programação.
     const statusValidosParaProgramacao = ["PROGRAMADA", "CONCLUÍDA", "EM OPERAÇÃO"];
     if (!statusValidosParaProgramacao.includes(tarefaData.status)) {
         return;
@@ -362,69 +366,89 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
         return;
     }
 
+    // 4. Prepara os dados base da tarefa para recriá-la na programação.
     let textoBaseTarefa = tarefaData.tarefa || "Tarefa sem descrição";
     if (tarefaData.prioridade) textoBaseTarefa += ` - ${tarefaData.prioridade}`;
-    let turnoParaTexto = (tarefaData.turno && tarefaData.turno.toUpperCase() !== TURNO_DIA_INTEIRO) ? `[${tarefaData.turno.toUpperCase()}] ` : "";
+    let turnoParaTexto = "";
+    if (tarefaData.turno && tarefaData.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
+        turnoParaTexto = `[${tarefaData.turno.toUpperCase()}] `;
+    }
     const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
 
     const dataInicioLoop = tarefaData.dataInicio.toDate();
     const dataFimLoop = tarefaData.dataProvavelTermino.toDate();
-    
-    // É mais eficiente buscar e modificar a estrutura de semanas uma vez
-    const semanasData = todasSemanasSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    semanasData.forEach(semanaDataModificada => {
-        const inicioSemana = converterParaDate(semanaDataModificada.dataInicioSemana);
-        const fimSemana = converterParaDate(semanaDataModificada.dataFimSemana);
+    const alteracoesPorSemana = new Map();
+    todasSemanasSnap.forEach(semanaDocSnap => {
+        alteracoesPorSemana.set(semanaDocSnap.id, {
+            ...semanaDocSnap.data(),
+            dias: JSON.parse(JSON.stringify(semanaDocSnap.data().dias || {}))
+        });
+    });
 
-        if (!inicioSemana || !fimSemana) return;
+    // 5. Recria a tarefa na programação ("Pave"), mas agora usando os dados de progresso memorizados.
+    let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
+    const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
+    dataFimLoopUTC.setUTCHours(23, 59, 59, 999);
 
-        let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
-        const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
-        dataFimLoopUTC.setUTCHours(23, 59, 59, 999);
-        
-        while (dataAtual.getTime() <= dataFimLoopUTC.getTime()) {
-            if (dataAtual.getTime() >= inicioSemana.getTime() && dataAtual.getTime() <= fimSemana.getTime()) {
-                const diaFormatado = dataAtual.toISOString().split('T')[0];
-                if (!semanaDataModificada.dias[diaFormatado]) semanaDataModificada.dias[diaFormatado] = {};
-                
-                tarefaData.responsaveis.forEach(responsavelId => {
-                    const progressoSalvo = progressoDiarioSalvo.get(`${diaFormatado}_${responsavelId}`);
+    let algumaSemanaModificadaNaAdicao = false;
+
+    while (dataAtual.getTime() <= dataFimLoopUTC.getTime()) {
+        const diaFormatado = dataAtual.toISOString().split('T')[0];
+
+        for (const semanaDataModificada of alteracoesPorSemana.values()) {
+            const inicioSemana = converterParaDate(semanaDataModificada.dataInicioSemana);
+            const fimSemana = converterParaDate(semanaDataModificada.dataFimSemana);
+
+            if (inicioSemana && fimSemana) {
+                const inicioSemanaUTC = new Date(Date.UTC(inicioSemana.getUTCFullYear(), inicioSemana.getUTCMonth(), inicioSemana.getUTCDate()));
+                const fimSemanaUTCloop = new Date(Date.UTC(fimSemana.getUTCFullYear(), fimSemana.getUTCMonth(), fimSemana.getUTCDate()));
+                fimSemanaUTCloop.setUTCHours(23, 59, 59, 999);
+
+                if (dataAtual.getTime() >= inicioSemanaUTC.getTime() && dataAtual.getTime() <= fimSemanaUTCloop.getTime()) {
+                    if (!semanaDataModificada.dias[diaFormatado]) semanaDataModificada.dias[diaFormatado] = {};
                     
-                    const itemTarefaProgramacao = {
-                        mapaTaskId: tarefaId,
-                        textoVisivel: textoVisivelFinal,
-                        statusLocal: progressoSalvo?.statusLocal || (tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE'),
-                        conclusao: progressoSalvo?.conclusao || '',
-                        mapaStatus: tarefaData.status,
-                        acao: tarefaData.acao || '',
-                        turno: tarefaData.turno || TURNO_DIA_INTEIRO,
-                        orientacao: tarefaData.orientacao || '',
-                        localizacao: tarefaData.area || '',
-                    };
-                    
-                    if (!semanaDataModificada.dias[diaFormatado][responsavelId]) {
-                        semanaDataModificada.dias[diaFormatado][responsavelId] = [];
-                    }
-                    if (!semanaDataModificada.dias[diaFormatado][responsavelId].find(t => t.mapaTaskId === tarefaId)) {
-                        semanaDataModificada.dias[diaFormatado][responsavelId].push({ ...itemTarefaProgramacao });
-                    }
-                });
+                    tarefaData.responsaveis.forEach(responsavelId => {
+                        const progressoSalvo = progressoDiarioSalvo.get(`${diaFormatado}_${responsavelId}`);
+                        
+                        const itemTarefaProgramacao = {
+                            mapaTaskId: tarefaId,
+                            textoVisivel: textoVisivelFinal,
+                            statusLocal: progressoSalvo?.statusLocal || (tarefaData.status === 'CONCLUÍDA' ? 'CONCLUÍDA' : 'PENDENTE'),
+                            conclusao: progressoSalvo?.conclusao || '',
+                            mapaStatus: tarefaData.status,
+                            acao: tarefaData.acao || '', // <-- CAMPO ADICIONADO
+                            turno: tarefaData.turno || TURNO_DIA_INTEIRO,
+                            orientacao: tarefaData.orientacao || '',
+                            localizacao: tarefaData.area || '',
+                        };
+                        
+                        if (!semanaDataModificada.dias[diaFormatado][responsavelId]) {
+                            semanaDataModificada.dias[diaFormatado][responsavelId] = [];
+                        }
+
+                        if (!semanaDataModificada.dias[diaFormatado][responsavelId].find(t => t.mapaTaskId === tarefaId)) {
+                            semanaDataModificada.dias[diaFormatado][responsavelId].push({ ...itemTarefaProgramacao });
+                            algumaSemanaModificadaNaAdicao = true;
+                        }
+                    });
+                }
             }
-            dataAtual.setUTCDate(dataAtual.getUTCDate() + 1);
         }
-    });
+        dataAtual.setUTCDate(dataAtual.getUTCDate() + 1);
+    }
 
-    const batch = writeBatch(db);
-    semanasData.forEach(semana => {
-        const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semana.id);
-        batch.update(semanaDocRef, { dias: semana.dias });
-    });
-
-    try {
-        await batch.commit();
-    } catch (error) {
-        console.error("[sincronizar] Erro ao commitar batch na programação semanal:", error);
+    if (algumaSemanaModificadaNaAdicao) {
+        const batch = writeBatch(db);
+        alteracoesPorSemana.forEach((dadosModificados, semanaId) => {
+            const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaId);
+            batch.set(semanaDocRef, dadosModificados);
+        });
+        try {
+            await batch.commit();
+        } catch (error) {
+            console.error("[sincronizar] Erro ao commitar batch de adição na programação semanal:", error);
+        }
     }
 }
 
@@ -1881,9 +1905,8 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 10.8.0
-// [CORRIGIDO] A função 'Atualizar com Mapa' agora preserva o status e as conclusões diárias já registradas,
-// evitando que o progresso seja perdido ao sincronizar a programação.
+// Versão: 10.5.0
+// [MELHORIA] Adicionadas bordas verticais mais espessas entre os dias da semana para melhorar a separação visual da grade.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -1970,7 +1993,7 @@ const ProgramacaoSemanalComponent = () => {
              dataFimUTC.setUTCDate(dataInicioUTC.getUTCDate() + 5);
              const ano = dataInicioUTC.getUTCFullYear();
              const numeroDaSemana = getWeekOfYear(dataInicioUTC);
-             const nomeNovaAba = `Programação <span class="math-inline">\{ano\}\-S</span>{numeroDaSemana.toString().padStart(2, '0')}`;
+             const nomeNovaAba = `Programação ${ano}-S${numeroDaSemana.toString().padStart(2, '0')}`;
              const semanaExistente = semanas.find(s => s.nomeAba === nomeNovaAba);
              if (semanaExistente) { toast.error(`A semana "${nomeNovaAba}" já existe.`); setLoadingAtualizacao(false); return; }
              const novaSemanaDocId = `semana_${dataInicioUTC.toISOString().split('T')[0].replace(/-/g, '_')}`;
@@ -1994,7 +2017,7 @@ const ProgramacaoSemanalComponent = () => {
         if (!semanaSelecionadaId || !dadosProgramacao) { toast.error("Nenhuma semana selecionada para excluir."); return; }
         const dataInicioFormatada = formatDateProg(dadosProgramacao.dataInicioSemana);
         const dataFimFormatada = formatDateProg(dadosProgramacao.dataFimSemana);
-        if (window.confirm(`Tem certeza que deseja excluir a semana "<span class="math-inline">\{dadosProgramacao\.nomeAba\}" \(</span>{dataInicioFormatada} - ${dataFimFormatada})?`)) {
+        if (window.confirm(`Tem certeza que deseja excluir a semana "${dadosProgramacao.nomeAba}" (${dataInicioFormatada} - ${dataFimFormatada})?`)) {
             setLoadingAtualizacao(true);
             try {
                 await deleteDoc(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId));
@@ -2006,27 +2029,17 @@ const ProgramacaoSemanalComponent = () => {
     };
 
     const handleAtualizarProgramacaoDaSemana = async () => {
-        if (!semanaSelecionadaId || !dadosProgramacao) { toast.error("Nenhuma semana selecionada para atualizar."); return; }
+        if (!semanaSelecionadaId) { toast.error("Nenhuma semana selecionada para atualizar."); return; }
         setLoadingAtualizacao(true);
         try {
             const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
-            const dataInicioSemanaDate = converterParaDate(dadosProgramacao.dataInicioSemana);
-            const dataFimSemanaDate = converterParaDate(dadosProgramacao.dataFimSemana);
+            const semanaDocSnap = await getDoc(semanaDocRef);
+            if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
+            const semanaData = semanaDocSnap.data();
+            const dataInicioSemanaDate = converterParaDate(semanaData.dataInicioSemana);
+            const dataFimSemanaDate = converterParaDate(semanaData.dataFimSemana);
             if (!dataInicioSemanaDate || !dataFimSemanaDate) throw new Error("Datas da semana inválidas.");
-
-            // 1. Memoriza o progresso diário existente
-            const progressoDiarioSalvo = new Map();
-            Object.entries(dadosProgramacao.dias || {}).forEach(([diaKey, responsaveis]) => {
-                Object.entries(responsaveis).forEach(([respKey, tarefas]) => {
-                    tarefas.forEach(tarefa => {
-                        if (tarefa.mapaTaskId && (tarefa.statusLocal || tarefa.conclusao)) {
-                            progressoDiarioSalvo.set(`<span class="math-inline">\{tarefa\.mapaTaskId\}\_</span>{diaKey}_${respKey}`, { statusLocal: tarefa.statusLocal, conclusao: tarefa.conclusao });
-                        }
-                    });
-                });
-            });
-
-            // 2. Prepara uma estrutura de semana limpa
+    
             const novosDiasDaSemana = {};
             let diaCorrente = new Date(dataInicioSemanaDate);
             while (diaCorrente <= dataFimSemanaDate) {
@@ -2039,7 +2052,6 @@ const ProgramacaoSemanalComponent = () => {
             const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`));
             const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
     
-            // 3. Repopula a semana com as tarefas do mapa
             tarefasMapaSnap.forEach(docTarefaMapa => {
                 const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
                 const statusValidos = ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"];
@@ -2047,7 +2059,13 @@ const ProgramacaoSemanalComponent = () => {
     
                 let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa s/ descrição";
                 if (tarefaMapa.prioridade) textoBaseTarefa += ` - ${tarefaMapa.prioridade}`;
-                let turnoParaTexto = (tarefaMapa.turno && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) ? `[${tarefaMapa.turno.toUpperCase()}] ` : "";
+                let turnoParaTexto = (tarefaMapa.turno && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO) ? `[${tarefaMapa.turno.toUpperCase()}] ` : "";
+                
+                const itemProg = {
+                    mapaTaskId: tarefaMapa.id, textoVisivel: turnoParaTexto + textoBaseTarefa, statusLocal: 'PENDENTE',
+                    mapaStatus: tarefaMapa.status, turno: tarefaMapa.turno || TURNO_DIA_INTEIRO, orientacao: tarefaMapa.orientacao || '',
+                    localizacao: tarefaMapa.area || '', acao: tarefaMapa.acao || '', conclusao: ''
+                };
     
                 let dataAtualTarefa = converterParaDate(tarefaMapa.dataInicio);
                 const dataFimTarefa = converterParaDate(tarefaMapa.dataProvavelTermino);
@@ -2058,14 +2076,6 @@ const ProgramacaoSemanalComponent = () => {
                         const diaFormatadoTarefa = dataAtualTarefa.toISOString().split('T')[0];
                         if (novosDiasDaSemana[diaFormatadoTarefa]) {
                             tarefaMapa.responsaveis.forEach(respId => {
-                                const progresso = progressoDiarioSalvo.get(`<span class="math-inline">\{tarefaMapa\.id\}\_</span>{diaFormatadoTarefa}_${respId}`);
-                                const itemProg = {
-                                    mapaTaskId: tarefaMapa.id, textoVisivel: turnoParaTexto + textoBaseTarefa, 
-                                    statusLocal: progresso?.statusLocal || 'PENDENTE',
-                                    conclusao: progresso?.conclusao || '',
-                                    mapaStatus: tarefaMapa.status, turno: tarefaMapa.turno || TURNO_DIA_INTEIRO, 
-                                    orientacao: tarefaMapa.orientacao || '', localizacao: tarefaMapa.area || '', acao: tarefaMapa.acao || ''
-                                };
                                 if (novosDiasDaSemana[diaFormatadoTarefa][respId]) {
                                     novosDiasDaSemana[diaFormatadoTarefa][respId].push({ ...itemProg });
                                 }
@@ -2076,7 +2086,6 @@ const ProgramacaoSemanalComponent = () => {
                 }
             });
     
-            // 4. Salva a nova estrutura no banco de dados
             await updateDoc(semanaDocRef, { dias: novosDiasDaSemana, atualizadoEm: Timestamp.now(), atualizadoPor: authGlobal.currentUser?.uid || 'sistema' });
             toast.success("Programação da semana atualizada com base no Mapa de Atividades!");
     
@@ -2145,7 +2154,7 @@ const ProgramacaoSemanalComponent = () => {
                         const dadosMapa = tarefaMapaSnap.data();
                         if (dadosMapa.status !== tarefa.statusLocal) {
                             await updateDoc(tarefaMapaDocRef, { status: tarefa.statusLocal });
-                            await logAlteracaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "<span class="math-inline">\{dadosMapa\.status\}" para "</span>{tarefa.statusLocal}".`);
+                            await logAlteracaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${dadosMapa.status}" para "${tarefa.statusLocal}".`);
                             const dadosAtualizadosParaSync = { ...dadosMapa, status: tarefa.statusLocal };
                             await sincronizarTarefaComProgramacao(tarefa.mapaTaskId, dadosAtualizadosParaSync, db, basePath);
                         }
@@ -2182,7 +2191,7 @@ const ProgramacaoSemanalComponent = () => {
 
     const renderCelulasTarefas = (funcionarioId) => {
         if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !dadosProgramacao.dias) {
-            return Array(DIAS_SEMANA_PROG.length).fill(null).map((_, index) => (<td key={`placeholder-<span class="math-inline">\{funcionarioId\}\-</span>{index}`} className="border p-1 min-h-[80px] h-20 align-top"></td>));
+            return Array(DIAS_SEMANA_PROG.length).fill(null).map((_, index) => (<td key={`placeholder-${funcionarioId}-${index}`} className="border p-1 min-h-[80px] h-20 align-top"></td>));
         }
         const celulas = [];
         const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
@@ -2194,13 +2203,13 @@ const ProgramacaoSemanalComponent = () => {
             const isHoje = diaFormatado === hojeFormatado;
             const tarefasDoDiaParaFuncionario = dadosProgramacao.dias[diaFormatado]?.[funcionarioId] || [];
             celulas.push(
-                <td key={`<span class="math-inline">\{funcionarioId\}\-</span>{diaFormatado}`} className={`border-y border-y-gray-300 border-l border-l-gray-300 border-r-2 border-r-gray-300 p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer transition-colors ${isHoje ? 'bg-amber-50' : ''}`} onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}>
+                <td key={`${funcionarioId}-${diaFormatado}`} className={`border-y border-y-gray-300 border-l border-l-gray-300 border-r-2 border-r-gray-300 p-1 min-h-[80px] h-20 align-top text-xs cursor-pointer transition-colors ${isHoje ? 'bg-amber-50' : ''}`} onClick={() => handleAbrirModalGerenciarTarefa(diaFormatado, funcionarioId, tarefasDoDiaParaFuncionario)}>
                     {tarefasDoDiaParaFuncionario.length === 0 
                         ? <span className="text-gray-400 italic text-xs">Vazio</span> 
                         : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
                             const taskColor = getAcaoColor(tarefaInst.acao);
                             return (
-                                <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} style={{ backgroundColor: taskColor }} title={`<span class="math-inline">\{tarefaInst\.textoVisivel\}</span>{tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
+                                <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} style={{ backgroundColor: taskColor }} title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
                                     <div className="font-semibold">{tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}</div>
                                     {tarefaInst.orientacao && (
                                         <div className="font-normal italic opacity-90 mt-1 border-t border-white border-opacity-20 pt-0.5">{tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}</div>
@@ -2242,7 +2251,7 @@ const ProgramacaoSemanalComponent = () => {
                         <tbody>
                             {(!contextFuncionarios || contextFuncionarios.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado.</td></tr>) : 
                                 (contextFuncionarios.map((func, index) => (
-                                    <tr key={func.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                    <tr key={func.id}>
                                         <td className={`border-y border-y-gray-300 border-l border-l-gray-300 px-3 py-2 font-semibold text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10 ${index % 2 === 0 ? 'bg-teal-50' : 'bg-teal-100'}`}>{func.nome}</td>
                                         {renderCelulasTarefas(func.id)}
                                     </tr>
@@ -2258,475 +2267,6 @@ const ProgramacaoSemanalComponent = () => {
         </div>
     );
 };
-
-// Versão: 6.8.2
-// [NOVO] Componente criado para agrupar as funcionalidades de Fitossanitário em abas.
-const ControleFitossanitarioComponent = () => {
-    const [activeTab, setActiveTab] = useState('planos');
-
-    const TabButton = ({ tabName, currentTab, setTab, children }) => {
-        const isActive = currentTab === tabName;
-        return (
-            <button
-                onClick={() => setTab(tabName)}
-                className={`px-4 py-2 text-sm font-semibold rounded-t-md transition-colors focus:outline-none ${
-                    isActive
-                        ? 'bg-white text-blue-600 border-b-2 border-blue-600'
-                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-            >
-                {children}
-            </button>
-        );
-    };
-
-    return (
-        <div className="p-6 bg-gray-50 min-h-full">
-            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Controle Fitossanitário</h2>
-            <div className="border-b border-gray-200 mb-6">
-                <nav className="flex space-x-2">
-                    <TabButton tabName="planos" currentTab={activeTab} setTab={setActiveTab}>Planos de Aplicação</TabButton>
-                    <TabButton tabName="calendario" currentTab={activeTab} setTab={setActiveTab}>Calendário de Aplicações</TabButton>
-                    <TabButton tabName="historico" currentTab={activeTab} setTab={setActiveTab}>Histórico de Aplicações</TabButton>
-                </nav>
-            </div>
-            <div>
-                {activeTab === 'planos' && <PlanosFitossanitariosComponent />}
-                {activeTab === 'calendario' && <CalendarioFitossanitarioComponent />}
-                {activeTab === 'historico' && <HistoricoFitossanitarioComponent />}
-            </div>
-        </div>
-    );
-};
-
-// Versão: 6.4.0
-// [NOVO] Adicionada uma listagem informativa de tarefas pendentes na tela "Tarefa Pátio" para evitar duplicidade.
-const TarefaPatioComponent = () => {
-    const { userId, db, appId, listasAuxiliares, auth, storage } = useContext(GlobalContext);
-
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [loadingForm, setLoadingForm] = useState(false);
-
-    // Estados para o formulário do modal
-    const [tarefa, setTarefa] = useState('');
-    const [prioridade, setPrioridade] = useState('');
-    const [area, setArea] = useState('');
-    const [orientacao, setOrientacao] = useState('');
-    const [acao, setAcao] = useState('');
-    const [dataInicio, setDataInicio] = useState('');
-    const [novosAnexos, setNovosAnexos] = useState([]);
-
-    // Estados para a lista de tarefas pendentes
-    const [tarefasPendentes, setTarefasPendentes] = useState([]);
-    const [loadingList, setLoadingList] = useState(true);
-
-    const basePath = `/artifacts/${appId}/public/data`;
-    const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
-
-    // Hook para carregar a lista de tarefas pendentes
-    useEffect(() => {
-        setLoadingList(true);
-        const q = query(tarefasMapaCollectionRef, where("status", "==", "AGUARDANDO ALOCAÇÃO"), orderBy("createdAt", "asc"));
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedPendentes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setTarefasPendentes(fetchedPendentes);
-            setLoadingList(false);
-        }, (error) => {
-            console.error("Erro ao carregar tarefas pendentes:", error);
-            setLoadingList(false);
-        });
-        return () => unsubscribe();
-    }, [userId, appId, db, basePath]);
-
-    const resetFormulario = () => {
-        setTarefa('');
-        setPrioridade('');
-        setArea('');
-        setOrientacao('');
-        setAcao('');
-        setDataInicio('');
-        setNovosAnexos([]);
-    };
-
-    const handleOpenModal = () => {
-        resetFormulario();
-        const hoje = new Date();
-        const dataFormatada = hoje.toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'}).split('/').reverse().join('-');
-        setDataInicio(dataFormatada);
-        setIsModalOpen(true);
-    };
-
-    const handleCloseModal = () => {
-        setIsModalOpen(false);
-    };
-
-    const handleFileChange = (e) => {
-        if (e.target.files) {
-            setNovosAnexos(prev => [...prev, ...Array.from(e.target.files)]);
-        }
-    };
-
-    const handleRemoveNovoAnexo = (fileNameToRemove) => {
-        setNovosAnexos(novosAnexos.filter(file => file.name !== fileNameToRemove));
-    };
-
-    const handleCriarTarefaPendente = async (e) => {
-        e.preventDefault();
-        if (!tarefa.trim() || !acao || !dataInicio) {
-            toast.error("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios.");
-            return;
-        }
-
-        setLoadingForm(true);
-        try {
-            const novoDocRef = doc(tarefasMapaCollectionRef);
-            const idDaNovaTarefa = novoDocRef.id;
-
-            const urlsDosNovosAnexos = [];
-            if (novosAnexos.length > 0) {
-                for (const anexo of novosAnexos) {
-                    const caminhoStorage = `<span class="math-inline">\{basePath\}/imagens\_tarefas/</span>{idDaNovaTarefa}/<span class="math-inline">\{Date\.now\(\)\}\_</span>{anexo.name}`;
-                    const storageRef = ref(storage, caminhoStorage);
-                    const uploadTask = await uploadBytesResumable(storageRef, anexo);
-                    const downloadURL = await getDownloadURL(uploadTask.ref);
-                    urlsDosNovosAnexos.push(downloadURL);
-                }
-            }
-            
-            const dataInicioTimestamp = Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z"));
-
-            const novaTarefaData = {
-                tarefa: tarefa.trim().toUpperCase(),
-                prioridade: prioridade || "",
-                area: area || "",
-                acao: acao,
-                dataInicio: dataInicioTimestamp,
-                dataProvavelTermino: dataInicioTimestamp,
-                orientacao: orientacao.trim(),
-                status: "AGUARDANDO ALOCAÇÃO",
-                responsaveis: [],
-                turno: "",
-                criadoPor: auth.currentUser?.uid || 'sistema',
-                criadoPorEmail: auth.currentUser?.email || 'sistema',
-                createdAt: Timestamp.now(),
-                updatedAt: Timestamp.now(),
-                semanaProgramada: "",
-                origem: "Tarefa Pátio",
-                imagens: urlsDosNovosAnexos,
-            };
-
-            await setDoc(novoDocRef, novaTarefaData);
-            console.log("Nova tarefa do pátio criada no Mapa de Atividades com ID: ", idDaNovaTarefa);
-
-            await logAlteracaoTarefa(
-                db,
-                basePath,
-                idDaNovaTarefa,
-                auth.currentUser?.uid,
-                auth.currentUser?.email,
-                "Tarefa Criada (Pátio)",
-                `Tarefa "${novaTarefaData.tarefa}" criada via Tarefa Pátio.`
-            );
-
-            toast.success("Nova tarefa criada com sucesso!");
-            handleCloseModal();
-
-        } catch (error) {
-            console.error("Erro ao criar tarefa do pátio: ", error);
-            toast.error("Erro ao criar tarefa do pátio: " + error.message);
-        }
-        setLoadingForm(false);
-    };
-
-    return (
-        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-800">Tarefa Pátio</h2>
-                <button
-                    onClick={handleOpenModal}
-                    className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
-                >
-                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa do Pátio
-                </button>
-            </div>
-
-            <div className="text-center p-5 bg-white shadow rounded-md">
-                <p className="text-gray-600">
-                    Utilize o botão "Adicionar Tarefa do Pátio" para registrar rapidamente uma nova demanda
-                    que será incluída no Mapa de Atividades para posterior alocação e programação.
-                </p>
-            </div>
-
-            {/* Início da Nova Seção de Listagem */}
-            <div className="mt-8">
-                <h3 className="text-xl font-semibold text-gray-700 mb-4">
-                    <LucideListTodo size={22} className="inline-block mr-2 text-orange-500" />
-                    Tarefas Atualmente Pendentes de Alocação
-                </h3>
-                <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-100">
-                            <tr>
-                                {["Tarefa", "Prioridade", "Área", "Ação", "Data Criação", "Orientação"].map(header => (
-                                    <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap">{header}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {loadingList ? (
-                                <tr><td colSpan="6" className="text-center p-4">Carregando tarefas pendentes...</td></tr>
-                            ) : tarefasPendentes.length === 0 ? (
-                                <tr><td colSpan="6" className="text-center p-4 text-gray-500">Nenhuma tarefa pendente no momento.</td></tr>
-                            ) : (
-                                tarefasPendentes.map(tp => (
-                                    <tr key={tp.id} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3 text-sm text-gray-800 max-w-xs whitespace-normal break-words">{tp.tarefa}</td>
-                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.prioridade || '-'}</td>
-                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.area || '-'}</td>
-                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.acao || '-'}</td>
-                                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.createdAt ? formatDate(tp.createdAt) : '-'}</td>
-                                        <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal break-words">{tp.orientacao || '-'}</td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            {/* Fim da Nova Seção de Listagem */}
-
-            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title="Criar Nova Tarefa do Pátio" width="max-w-3xl">
-                <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
-                    <div>
-                        <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
-                        <select
-                            id="tarefaDescricao"
-                            value={tarefa}
-                            onChange={(e) => setTarefa(e.target.value)}
-                            required
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
-                        >
-                            <option value="">Selecione uma Tarefa...</option>
-                            {(listasAuxiliares.tarefas || []).map(t => (<option key={t} value={t}>{t}</option>))}
-                        </select>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="tarefaAcao" className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
-                            <select
-                                id="tarefaAcao"
-                                value={acao}
-                                onChange={(e) => setAcao(e.target.value)}
-                                required
-                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
-                            >
-                                <option value="">Selecione uma Ação...</option>
-                                {(listasAuxiliares && listasAuxiliares.acoes ? listasAuxiliares.acoes : []).map(ac => (
-                                    <option key={ac} value={ac}>{ac}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="tarefaDataInicio" className="block text-sm font-medium text-gray-700">Data da inclusão da tarefa <span className="text-red-500">*</span></label>
-                            <input id="tarefaDataInicio" type="date" value={dataInicio} required disabled className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed"/>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="tarefaPrioridade" className="block text-sm font-medium text-gray-700">Prioridade</label>
-                            <select id="tarefaPrioridade" value={prioridade} onChange={(e) => setPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
-                                <option value="">Selecione se aplicável...</option>
-                                {(listasAuxiliares && listasAuxiliares.prioridades ? listasAuxiliares.prioridades : []).map(p => <option key={p} value={p}>{p}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="tarefaArea" className="block text-sm font-medium text-gray-700">Área</label>
-                            <select id="tarefaArea" value={area} onChange={(e) => setArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
-                                <option value="">Selecione se aplicável...</option>
-                                {(listasAuxiliares && listasAuxiliares.areas ? listasAuxiliares.areas : []).map(a => <option key={a} value={a}>{a}</option>)}
-                            </select>
-                        </div>
-                    </div>
-                    <div>
-                        <label htmlFor="tarefaOrientacao" className="block text-sm font-medium text-gray-700">Observação/Orientação</label>
-                        <textarea id="tarefaOrientacao" value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                        <h4 className="text-md font-semibold text-gray-700 mb-2">Anexos</h4>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Adicionar Imagens</label>
-                            <input
-                                type="file"
-                                multiple
-                                accept="image/*"
-                                onChange={handleFileChange}
-                                className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                            />
-                        </div>
-                        {novosAnexos.length > 0 && (
-                            <div className="mt-2">
-                                <p className="text-sm font-medium text-gray-600 mb-2">Imagens para Enviar:</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {novosAnexos.map((file, index) => (
-                                        <div key={index} className="relative group">
-                                            <img src={URL.createObjectURL(file)} alt={file.name} className="w-20 h-20 object-cover rounded-md"/>
-                                            <button 
-                                                type="button"
-                                                onClick={() => handleRemoveNovoAnexo(file.name)}
-                                                className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                title="Remover"
-                                            >
-                                            <LucideX size={14} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="pt-4 flex justify-end space-x-2">
-                        <button type="button" onClick={handleCloseModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={loadingForm} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
-                            {loadingForm ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
-        </div>
-    );
-};
-
-const MainApp = () => {
-    const [currentPage, setCurrentPage] = useState('dashboard');
-    const { currentUser, permissoes, auth: firebaseAuth } = useContext(GlobalContext);
-
-    const NavLink = memo(({ page, children, icon: Icon, currentPage, setCurrentPage }) => (
-        <button 
-            onClick={() => setCurrentPage(page)} 
-            className={`w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors duration-150 ease-in-out ${currentPage === page ? 'bg-blue-600 text-white shadow-md' : 'text-gray-700 hover:bg-blue-100'}`}
-        >
-            {Icon && <Icon size={18} className="mr-3"/>}
-            <span>{children}</span>
-        </button>
-    ));
-
-    const checkPermission = (pageKey) => {
-        const userEmail = currentUser?.email?.toLowerCase();
-        if (!userEmail) return false;
-        
-        if (["sistemas@gramoterra.com.br", "operacional@gramoterra.com.br", "mpivottoramos@gmail.com"].includes(userEmail)) {
-            return true;
-        }
-
-        const permissionList = permissoes[pageKey];
-        return Array.isArray(permissionList) && permissionList.includes(userEmail);
-    };
-
-    const PageContent = () => {
-        if (!checkPermission(currentPage)) {
-            useEffect(() => {
-                toast.error("Você não tem permissão para acessar esta página.");
-                setCurrentPage('dashboard');
-            }, [currentPage]);
-            return <DashboardComponent />;
-        }
-
-        switch (currentPage) {
-            case 'dashboard': return <DashboardComponent />;
-            case 'mapa': return <MapaAtividadesComponent />;
-            case 'programacao': return <ProgramacaoSemanalComponent />;
-            case 'fito': return <ControleFitossanitarioComponent />;
-            case 'agenda': return <AgendaDiariaComponent />;
-            case 'anotacoes': return <TarefaPatioComponent />;
-            case 'pendentes': return <TarefasPendentesComponent />;
-            case 'config': return <ConfiguracoesComponent />;
-            case 'relatorios': return <RelatoriosComponent />;
-            default: return <DashboardComponent />;
-        }
-    };
-    
-    const NavGroupTitle = ({ title }) => (
-        <h4 className="px-3 pt-4 pb-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            {title}
-        </h4>
-    );
-
-    return (
-        <>
-            <Toaster position="bottom-right" toastOptions={{ duration: 4000 }}/>
-            <div className="flex h-screen bg-gray-100 font-sans">
-                <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-                    <div className="h-16 flex items-center justify-center border-b">
-                         <img src={LOGO_URL} alt="Logo Gramoterra" className="h-10"/>
-                    </div>
-                    
-                    <nav className="flex-1 px-2 mt-4 space-y-1">
-                        <div>
-                            <NavGroupTitle title="Gestão" />
-                            {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
-                            {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>}
-                            {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Semanal</NavLink>}
-                        </div>
-
-                        <div>
-                            <NavGroupTitle title="Operação" />
-                            {checkPermission('anotacoes') && <NavLink page="anotacoes" icon={LucideClipboardEdit} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>}
-                            {checkPermission('pendentes') && <NavLink page="pendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>}
-                            {checkPermission('mapa') && <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>}
-                        </div>
-
-                        <div>
-                            <NavGroupTitle title="Fitossanitário" />
-                            {/* Links unificados em um só */}
-                            {checkPermission('fito') && <NavLink page="fito" icon={LucideSprayCan} currentPage={currentPage} setCurrentPage={setCurrentPage}>Controle Fitossanitário</NavLink>}
-                        </div>
-                        
-                        <div>
-                             <NavGroupTitle title="Análise e Sistema" />
-                            {checkPermission('relatorios') && <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>}
-                            {checkPermission('config') && <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>}
-                        </div>
-                    </nav>
-
-                    <div className="mt-auto border-t p-2">
-                        <p className="text-xs text-gray-500 mb-2 px-2">Logado como: {currentUser.isAnonymous ? "Anônimo" : currentUser.email || currentUser.uid}</p>
-                        <button onClick={() => firebaseAuth.signOut()} className="w-full flex items-center justify-start px-3 py-2.5 text-sm font-medium rounded-md text-red-600 hover:bg-red-100">
-                            <LucideLogOut size={18} className="mr-2"/> Sair
-                        </button>
-                    </div>
-                </aside>
-                <main className="flex-1 overflow-y-auto">
-                    <PageContent />
-                </main>
-            </div>
-        </>
-    );
-}
-
-function App() {
-    const { currentUser, loadingAuth } = useContext(GlobalContext);
-    
-    if (loadingAuth) {
-         return <div className="flex justify-center items-center h-screen"><div className="text-xl">Carregando...</div></div>;
-    }
-
-    if (!currentUser) {
-        return <AuthComponent />;
-    }
-    
-    return <MainApp />;
-}
-
-export default function WrappedApp() {
-    return (
-        <GlobalProvider>
-            <App />
-        </GlobalProvider>
-    );
-}
 
 // Versão: 8.3.0
 // [ALTERADO] Adicionada a nova aba "Aplicações" e reordenado o menu.
