@@ -5452,6 +5452,8 @@ const HistoricoFitossanitarioComponent = () => {
     );
 };
 
+// Versão: 1.0.1
+// [ALTERADO] Texto ajustado para "Gestão de Equipes" e definido como parte da tela de boas-vindas.
 const WelcomeComponent = () => {
     return (
         <div className="flex flex-col justify-center items-center h-full bg-gray-50 text-center p-6">
@@ -5463,10 +5465,10 @@ const WelcomeComponent = () => {
                     onError={(e) => e.target.style.display='none'}
                 />
                 <h1 className="text-4xl font-bold text-gray-800">
-                    Gramoterra
+                    GRAMOTERRA
                 </h1>
                 <p className="text-xl text-gray-600 mt-2">
-                    Gestor de Equipes
+                    Gestão de Equipes
                 </p>
             </div>
         </div>
@@ -5836,10 +5838,11 @@ function App() {
     return <MainApp />;
 }
 
-// Versão: 6.8.3
-// [ALTERADO] Os três links de "Fitossanitário" no menu foram unificados em um só.
+// Versão: 6.9.1
+// [MELHORIA] Aumentado o tamanho do logotipo e do texto no cabeçalho da barra lateral.
+// [NOVO] O cabeçalho da barra lateral agora é um botão que leva para a tela de boas-vindas.
 const MainApp = () => {
-    const [currentPage, setCurrentPage] = useState('dashboard');
+    const [currentPage, setCurrentPage] = useState('welcome');
     const { currentUser, permissoes, auth: firebaseAuth } = useContext(GlobalContext);
 
     const NavLink = memo(({ page, children, icon: Icon, currentPage, setCurrentPage }) => (
@@ -5865,6 +5868,10 @@ const MainApp = () => {
     };
 
     const PageContent = () => {
+        if (currentPage === 'welcome') {
+            return <WelcomeComponent />;
+        }
+
         if (!checkPermission(currentPage)) {
             useEffect(() => {
                 toast.error("Você não tem permissão para acessar esta página.");
@@ -5883,7 +5890,7 @@ const MainApp = () => {
             case 'pendentes': return <TarefasPendentesComponent />;
             case 'config': return <ConfiguracoesComponent />;
             case 'relatorios': return <RelatoriosComponent />;
-            default: return <DashboardComponent />;
+            default: return <WelcomeComponent />;
         }
     };
     
@@ -5898,8 +5905,15 @@ const MainApp = () => {
             <Toaster position="bottom-right" toastOptions={{ duration: 4000 }}/>
             <div className="flex h-screen bg-gray-100 font-sans">
                 <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-                    <div className="h-16 flex items-center justify-center border-b">
-                         <img src={LOGO_URL} alt="Logo Gramoterra" className="h-10"/>
+                    <div className="h-20 flex flex-col items-center justify-center border-b">
+                        <button 
+                            onClick={() => setCurrentPage('welcome')} 
+                            className="flex flex-col items-center justify-center w-full h-full hover:bg-gray-50 transition-colors"
+                            title="Ir para a tela inicial"
+                        >
+                            <img src={LOGO_URL} alt="Logo Gramoterra" className="h-10 w-auto"/>
+                            <p className="text-sm font-semibold text-gray-600 mt-2">Gestão de Equipes</p>
+                        </button>
                     </div>
                     
                     <nav className="flex-1 px-2 mt-4 space-y-1">
@@ -5919,7 +5933,6 @@ const MainApp = () => {
 
                         <div>
                             <NavGroupTitle title="Fitossanitário" />
-                            {/* Links unificados em um só */}
                             {checkPermission('fito') && <NavLink page="fito" icon={LucideSprayCan} currentPage={currentPage} setCurrentPage={setCurrentPage}>Controle Fitossanitário</NavLink>}
                         </div>
                         
