@@ -3725,8 +3725,8 @@ const RelatorioDeAtividades = () => {
 };
 
 
-// Versão: 3.2.0
-// [MODIFICADO] Componente principal de Relatórios, agora com abas para selecionar o tipo.
+// Versão: 3.2.1
+// [ALTERADO] O nome da aba "Relatório Semanal" foi alterado para "Relatório por Período".
 const RelatoriosComponent = () => {
     const [tipoRelatorio, setTipoRelatorio] = useState('atividades'); // 'atividades' ou 'semanal'
 
@@ -3745,7 +3745,7 @@ const RelatoriosComponent = () => {
                         onClick={() => setTipoRelatorio('semanal')}
                         className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${tipoRelatorio === 'semanal' ? 'bg-white text-blue-600 shadow' : 'text-gray-600 hover:bg-gray-300'}`}
                     >
-                        Relatório Semanal
+                        Relatório por Período
                     </button>
                  </div>
             </div>
