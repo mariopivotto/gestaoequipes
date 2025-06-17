@@ -133,14 +133,14 @@ const getStatusColor = (status) => {
 const getAcaoColor = (acao) => {
     switch (acao) {
         case 'MANUTENÇÃO | MUDAS':
-            return '#458581';
+            return '#63d474';
         case 'MANUTENÇÃO | PATIO':
-            return '#4e8755';
+            return '#478ffc';
         case 'MELHORIAS | ESTRUTURAIS':
-            return '#87724e';
+            return '#f7f372';
         case 'MANUTENÇÃO | PREVENTIVA':
         case 'MANUTENÇÃO | TRATAMENTO':
-            return '#823469';
+            return '#fc83f2';
         default:
             return '#4a4948';
     }
@@ -1905,8 +1905,8 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 10.5.0
-// [MELHORIA] Adicionadas bordas verticais mais espessas entre os dias da semana para melhorar a separação visual da grade.
+// Versão: 10.5.1
+// [CORRIGIDO] Alterada a cor do texto dos cards na programação semanal de branco para preto para melhorar a legibilidade.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2209,10 +2209,10 @@ const ProgramacaoSemanalComponent = () => {
                         : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
                             const taskColor = getAcaoColor(tarefaInst.acao);
                             return (
-                                <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-white text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} style={{ backgroundColor: taskColor }} title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
+                                <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-black text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} style={{ backgroundColor: taskColor }} title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
                                     <div className="font-semibold">{tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}</div>
                                     {tarefaInst.orientacao && (
-                                        <div className="font-normal italic opacity-90 mt-1 border-t border-white border-opacity-20 pt-0.5">{tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}</div>
+                                        <div className="font-normal italic opacity-90 mt-1 border-t border-black border-opacity-20 pt-0.5">{tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}</div>
                                     )}
                                 </div>
                             )
