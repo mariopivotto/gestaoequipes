@@ -258,6 +258,25 @@ async function logAlteracaoTarefa(db, basePath, tarefaId, usuarioId, usuarioEmai
     }
 }
 
+// Versão: 12.0.0
+// [NOVO] Função para registrar o evento de login de um usuário.
+async function logUserLogin(db, basePath, user) {
+    if (!user || !user.uid) return;
+    try {
+        const logsAcessoRef = collection(db, `${basePath}/access_logs`);
+        await addDoc(logsAcessoRef, {
+            timestamp: Timestamp.now(),
+            usuarioId: user.uid,
+            usuarioEmail: user.email,
+            acaoRealizada: "Acesso ao Sistema (Login)",
+            contexto: "Autenticação",
+            detalhesAdicionais: `Usuário ${user.email} autenticado com sucesso.`
+        });
+    } catch (error) {
+        console.error("Erro ao registrar log de acesso:", error);
+    }
+}
+
 // Versão: 11.3.0
 // [MELHORIA] A função agora salva o contexto e as observações (como orientação) diretamente no documento de log.
 async function logAlteracaoFitossanitaria(db, basePath, registroId, usuarioEmail, acaoRealizada, detalhesAdicionais = "") {
@@ -579,19 +598,18 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 11.0.0
-// [NOVO] Adicionada a busca de permissões para a nova aba "Monitoramento".
-// [CORRIGIDO] Resolvida a condição de corrida no login, onde a verificação de permissão ocorria antes dos dados serem carregados.
-// O estado de carregamento agora aguarda tanto a autenticação quanto os dados essenciais (permissões, funcionários).
+// Versão: 12.0.0
+// [NOVO] Adicionada a chamada para a função logUserLogin no momento da autenticação.
 const GlobalProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(undefined);
     const [userId, setUserId] = useState(null);
-    const [loading, setLoading] = useState(true); // Estado de carregamento unificado
+    const [loading, setLoading] = useState(true);
     const [listasAuxiliares, setListasAuxiliares] = useState({
         prioridades: [], areas: [], acoes: [], status: [], turnos: [], tarefas: [], usuarios_notificacao: []
     });
     const [funcionarios, setFuncionarios] = useState([]);
     const [permissoes, setPermissoes] = useState({});
+    const basePath = `/artifacts/${appId}/public/data`;
 
     // Efeito para autenticação
     useEffect(() => {
@@ -601,9 +619,17 @@ const GlobalProvider = ({ children }) => {
 
         const unsubscribe = onAuthStateChanged(authGlobal, async (user) => {
             if (user) {
+                // Se um usuário for autenticado com sucesso
                 setCurrentUser(user);
                 setUserId(user.uid);
-                // Não para de carregar aqui, espera os dados no próximo useEffect
+                
+                // [NOVO] Registra o evento de login no banco de dados
+                const loginLogKey = `login_logged_${user.uid}`;
+                if (!sessionStorage.getItem(loginLogKey)) {
+                    await logUserLogin(db, basePath, user);
+                    sessionStorage.setItem(loginLogKey, 'true'); // Evita log duplo em reloads rápidos
+                }
+
             } else if (IS_DEV && DEV_EMAIL && DEV_PASSWORD) {
                 try {
                     await signInWithEmailAndPassword(authGlobal, DEV_EMAIL, DEV_PASSWORD);
@@ -611,12 +637,12 @@ const GlobalProvider = ({ children }) => {
                     console.error("Falha no login automático de desenvolvedor:", error);
                     setCurrentUser(null);
                     setUserId(null);
-                    setLoading(false); // Para o carregamento se o autologin falhar
+                    setLoading(false);
                 }
             } else {
                 setCurrentUser(null);
                 setUserId(null);
-                setLoading(false); // Para o carregamento se estiver deslogado
+                setLoading(false);
             }
         });
 
@@ -626,29 +652,23 @@ const GlobalProvider = ({ children }) => {
     // Efeito para carregar dados (permissões, listas, etc.)
     useEffect(() => {
         if (!userId) {
-            // Se o usuário deslogar, não há dados para carregar
             if(currentUser === null) setLoading(false);
             return;
         }
 
-        const basePath = `/artifacts/${appId}/public/data`;
         const fetches = [];
-
-        // Permissões
         const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda', 'monitoramento'];
         chavesDePermissao.forEach(chave => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/permissoes_${chave}/items`));
             fetches.push(getDocs(q).then(snapshot => ({ chave, snapshot })));
         });
 
-        // Listas Auxiliares
         const listaNames = ['prioridades', 'areas', 'acoes', 'status', 'turnos', 'tarefas', 'usuarios_notificacao'];
         listaNames.forEach(name => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/${name}/items`));
             fetches.push(getDocs(q).then(snapshot => ({ name, snapshot, type: 'lista' })));
         });
         
-        // Funcionários
         const qFuncionarios = query(collection(db, `${basePath}/funcionarios`));
         fetches.push(getDocs(qFuncionarios).then(snapshot => ({ type: 'funcionarios', snapshot })));
 
@@ -659,11 +679,10 @@ const GlobalProvider = ({ children }) => {
 
             results.forEach(result => {
                 if (result.type === 'lista') {
-                    const items = result.snapshot.docs.map(d => d.data().nome).sort();
-                    newListas[result.name] = items;
+                    newListas[result.name] = result.snapshot.docs.map(d => d.data().nome).sort();
                 } else if (result.type === 'funcionarios') {
                     newFuncionarios = result.snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.nome.localeCompare(b.nome));
-                } else { // Permissões
+                } else {
                     newPermissoes[result.chave] = result.snapshot.docs.map(doc => doc.data().nome.toLowerCase());
                 }
             });
@@ -671,11 +690,11 @@ const GlobalProvider = ({ children }) => {
             setPermissoes(newPermissoes);
             setListasAuxiliares(prev => ({ ...prev, ...newListas }));
             setFuncionarios(newFuncionarios);
-            setLoading(false); // FINALMENTE: para o carregamento após todos os dados essenciais serem carregados
+            setLoading(false);
         }).catch(error => {
             console.error("Erro no carregamento inicial de dados:", error);
             toast.error("Falha ao carregar dados essenciais.");
-            setLoading(false); // Para o carregamento mesmo em caso de erro
+            setLoading(false);
         });
 
     }, [userId, appId, db]);
@@ -1157,9 +1176,9 @@ const ConfiguracoesComponent = () => {
     );
 };
 
-// Versão: 11.3.0
-// [NOVO] Exibe a orientação da tarefa/registro diretamente abaixo do log de atividade.
-// [MELHORIA] A busca de contexto para logs antigos agora também inclui a orientação.
+// Versão: 12.0.0
+// [NOVO] O componente agora busca e exibe também os logs de acesso ao sistema.
+// [MELHORIA] A busca foi otimizada para unir os logs de atividades e de acesso em uma única lista cronológica.
 const MonitoramentoComponent = () => {
     const { db, appId } = useContext(GlobalContext);
     const [logs, setLogs] = useState([]);
@@ -1173,6 +1192,7 @@ const MonitoramentoComponent = () => {
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                 const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
 
+                // Query 1: Logs de atividades (existente)
                 const historyQuery = query(
                     collectionGroup(db, 'historico_alteracoes'),
                     where('timestamp', '>=', sevenDaysAgoTimestamp),
@@ -1180,26 +1200,29 @@ const MonitoramentoComponent = () => {
                     limit(200)
                 );
 
-                const snapshot = await getDocs(historyQuery);
-                if (snapshot.empty) {
-                    setLogs([]);
-                    setLoading(false);
-                    return;
-                }
+                // Query 2: Logs de acesso (novo)
+                const basePath = `/artifacts/${appId}/public/data`;
+                const accessLogsQuery = query(
+                    collection(db, `${basePath}/access_logs`),
+                    where('timestamp', '>=', sevenDaysAgoTimestamp),
+                    orderBy('timestamp', 'desc'),
+                    limit(50)
+                );
 
-                const enrichedLogsPromises = snapshot.docs.map(async (docSnap) => {
+                // Executa as duas buscas em paralelo
+                const [historySnapshot, accessSnapshot] = await Promise.all([
+                    getDocs(historyQuery),
+                    getDocs(accessLogsQuery)
+                ]);
+
+                // Processa os logs de atividades (com retrocompatibilidade)
+                const activityLogsPromises = historySnapshot.docs.map(async (docSnap) => {
                     const logData = { id: docSnap.id, ...docSnap.data() };
-
-                    // Se o contexto já existe no log (logs novos), não faz nada.
-                    if (logData.contexto) {
-                        return logData;
-                    }
-
-                    // Para logs antigos, busca o contexto e a orientação.
+                    if (logData.contexto) return logData;
+                    
                     let context = 'Contexto não identificado';
                     let orientacao = '';
                     const parentDocRef = docSnap.ref.parent.parent;
-
                     if(parentDocRef) {
                         try {
                             const parentSnap = await getDoc(parentDocRef);
@@ -1219,9 +1242,17 @@ const MonitoramentoComponent = () => {
                     }
                     return { ...logData, contexto: context, orientacao: orientacao };
                 });
+                
+                const activityLogs = await Promise.all(activityLogsPromises);
+                
+                // Processa os logs de acesso
+                const accessLogs = accessSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-                const finalLogs = await Promise.all(enrichedLogsPromises);
-                setLogs(finalLogs);
+                // Une e ordena todos os logs por data
+                const allLogs = [...activityLogs, ...accessLogs];
+                allLogs.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
+
+                setLogs(allLogs);
 
             } catch (error) {
                 console.error("Erro ao carregar logs de monitoramento:", error);
@@ -1280,9 +1311,9 @@ const MonitoramentoComponent = () => {
                         </ul>
                     </div>
                 )}
-                 {logs.length >= 200 && (
+                 {logs.length >= 200 + 50 && ( // Soma dos limites das queries
                     <div className="p-3 bg-gray-100 text-center text-xs text-gray-600 border-t">
-                        A exibição está limitada aos 200 logs mais recentes dos últimos 7 dias.
+                        A exibição está limitada aos logs mais recentes dos últimos 7 dias.
                     </div>
                 )}
             </div>
