@@ -1651,8 +1651,8 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
     );
 };
 
-// Versão: 8.1.0
-// [NOVO] Adicionada a opção de filtro "Todos, exceto Concluídas" no filtro de Status.
+// Versão: 8.1.1
+// [CORRIGIDO] Implementada a lógica de salvamento, atualização e exclusão de tarefas, que estava ausente e impedia o funcionamento dos botões de ação.
 const MapaAtividadesComponent = () => {
     const { db, appId, storage, funcionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
@@ -1710,7 +1710,6 @@ const MapaAtividadesComponent = () => {
         if (termoBusca.trim() !== "") { tarefasProcessadas = tarefasProcessadas.filter(t => (t.tarefa && t.tarefa.toLowerCase().includes(termoBusca.toLowerCase())) || (t.orientacao && t.orientacao.toLowerCase().includes(termoBusca.toLowerCase()))); }
         if (filtroResponsavel !== "TODOS") { if (filtroResponsavel === SEM_RESPONSAVEL_VALUE) { tarefasProcessadas = tarefasProcessadas.filter(t => !t.responsaveis || t.responsaveis.length === 0); } else { tarefasProcessadas = tarefasProcessadas.filter(t => t.responsaveis && t.responsaveis.includes(filtroResponsavel)); } }
         
-        // Lógica de filtro de status atualizada
         if (filtroStatus === TODOS_EXCETO_CONCLUIDOS_VALUE) {
             tarefasProcessadas = tarefasProcessadas.filter(t => t.status !== 'CONCLUÍDA');
         } else if (filtroStatus !== TODOS_OS_STATUS_VALUE) {
@@ -1755,9 +1754,119 @@ const MapaAtividadesComponent = () => {
     const limparFiltros = () => { setFiltroResponsavel("TODOS"); setFiltroStatus(TODOS_OS_STATUS_VALUE); setFiltroPrioridade(TODAS_AS_PRIORIDADES_VALUE); setFiltroArea(TODAS_AS_AREAS_VALUE); setFiltroTurno(TODOS_OS_TURNOS_VALUE); setFiltroDataInicio(''); setFiltroDataFim(''); setTermoBusca(''); setCurrentPage(1); };
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
-    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaId) => { /* ... (função sem alterações) ... */ };
-    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => { /* ... (função sem alterações) ... */ };
-    const handleDeleteTarefa = async (tarefaId) => { /* ... (função sem alterações) ... */ };
+    const handleSaveTarefa = async (tarefaData, novosAnexos, tarefaId) => {
+        const usuario = auth.currentUser;
+        if (!usuario) {
+            toast.error("Usuário não autenticado.");
+            return;
+        }
+
+        const id = tarefaId || doc(tarefasCollectionRef).id;
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, id);
+        let urlsDosNovosAnexos = [];
+
+        try {
+            if (novosAnexos && novosAnexos.length > 0) {
+                toast.loading('Enviando anexos...', { id: 'upload-toast' });
+                for (const anexo of novosAnexos) {
+                    const caminhoStorage = `${basePath}/imagens_tarefas/${id}/${Date.now()}_${anexo.name}`;
+                    const storageRef = ref(storage, caminhoStorage);
+                    const uploadTask = await uploadBytesResumable(storageRef, anexo);
+                    const downloadURL = await getDownloadURL(uploadTask.ref);
+                    urlsDosNovosAnexos.push(downloadURL);
+                }
+                toast.dismiss('upload-toast');
+            }
+
+            const dadosCompletosDaTarefa = {
+                ...tarefaData,
+                imagens: [...(tarefaData.imagens || []), ...urlsDosNovosAnexos],
+                updatedAt: Timestamp.now(),
+            };
+
+            if (tarefaId) {
+                await updateDoc(tarefaDocRef, dadosCompletosDaTarefa);
+                await logAlteracaoTarefa(db, basePath, tarefaId, usuario.uid, usuario.email, "Tarefa Editada", `Detalhes da tarefa atualizados.`);
+                toast.success("Tarefa atualizada com sucesso!");
+            } else {
+                await setDoc(tarefaDocRef, { ...dadosCompletosDaTarefa, createdAt: Timestamp.now(), criadoPorEmail: usuario.email });
+                await logAlteracaoTarefa(db, basePath, id, usuario.uid, usuario.email, "Tarefa Criada", `Tarefa "${dadosCompletosDaTarefa.tarefa}" criada.`);
+                toast.success("Tarefa criada com sucesso!");
+            }
+
+            const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
+            if (tarefaAtualizadaSnap.exists()) {
+                await sincronizarTarefaComProgramacao(id, tarefaAtualizadaSnap.data(), db, basePath);
+            }
+
+        } catch (error) {
+            console.error("Erro ao salvar tarefa: ", error);
+            toast.error(`Erro ao salvar tarefa: ${error.message}`);
+            toast.dismiss('upload-toast');
+        }
+    };
+    
+    const handleQuickStatusUpdate = async (tarefaId, novoStatus) => {
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        const tarefaOriginal = todasTarefas.find(t => t.id === tarefaId);
+        if (!tarefaOriginal) {
+            toast.error("Tarefa original não encontrada para atualização.");
+            return;
+        }
+
+        const usuario = auth.currentUser;
+        try {
+            await updateDoc(tarefaDocRef, { status: novoStatus, updatedAt: Timestamp.now() });
+
+            const dadosAtualizadosParaSync = { ...tarefaOriginal, status: novoStatus };
+            await sincronizarTarefaComProgramacao(tarefaId, dadosAtualizadosParaSync, db, basePath);
+            await verificarEAtualizarStatusConclusaoMapa(tarefaId, db, basePath);
+
+            await logAlteracaoTarefa(db, basePath, tarefaId, usuario.uid, usuario.email, "Status Alterado (Rápido)",
+                `Status alterado de "${tarefaOriginal.status}" para "${novoStatus}".`
+            );
+            toast.success("Status da tarefa atualizado!");
+        } catch (error) {
+            console.error("Erro na atualização rápida de status: ", error);
+            toast.error("Falha ao atualizar o status.");
+        }
+    };
+
+    const handleDeleteTarefa = async (tarefaId) => {
+        const tarefaParaExcluir = todasTarefas.find(t => t.id === tarefaId);
+        if (!tarefaParaExcluir) {
+            toast.error("Tarefa não encontrada para exclusão.");
+            return;
+        }
+
+        if (window.confirm(`Tem certeza que deseja excluir a tarefa "${tarefaParaExcluir.tarefa}"? Esta ação não pode ser desfeita.`)) {
+            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+            
+            try {
+                await removerTarefaDaProgramacao(tarefaId, db, basePath);
+
+                if (tarefaParaExcluir.imagens && tarefaParaExcluir.imagens.length > 0) {
+                    for (const url of tarefaParaExcluir.imagens) {
+                        try {
+                            const imageRef = ref(storage, url);
+                            await deleteObject(imageRef);
+                        } catch (storageError) {
+                            if (storageError.code !== 'storage/object-not-found') {
+                                console.error("Erro ao excluir anexo do Storage:", storageError);
+                            }
+                        }
+                    }
+                }
+                
+                await deleteDoc(tarefaDocRef);
+                toast.success("Tarefa excluída com sucesso!");
+
+            } catch (error) {
+                console.error("Erro ao excluir tarefa: ", error);
+                toast.error(`Falha ao excluir a tarefa: ${error.message}`);
+            }
+        }
+    };
     
     const TABLE_HEADERS = ["Tarefa", "Orientação", "Responsável(eis)", "Área", "Prioridade", "Período", "Turno", "Status", "Ações"];
     const totalPages = Math.ceil(filteredTaskCount / TASKS_PER_PAGE);
