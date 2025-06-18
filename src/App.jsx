@@ -4,9 +4,9 @@
 import React, { useState, useEffect, createContext, useContext, memo, useRef, useMemo } from 'react';
 import firebaseAppInstance from './firebaseConfig';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy, limit } from 'firebase/firestore';
+import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy, limit, collectionGroup } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked } from 'lucide-react';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase
@@ -220,39 +220,75 @@ async function verificarEGerarTarefasFito(db, basePath) {
     }
 }
 
+// Versão: 11.3.0
+// [MELHORIA] A função agora salva tanto o nome da tarefa (contexto) quanto sua orientação diretamente no documento de log.
 async function logAlteracaoTarefa(db, basePath, tarefaId, usuarioId, usuarioEmail, acaoRealizada, detalhesAdicionais = "") {
     if (!tarefaId) {
         console.error("logAlteracaoTarefa: tarefaId é indefinido.");
         return;
     }
     try {
+        let tarefaContexto = `Tarefa ID: ${tarefaId}`;
+        let tarefaOrientacao = ''; // Valor padrão
+
+        try {
+            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+            const tarefaSnap = await getDoc(tarefaDocRef);
+            if (tarefaSnap.exists()) {
+                const data = tarefaSnap.data();
+                tarefaContexto = `Tarefa: ${data.tarefa || tarefaId}`;
+                tarefaOrientacao = data.orientacao || ''; // Captura a orientação
+            }
+        } catch (e) {
+            console.warn("Não foi possível obter o contexto/orientação da tarefa para o log.", e);
+        }
+
         const historicoRef = collection(db, `${basePath}/tarefas_mapa/${tarefaId}/historico_alteracoes`);
         await addDoc(historicoRef, {
             timestamp: Timestamp.now(),
             usuarioId: usuarioId || "sistema",
             usuarioEmail: usuarioEmail || (usuarioId === "sistema" ? "Sistema" : "Desconhecido"),
             acaoRealizada,
-            detalhesAdicionais
+            detalhesAdicionais,
+            contexto: tarefaContexto,
+            orientacao: tarefaOrientacao // Salva a orientação no log
         });
     } catch (error) {
         console.error("Erro ao registrar histórico da tarefa:", tarefaId, error);
     }
 }
 
-// Versão: 4.8.0
-// [NOVO] Função para registrar o histórico de alterações dos registros fitossanitários.
+// Versão: 11.3.0
+// [MELHORIA] A função agora salva o contexto e as observações (como orientação) diretamente no documento de log.
 async function logAlteracaoFitossanitaria(db, basePath, registroId, usuarioEmail, acaoRealizada, detalhesAdicionais = "") {
     if (!registroId) {
         console.error("logAlteracaoFitossanitaria: registroId é indefinido.");
         return;
     }
     try {
+        let fitoContexto = `Registro Fito ID: ${registroId}`;
+        let fitoObservacoes = ''; // Valor padrão
+
+         try {
+            const registroDocRef = doc(db, `${basePath}/controleFitossanitario`, registroId);
+            const registroSnap = await getDoc(registroDocRef);
+            if (registroSnap.exists()) {
+                const data = registroSnap.data();
+                fitoContexto = `Registro Fito: ${data.produto || registroId}`;
+                fitoObservacoes = data.observacoes || ''; // Captura as observações
+            }
+        } catch (e) {
+            console.warn("Não foi possível obter o contexto/observações para o log fito.", e);
+        }
+
         const historicoRef = collection(db, `${basePath}/controleFitossanitario/${registroId}/historico_alteracoes`);
         await addDoc(historicoRef, {
             timestamp: Timestamp.now(),
             usuarioEmail: usuarioEmail || "Sistema",
             acaoRealizada,
-            detalhesAdicionais
+            detalhesAdicionais,
+            contexto: fitoContexto,
+            orientacao: fitoObservacoes // Salva as observações como 'orientacao' para consistência
         });
     } catch (error) {
         console.error("Erro ao registrar histórico do registro fitossanitário:", registroId, error);
@@ -543,7 +579,8 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 10.6.0
+// Versão: 11.0.0
+// [NOVO] Adicionada a busca de permissões para a nova aba "Monitoramento".
 // [CORRIGIDO] Resolvida a condição de corrida no login, onde a verificação de permissão ocorria antes dos dados serem carregados.
 // O estado de carregamento agora aguarda tanto a autenticação quanto os dados essenciais (permissões, funcionários).
 const GlobalProvider = ({ children }) => {
@@ -598,7 +635,7 @@ const GlobalProvider = ({ children }) => {
         const fetches = [];
 
         // Permissões
-        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda'];
+        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda', 'monitoramento'];
         chavesDePermissao.forEach(chave => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/permissoes_${chave}/items`));
             fetches.push(getDocs(q).then(snapshot => ({ chave, snapshot })));
@@ -1050,7 +1087,8 @@ const FuncionariosManager = () => {
     );
 };
 
-// Versão: 6.7.0
+// Versão: 11.0.0
+// [NOVO] Adicionado o controle de permissão para a nova aba "Monitoramento".
 // [ALTERADO] Invertida a ordem das abas em Configurações, com "Cadastros Gerais" aparecendo primeiro.
 const ConfiguracoesComponent = () => {
     // A aba ativa inicial agora é 'cadastros'.
@@ -1095,6 +1133,7 @@ const ConfiguracoesComponent = () => {
                             <ListaAuxiliarManager nomeLista="Acesso à Tarefa Pátio" nomeSingular="E-mail" collectionPathSegment="permissoes_anotacoes" />
                             <ListaAuxiliarManager nomeLista="Acesso às Tarefas Pendentes" nomeSingular="E-mail" collectionPathSegment="permissoes_pendentes" />
                             <ListaAuxiliarManager nomeLista="Acesso aos Relatórios" nomeSingular="E-mail" collectionPathSegment="permissoes_relatorios" />
+                            <ListaAuxiliarManager nomeLista="Acesso ao Monitoramento" nomeSingular="E-mail" collectionPathSegment="permissoes_monitoramento" />
                             <ListaAuxiliarManager nomeLista="Acesso às Configurações" nomeSingular="E-mail" collectionPathSegment="permissoes_config" />
                             <ListaAuxiliarManager nomeLista="Permissão para Adicionar Tarefas" nomeSingular="E-mail do Usuário" collectionPathSegment="permissoes_add_tarefa" />
                          </div>
@@ -1111,6 +1150,139 @@ const ConfiguracoesComponent = () => {
                             </div>
                         </div>
                         <FuncionariosManager />
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Versão: 11.3.0
+// [NOVO] Exibe a orientação da tarefa/registro diretamente abaixo do log de atividade.
+// [MELHORIA] A busca de contexto para logs antigos agora também inclui a orientação.
+const MonitoramentoComponent = () => {
+    const { db, appId } = useContext(GlobalContext);
+    const [logs, setLogs] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchLogs = async () => {
+            setLoading(true);
+            try {
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
+
+                const historyQuery = query(
+                    collectionGroup(db, 'historico_alteracoes'),
+                    where('timestamp', '>=', sevenDaysAgoTimestamp),
+                    orderBy('timestamp', 'desc'),
+                    limit(200)
+                );
+
+                const snapshot = await getDocs(historyQuery);
+                if (snapshot.empty) {
+                    setLogs([]);
+                    setLoading(false);
+                    return;
+                }
+
+                const enrichedLogsPromises = snapshot.docs.map(async (docSnap) => {
+                    const logData = { id: docSnap.id, ...docSnap.data() };
+
+                    // Se o contexto já existe no log (logs novos), não faz nada.
+                    if (logData.contexto) {
+                        return logData;
+                    }
+
+                    // Para logs antigos, busca o contexto e a orientação.
+                    let context = 'Contexto não identificado';
+                    let orientacao = '';
+                    const parentDocRef = docSnap.ref.parent.parent;
+
+                    if(parentDocRef) {
+                        try {
+                            const parentSnap = await getDoc(parentDocRef);
+                            if (parentSnap.exists()) {
+                                const parentData = parentSnap.data();
+                                if(parentDocRef.path.includes('tarefas_mapa')) {
+                                    context = `Tarefa: ${parentData.tarefa || parentSnap.id}`;
+                                    orientacao = parentData.orientacao || '';
+                                } else if (parentDocRef.path.includes('controleFitossanitario')) {
+                                    context = `Registro Fito: ${parentData.produto || parentSnap.id}`;
+                                    orientacao = parentData.observacoes || '';
+                                }
+                            }
+                        } catch (e) {
+                           console.warn(`Não foi possível carregar o contexto para o log antigo ${docSnap.id}:`, e);
+                        }
+                    }
+                    return { ...logData, contexto: context, orientacao: orientacao };
+                });
+
+                const finalLogs = await Promise.all(enrichedLogsPromises);
+                setLogs(finalLogs);
+
+            } catch (error) {
+                console.error("Erro ao carregar logs de monitoramento:", error);
+                toast.error("Falha ao carregar o histórico de atividades. Verifique o console para mais detalhes.");
+            }
+            setLoading(false);
+        };
+
+        fetchLogs();
+    }, [db, appId]);
+    
+    return (
+        <div className="p-6 bg-gray-50 min-h-full">
+            <h2 className="text-2xl font-semibold mb-4 text-gray-800">Monitoramento de Atividades</h2>
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-6 text-sm">
+                <p>
+                    Exibindo todas as ações e alterações registradas no sistema nos <strong>últimos 7 dias</strong>. 
+                    Esta tela é destinada à auditoria e monitoramento de atividades recentes.
+                </p>
+            </div>
+            
+            <div className="bg-white shadow-md rounded-lg">
+                {loading ? (
+                    <p className="p-6 text-center text-gray-600">Carregando histórico de atividades...</p>
+                ) : logs.length === 0 ? (
+                    <p className="p-6 text-center text-gray-500">Nenhuma atividade registrada nos últimos 7 dias.</p>
+                ) : (
+                    <div className="max-h-[75vh] overflow-y-auto">
+                        <ul className="divide-y divide-gray-200">
+                            {logs.map(log => (
+                                <li key={log.id} className="p-4 hover:bg-gray-50">
+                                    <div className="flex flex-wrap justify-between items-start gap-2">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold text-blue-700 truncate">{log.acaoRealizada}</p>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                <span className="font-medium">{log.usuarioEmail || 'Sistema'}</span> em <span className="font-medium text-gray-700">{log.contexto || 'Contexto indisponível'}</span>
+                                            </p>
+                                        </div>
+                                        <div className="text-xs text-gray-500 text-right whitespace-nowrap">
+                                            {formatDateTime(log.timestamp)}
+                                        </div>
+                                    </div>
+                                    {log.detalhesAdicionais && (
+                                        <div className="mt-2 text-xs text-gray-800 bg-gray-100 p-2 rounded-md whitespace-pre-wrap">
+                                            {log.detalhesAdicionais}
+                                        </div>
+                                    )}
+                                    {log.orientacao && (
+                                         <div className="mt-2 text-xs text-blue-900 bg-blue-50 p-2 rounded-md border-l-4 border-blue-300">
+                                            <strong className="font-semibold">Orientação Registrada:</strong>
+                                            <p className="whitespace-pre-wrap mt-1">{log.orientacao}</p>
+                                        </div>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+                 {logs.length >= 200 && (
+                    <div className="p-3 bg-gray-100 text-center text-xs text-gray-600 border-t">
+                        A exibição está limitada aos 200 logs mais recentes dos últimos 7 dias.
                     </div>
                 )}
             </div>
@@ -5857,7 +6029,8 @@ function App() {
     return <MainApp />;
 }
 
-// Versão: 6.9.1
+// Versão: 11.0.0
+// [NOVO] Adicionada a navegação e o roteamento para a nova tela de Monitoramento.
 // [MELHORIA] Aumentado o tamanho do logotipo e do texto no cabeçalho da barra lateral.
 // [NOVO] O cabeçalho da barra lateral agora é um botão que leva para a tela de boas-vindas.
 const MainApp = () => {
@@ -5907,6 +6080,7 @@ const MainApp = () => {
             case 'agenda': return <AgendaDiariaComponent />;
             case 'anotacoes': return <TarefaPatioComponent />;
             case 'pendentes': return <TarefasPendentesComponent />;
+            case 'monitoramento': return <MonitoramentoComponent />;
             case 'config': return <ConfiguracoesComponent />;
             case 'relatorios': return <RelatoriosComponent />;
             default: return <WelcomeComponent />;
@@ -5958,6 +6132,7 @@ const MainApp = () => {
                         <div>
                              <NavGroupTitle title="Análise e Sistema" />
                             {checkPermission('relatorios') && <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>}
+                            {checkPermission('monitoramento') && <NavLink page="monitoramento" icon={LucideActivity} currentPage={currentPage} setCurrentPage={setCurrentPage}>Monitoramento</NavLink>}
                             {checkPermission('config') && <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>}
                         </div>
                     </nav>
