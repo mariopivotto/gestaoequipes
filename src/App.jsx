@@ -6,7 +6,9 @@ import firebaseAppInstance from './firebaseConfig';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy, limit, collectionGroup } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity } from 'lucide-react';
+// Versão: 14.0.0
+// [NOVO] Adicionado o ícone 'LucideNotebookText' para o novo menu de gerenciamento de anotações.
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase
@@ -314,21 +316,33 @@ async function logAlteracaoFitossanitaria(db, basePath, registroId, usuarioEmail
     }
 }
 
-// Versão: 7.4.0
-// [NOVO] Função para registrar uma anotação (log de texto) em uma tarefa do mapa.
+// Versão: 13.0.0
+// [MELHORIA] Após salvar uma anotação, a função agora também atualiza a tarefa principal
+// com o texto e a data da última anotação para otimizar a leitura (desnormalização).
 async function logAnotacaoTarefa(db, basePath, tarefaId, usuarioEmail, textoAnotacao, dataDoRegistro) {
     if (!tarefaId || !textoAnotacao || textoAnotacao.trim() === "") {
         return; // Não registra anotações vazias
     }
     try {
         const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${tarefaId}/anotacoes`);
+        const newAnnotationTimestamp = Timestamp.now(); // Usar um timestamp consistente
+        
+        // 1. Adiciona a nova anotação na subcoleção
         await addDoc(anotacoesRef, {
             texto: textoAnotacao.trim(),
-            criadoEm: Timestamp.now(),
+            criadoEm: newAnnotationTimestamp,
             criadoPorEmail: usuarioEmail || "Desconhecido",
             origem: "Registro do Dia - Programação Semanal",
             dataDoRegistro: dataDoRegistro 
         });
+
+        // 2. Atualiza o documento da tarefa principal com a última anotação
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        await updateDoc(tarefaDocRef, {
+            ultimaAnotacaoTexto: textoAnotacao.trim(),
+            ultimaAnotacaoTimestamp: newAnnotationTimestamp
+        });
+
     } catch (error) {
         console.error("Erro ao registrar anotação da tarefa:", tarefaId, error);
     }
@@ -384,9 +398,9 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 8.7.2
-// [CORRIGIDO] Ajustada a lógica de sincronização individual de tarefas para que o status diário
-// reflita o status principal atual, a menos que um progresso manual já tenha sido registrado para o dia.
+// Versão: 13.0.0
+// [MELHORIA] A função agora também sincroniza os dados da última anotação (texto e data)
+// da tarefa principal para a programação semanal.
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
     // 1. Memoriza o progresso diário existente antes de qualquer alteração.
     const progressoDiarioSalvo = new Map();
@@ -470,7 +484,6 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
                         const itemTarefaProgramacao = {
                             mapaTaskId: tarefaId,
                             textoVisivel: textoVisivelFinal,
-                            // [CORRIGIDO] Prioriza o progresso salvo, senão usa o status principal da tarefa.
                             statusLocal: progressoSalvo?.statusLocal || tarefaData.status,
                             conclusao: progressoSalvo?.conclusao || '',
                             mapaStatus: tarefaData.status,
@@ -478,6 +491,9 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
                             turno: tarefaData.turno || TURNO_DIA_INTEIRO,
                             orientacao: tarefaData.orientacao || '',
                             localizacao: tarefaData.area || '',
+                            // NOVOS CAMPOS
+                            ultimaAnotacaoTexto: tarefaData.ultimaAnotacaoTexto || '',
+                            ultimaAnotacaoTimestamp: tarefaData.ultimaAnotacaoTimestamp || null,
                         };
                         
                         if (!semanaDataModificada.dias[diaFormatado][responsavelId]) {
@@ -598,8 +614,8 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 12.0.0
-// [NOVO] Adicionada a chamada para a função logUserLogin no momento da autenticação.
+// Versão: 14.0.0
+// [NOVO] Adicionada a chave de permissão 'gerenciar_anotacoes' para a nova tela.
 const GlobalProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(undefined);
     const [userId, setUserId] = useState(null);
@@ -657,7 +673,7 @@ const GlobalProvider = ({ children }) => {
         }
 
         const fetches = [];
-        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda', 'monitoramento'];
+        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda', 'monitoramento', 'gerenciar_anotacoes'];
         chavesDePermissao.forEach(chave => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/permissoes_${chave}/items`));
             fetches.push(getDocs(q).then(snapshot => ({ chave, snapshot })));
@@ -1854,6 +1870,8 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
     );
 };
 
+
+
 // Versão: 8.1.1
 // [CORRIGIDO] Implementada a lógica de salvamento, atualização e exclusão de tarefas, que estava ausente e impedia o funcionamento dos botões de ação.
 const MapaAtividadesComponent = () => {
@@ -2155,9 +2173,9 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 10.5.3
-// [CORRIGIDO] A função 'handleAtualizarProgramacaoDaSemana' (botão "Atualizar com Mapa") agora reflete
-// corretamente todos os status da tarefa principal (e.g., 'EM OPERAÇÃO') no status diário.
+// Versão: 10.6.0
+// [CORRIGIDO] A função 'handleSalvarRegistroDiario' agora detecta quando uma anotação é limpa
+// no modal, excluindo o registro correspondente e atualizando a tarefa principal com a anotação anterior mais recente.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2315,13 +2333,15 @@ const ProgramacaoSemanalComponent = () => {
                 const itemProg = {
                     mapaTaskId: tarefaMapa.id,
                     textoVisivel: turnoParaTexto + textoBaseTarefa,
-                    statusLocal: tarefaMapa.status, // [CORRIGIDO] Usa o status principal da tarefa como padrão
+                    statusLocal: tarefaMapa.status,
                     mapaStatus: tarefaMapa.status,
                     turno: tarefaMapa.turno || TURNO_DIA_INTEIRO,
                     orientacao: tarefaMapa.orientacao || '',
                     localizacao: tarefaMapa.area || '',
                     acao: tarefaMapa.acao || '',
-                    conclusao: ''
+                    conclusao: '',
+                    ultimaAnotacaoTexto: tarefaMapa.ultimaAnotacaoTexto || '',
+                    ultimaAnotacaoTimestamp: tarefaMapa.ultimaAnotacaoTimestamp || null,
                 };
     
                 let dataAtualTarefa = converterParaDate(tarefaMapa.dataInicio);
@@ -2380,14 +2400,19 @@ const ProgramacaoSemanalComponent = () => {
         setIsRegistroDiarioModalOpen(true);
     };
 
-    const handleSalvarRegistroDiario = async (tarefasAtualizadas) => {
+    const handleSalvarRegistroDiario = async (tarefasAtualizadas, tarefasOriginais) => {
         if (!semanaSelecionadaId || !dadosProgramacao) return;
+    
         const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
+        const usuario = authGlobal.currentUser;
+        const diaSendoAtualizado = diaParaRegistro;
+    
         try {
+            // Primeiro, atualiza o documento da programação semanal com os novos dados de conclusão e status local.
             const semanaDocSnap = await getDoc(semanaDocRef);
             if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
             const novosDias = JSON.parse(JSON.stringify(semanaDocSnap.data().dias));
-            const diaSendoAtualizado = diaParaRegistro;
+    
             tarefasAtualizadas.forEach(tarefaAtualizada => {
                 const { responsavelId, mapaTaskId } = tarefaAtualizada;
                 if (novosDias[diaSendoAtualizado]?.[responsavelId]) {
@@ -2399,36 +2424,78 @@ const ProgramacaoSemanalComponent = () => {
                 }
             });
             await updateDoc(semanaDocRef, { dias: novosDias });
-            const usuario = authGlobal.currentUser;
-            for (const tarefa of tarefasAtualizadas) {
-                if (tarefa.conclusao && tarefa.conclusao.trim() !== "") {
-                    await logAnotacaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.email, tarefa.conclusao, diaParaRegistro);
-                }
-                if (tarefa.mapaTaskId && tarefa.statusLocal) {
-                    const tarefaMapaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefa.mapaTaskId);
-                    const tarefaMapaSnap = await getDoc(tarefaMapaDocRef);
-                    if (tarefaMapaSnap.exists()) {
-                        const dadosMapa = tarefaMapaSnap.data();
-                        if (dadosMapa.status !== tarefa.statusLocal) {
-                            await updateDoc(tarefaMapaDocRef, { status: tarefa.statusLocal });
-                            await logAlteracaoTarefa(db, basePath, tarefa.mapaTaskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${dadosMapa.status}" para "${tarefa.statusLocal}".`);
-                            const dadosAtualizadosParaSync = { ...dadosMapa, status: tarefa.statusLocal };
-                            await sincronizarTarefaComProgramacao(tarefa.mapaTaskId, dadosAtualizadosParaSync, db, basePath);
+    
+            // Em seguida, processa as anotações e o status principal de cada tarefa.
+            const affectedTaskIds = new Set();
+    
+            for (const tarefaAtualizada of tarefasAtualizadas) {
+                const tarefaOriginal = tarefasOriginais.find(t => t.mapaTaskId === tarefaAtualizada.mapaTaskId && t.responsavelId === tarefaAtualizada.responsavelId);
+                const conclusaoAntes = tarefaOriginal?.conclusao?.trim() || '';
+                const conclusaoDepois = tarefaAtualizada.conclusao?.trim() || '';
+                const taskId = tarefaAtualizada.mapaTaskId;
+    
+                if (!taskId) continue;
+                affectedTaskIds.add(taskId);
+    
+                // Caso de adição/edição de anotação
+                if (conclusaoDepois && conclusaoDepois !== conclusaoAntes) {
+                    await logAnotacaoTarefa(db, basePath, taskId, usuario?.email, conclusaoDepois, diaSendoAtualizado);
+                } 
+                // Caso de remoção de anotação
+                else if (!conclusaoDepois && conclusaoAntes) {
+                    const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${taskId}/anotacoes`);
+                    const q = query(anotacoesRef, where("texto", "==", conclusaoAntes), where("dataDoRegistro", "==", diaSendoAtualizado), orderBy("criadoEm", "desc"), limit(1));
+                    const snapToDelete = await getDocs(q);
+    
+                    if (!snapToDelete.empty) {
+                        await deleteDoc(snapToDelete.docs[0].ref);
+    
+                        // Lógica de backfill para a última anotação da tarefa principal
+                        const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, taskId);
+                        const backfillQuery = query(collection(db, `${basePath}/tarefas_mapa/${taskId}/anotacoes`), orderBy('criadoEm', 'desc'), limit(1));
+                        const backfillSnap = await getDocs(backfillQuery);
+    
+                        if (backfillSnap.empty) {
+                            await updateDoc(tarefaRef, { ultimaAnotacaoTexto: '', ultimaAnotacaoTimestamp: null });
+                        } else {
+                            const novaUltima = backfillSnap.docs[0].data();
+                            await updateDoc(tarefaRef, { ultimaAnotacaoTexto: novaUltima.texto, ultimaAnotacaoTimestamp: novaUltima.criadoEm });
                         }
                     }
                 }
             }
-            const taskIdsUnicos = [...new Set(tarefasAtualizadas.map(t => t.mapaTaskId))];
-            for (const taskId of taskIdsUnicos) {
-                if(taskId) await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
+    
+            // Finalmente, ressincroniza e verifica o status de todas as tarefas afetadas.
+            for (const taskId of affectedTaskIds) {
+                // Atualiza o status principal se tiver mudado no dia
+                const tarefaDoDia = tarefasAtualizadas.find(t => t.mapaTaskId === taskId);
+                if(tarefaDoDia) {
+                    const tarefaMapaDocRef = doc(db, `${basePath}/tarefas_mapa`, taskId);
+                    const tarefaMapaSnap = await getDoc(tarefaMapaDocRef);
+                    if(tarefaMapaSnap.exists() && tarefaMapaSnap.data().status !== tarefaDoDia.statusLocal) {
+                        await updateDoc(tarefaMapaDocRef, { status: tarefaDoDia.statusLocal });
+                         await logAlteracaoTarefa(db, basePath, taskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${tarefaMapaSnap.data().status}" para "${tarefaDoDia.statusLocal}".`);
+                    }
+                }
+
+                // Sincroniza os dados completos (incluindo a última anotação atualizada) de volta para a programação
+                const tarefaAtualizadaSnap = await getDoc(doc(db, `${basePath}/tarefas_mapa`, taskId));
+                if (tarefaAtualizadaSnap.exists()) {
+                    await sincronizarTarefaComProgramacao(taskId, tarefaAtualizadaSnap.data(), db, basePath);
+                }
+    
+                // Verifica se a tarefa principal deve ser marcada como concluída
+                await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
             }
-            toast.success("Registros salvos e sincronizados com o Mapa de Atividades!");
+    
+            toast.success("Registros salvos e sincronizados com sucesso!");
+    
         } catch (error) {
             console.error("Erro ao salvar registros do dia:", error);
             toast.error("Falha ao salvar os registros do dia: " + error.message);
         }
     };
-
+    
     const renderCabecalhoDias = () => {
         if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {
             return DIAS_SEMANA_PROG.map((_, i) => <th key={`header-dia-placeholder-${i}`} className="px-3 py-2 border text-xs font-medium text-white bg-teal-600 whitespace-nowrap">Carregando...</th>);
@@ -3413,15 +3480,14 @@ const RelatorioSemanal = () => {
     );
 };
 
-// Versão: 7.3.0
-// [ALTERADO] O modal "Registro do Dia" agora exibe todos os status disponíveis (exceto "Aguardando Alocação")
-// para permitir um acompanhamento diário mais detalhado.
+// Versão: 13.3.0
+// [MELHORIA] Rótulo da anotação alterado para "Última Anotação da Tarefa" para maior clareza.
+// [ALTERADO] A função de salvar agora passa o estado original das tarefas para permitir a detecção de exclusões.
 const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionarios, dia }) => {
-    const { listasAuxiliares } = useContext(GlobalContext); // Pega as listas do contexto
+    const { listasAuxiliares } = useContext(GlobalContext);
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Filtra os status permitidos para o dropdown
     const statusPermitidos = useMemo(() => {
         return (listasAuxiliares.status || []).filter(s => s !== 'AGUARDANDO ALOCAÇÃO');
     }, [listasAuxiliares.status]);
@@ -3431,7 +3497,6 @@ const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionari
             const tarefasComResponsavel = tarefasDoDia.map(tarefa => {
                 const responsavel = funcionarios.find(f => f.id === tarefa.responsavelId);
                 
-                // Mapeia o status antigo 'PENDENTE' para 'PROGRAMADA' para consistência
                 let statusLocalInicial = tarefa.statusLocal || 'PROGRAMADA';
                 if (statusLocalInicial === 'PENDENTE') {
                     statusLocalInicial = 'PROGRAMADA';
@@ -3463,14 +3528,15 @@ const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionari
     const handleSaveAll = async () => {
         setLoading(true);
         try {
-            await onSave(tarefasEditaveis);
+            // Passa tanto o estado editado quanto o original (via prop 'tarefasDoDia')
+            await onSave(tarefasEditaveis, tarefasDoDia);
             toast.success("Alterações salvas com sucesso!");
         } catch (error) {
             console.error("Erro ao salvar registros do dia:", error);
             toast.error("Falha ao salvar as alterações.");
         } finally {
             setLoading(false);
-            onClose(); // Fecha o modal após salvar
+            onClose();
         }
     };
     
@@ -3502,18 +3568,28 @@ const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionari
                                                     </p>
                                                 )}
                                             </div>
+                                            {/* Bloco da última anotação */}
+                                            {tarefa.ultimaAnotacaoTexto && (
+                                                <div className="mt-3 p-2 bg-yellow-50 rounded-md border-l-2 border-yellow-400">
+                                                    <label className="text-xs font-bold text-gray-500 uppercase">ÚLTIMA ANOTAÇÃO DA TAREFA</label>
+                                                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{tarefa.ultimaAnotacaoTexto}</p>
+                                                    <p className="text-xs text-right text-gray-500 mt-1">
+                                                        {formatDateTime(tarefa.ultimaAnotacaoTimestamp)}
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Coluna 2: Conclusão e Status */}
                                         <div className="space-y-4">
                                             <div>
-                                                <label className="text-xs font-bold text-gray-500 uppercase">Conclusão / Justificativa</label>
+                                                <label className="text-xs font-bold text-gray-500 uppercase">Conclusão / Justificativa (Anotação)</label>
                                                 <input
                                                     type="text"
                                                     value={tarefa.conclusao || ''}
                                                     onChange={(e) => handleConclusaoChange(index, e.target.value)}
                                                     className="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 mt-1"
-                                                    placeholder="Ex: OK, Pendente, etc."
+                                                    placeholder="Ex: OK, Pendente, etc. (será salvo como anotação)"
                                                 />
                                             </div>
                                             <div>
@@ -3523,7 +3599,6 @@ const RegistroDiarioModal = ({ isOpen, onClose, onSave, tarefasDoDia, funcionari
                                                     onChange={(e) => handleStatusChange(index, e.target.value)}
                                                     className="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 mt-1"
                                                 >
-                                                    {/* Opções de status carregadas dinamicamente */}
                                                     {statusPermitidos.map(s => (
                                                         <option key={s} value={s}>{s}</option>
                                                     ))}
@@ -6035,6 +6110,308 @@ const DashboardComponent = () => {
     );
 };
 
+// Versão: 14.0.0
+// [NOVO] Modal para edição de anotações.
+const AnotacaoEditModal = ({ isOpen, onClose, onSave, anotacaoExistente }) => {
+    const [texto, setTexto] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (anotacaoExistente) {
+            setTexto(anotacaoExistente.texto || '');
+        }
+    }, [anotacaoExistente]);
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        if (!texto.trim()) {
+            toast.error("O texto da anotação não pode ficar em branco.");
+            return;
+        }
+        setLoading(true);
+        await onSave(anotacaoExistente, texto.trim());
+        setLoading(false);
+        onClose();
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Editar Anotação">
+            <form onSubmit={handleSave} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Texto da Anotação</label>
+                    <textarea
+                        value={texto}
+                        onChange={e => setTexto(e.target.value)}
+                        required
+                        rows="5"
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                    />
+                </div>
+                <div className="pt-4 flex justify-end space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400">
+                        {loading ? 'Salvando...' : 'Salvar Alteração'}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+// Versão: 14.2.0
+// [CORRIGIDO] Bug de Sincronização: As funções de editar e excluir anotação agora chamam 'sincronizarTarefaComProgramacao'.
+// Isso garante que a 'programacao_semanal' e o 'RegistroDiarioModal' sempre exibam a última anotação atualizada,
+// resolvendo o problema de dados obsoletos após edições ou exclusões.
+
+const AnotacoesComponent = () => {
+    const { db, appId, auth } = useContext(GlobalContext);
+    const [anotacoes, setAnotacoes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const ANOTACOES_PER_PAGE = 50;
+
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingAnotacao, setEditingAnotacao] = useState(null);
+
+    const basePath = `/artifacts/${appId}/public/data`;
+
+    useEffect(() => {
+        setLoading(true);
+        const anotacoesGroupRef = collectionGroup(db, 'anotacoes');
+        const q = query(anotacoesGroupRef, orderBy('criadoEm', 'desc'));
+
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
+            const fetchedAnotacoesPromises = snapshot.docs.map(async (docSnap) => {
+                const data = docSnap.data();
+                const parentTaskRef = docSnap.ref.parent.parent;
+                let tarefaContexto = 'Tarefa não encontrada ou excluída';
+
+                if (parentTaskRef) {
+                    try {
+                        const taskSnap = await getDoc(parentTaskRef);
+                        if (taskSnap.exists()) {
+                            tarefaContexto = taskSnap.data().tarefa || `ID: ${taskSnap.id}`;
+                        }
+                    } catch (e) {
+                        console.warn("Não foi possível buscar a tarefa pai da anotação", e);
+                    }
+                }
+
+                return {
+                    id: docSnap.id,
+                    tarefaId: parentTaskRef ? parentTaskRef.id : null,
+                    tarefaContexto,
+                    ...data
+                };
+            });
+
+            const resolvedAnotacoes = await Promise.all(fetchedAnotacoesPromises);
+            setAnotacoes(resolvedAnotacoes);
+            setLoading(false);
+        }, (error) => {
+            console.error("[ERRO CRÍTICO] Falha ao executar a busca por anotações:", error);
+            toast.error("Falha ao carregar as anotações. Verifique o console para o erro de permissão.");
+            setLoading(false);
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [db, appId]);
+
+    const handleOpenEditModal = (anotacao) => {
+        setEditingAnotacao(anotacao);
+        setIsEditModalOpen(true);
+    };
+
+    const handleCloseEditModal = () => {
+        setEditingAnotacao(null);
+        setIsEditModalOpen(false);
+    };
+
+    const handleSaveEdit = async (anotacao, novoTexto) => {
+        if (!anotacao?.tarefaId || !anotacao?.id) {
+            toast.error("Informações da anotação inválidas.");
+            return;
+        }
+
+        const anotacaoRef = doc(db, `${basePath}/tarefas_mapa/${anotacao.tarefaId}/anotacoes`, anotacao.id);
+        const tarefaRef = doc(db, `${basePath}/tarefas_mapa/${anotacao.tarefaId}`);
+        const usuarioEmail = auth.currentUser?.email;
+
+        try {
+            // Atualiza a própria anotação
+            await updateDoc(anotacaoRef, {
+                texto: novoTexto,
+                editadoEm: Timestamp.now(),
+                editadoPorEmail: usuarioEmail || 'Desconhecido'
+            });
+
+            // Sincroniza a última anotação na tarefa principal
+            const tarefaSnap = await getDoc(tarefaRef);
+            if (tarefaSnap.exists()) {
+                const anotacoesDaTarefaQuery = query(
+                    collection(db, `${basePath}/tarefas_mapa/${anotacao.tarefaId}/anotacoes`),
+                    orderBy('criadoEm', 'desc'),
+                    limit(1)
+                );
+                const anotacoesSnap = await getDocs(anotacoesDaTarefaQuery);
+
+                const ultimaAnotacao = anotacoesSnap.docs[0]?.data();
+                if (ultimaAnotacao) {
+                    await updateDoc(tarefaRef, {
+                        ultimaAnotacaoTexto: ultimaAnotacao.texto,
+                        ultimaAnotacaoTimestamp: ultimaAnotacao.criadoEm
+                    });
+
+                    // [CORREÇÃO] Sincroniza a tarefa atualizada com a programação semanal
+                    const tarefaAtualizadaParaSync = { ...tarefaSnap.data(), ultimaAnotacaoTexto: ultimaAnotacao.texto, ultimaAnotacaoTimestamp: ultimaAnotacao.criadoEm };
+                    await sincronizarTarefaComProgramacao(tarefaSnap.id, tarefaAtualizadaParaSync, db, basePath);
+                }
+            }
+
+            toast.success("Anotação atualizada com sucesso!");
+        } catch (error) {
+            console.error("Erro ao salvar anotação:", error);
+            toast.error("Falha ao atualizar a anotação.");
+        }
+    };
+
+    const handleDelete = async (anotacao) => {
+        if (!anotacao?.tarefaId || !anotacao?.id) {
+            toast.error("Informações da anotação inválidas.");
+            return;
+        }
+
+        if (window.confirm(`Tem certeza que deseja excluir esta anotação da tarefa "${anotacao.tarefaContexto}"?`)) {
+            const anotacaoRef = doc(db, `${basePath}/tarefas_mapa/${anotacao.tarefaId}/anotacoes`, anotacao.id);
+            const tarefaRef = doc(db, `${basePath}/tarefas_mapa/${anotacao.tarefaId}`);
+
+            try {
+                // 1. Exclui a anotação.
+                await deleteDoc(anotacaoRef);
+
+                // 2. Verifica se a tarefa pai ainda existe.
+                const tarefaSnap = await getDoc(tarefaRef);
+                if (tarefaSnap.exists()) {
+                    // 3. Se existe, atualiza-a com a nova última anotação.
+                    const anotacoesDaTarefaQuery = query(
+                        collection(db, `${basePath}/tarefas_mapa/${anotacao.tarefaId}/anotacoes`),
+                        orderBy('criadoEm', 'desc'),
+                        limit(1)
+                    );
+                    const anotacoesSnap = await getDocs(anotacoesDaTarefaQuery);
+                    
+                    let ultimaAnotacaoTexto = '';
+                    let ultimaAnotacaoTimestamp = null;
+
+                    if (!anotacoesSnap.empty) {
+                        const novaUltimaAnotacao = anotacoesSnap.docs[0].data();
+                        ultimaAnotacaoTexto = novaUltimaAnotacao.texto;
+                        ultimaAnotacaoTimestamp = novaUltimaAnotacao.criadoEm;
+                    }
+                    
+                    await updateDoc(tarefaRef, {
+                        ultimaAnotacaoTexto,
+                        ultimaAnotacaoTimestamp
+                    });
+
+                    // [CORREÇÃO] Sincroniza a tarefa atualizada (com a anotação removida) com a programação semanal
+                    const tarefaAtualizadaParaSync = { ...tarefaSnap.data(), ultimaAnotacaoTexto, ultimaAnotacaoTimestamp };
+                    await sincronizarTarefaComProgramacao(tarefaSnap.id, tarefaAtualizadaParaSync, db, basePath);
+
+                    toast.success("Anotação excluída e tarefa principal atualizada!");
+                } else {
+                    console.warn(`Anotação órfã (ID: ${anotacao.id}) foi excluída. A tarefa pai (ID: ${anotacao.tarefaId}) não foi encontrada.`);
+                    toast.success("Anotação órfã removida com sucesso.");
+                }
+                
+            } catch (error) {
+                console.error("Erro ao excluir anotação:", error);
+                toast.error("Falha ao excluir a anotação.");
+            }
+        }
+    };
+    
+    // Lógica de Paginação
+    const indexOfLastAnotacao = currentPage * ANOTACOES_PER_PAGE;
+    const indexOfFirstAnotacao = indexOfLastAnotacao - ANOTACOES_PER_PAGE;
+    const currentAnotacoes = anotacoes.slice(indexOfFirstAnotacao, indexOfLastAnotacao);
+    const totalPages = Math.ceil(anotacoes.length / ANOTACOES_PER_PAGE);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-full">
+            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Gerenciar Anotações</h2>
+            
+            <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-100">
+                        <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Data</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Tarefa Relacionada</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Anotação</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Autor</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {loading ? (
+                            <tr><td colSpan="5" className="text-center p-4">Carregando...</td></tr>
+                        ) : currentAnotacoes.length === 0 ? (
+                            <tr><td colSpan="5" className="text-center p-4 text-gray-500">Nenhuma anotação encontrada.</td></tr>
+                        ) : (
+                            currentAnotacoes.map(anotacao => (
+                                <tr key={anotacao.id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{formatDateTime(anotacao.criadoEm)}</td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-800">{anotacao.tarefaContexto}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-700 max-w-md whitespace-pre-wrap">{anotacao.texto}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{anotacao.criadoPorEmail}</td>
+                                    <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
+                                        <div className="flex items-center space-x-3">
+                                            <button onClick={() => handleOpenEditModal(anotacao)} title="Editar" className="text-blue-600 hover:text-blue-800"><LucideEdit size={16}/></button>
+                                            <button onClick={() => handleDelete(anotacao)} title="Excluir" className="text-red-600 hover:text-red-800"><LucideTrash2 size={16}/></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {totalPages > 1 && (
+                <div className="flex justify-center items-center mt-6 py-2">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(number => (
+                        <button
+                            key={number}
+                            onClick={() => paginate(number)}
+                            className={`mx-1 px-3 py-1 text-sm font-medium rounded-md ${
+                                currentPage === number
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-white text-gray-700 hover:bg-gray-200'
+                            }`}
+                        >
+                            {number}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {editingAnotacao && (
+                <AnotacaoEditModal
+                    isOpen={isEditModalOpen}
+                    onClose={handleCloseEditModal}
+                    onSave={handleSaveEdit}
+                    anotacaoExistente={editingAnotacao}
+                />
+            )}
+        </div>
+    );
+};
+
 // Versão: 10.6.0
 // [CORRIGIDO] O componente App agora usa um estado de carregamento unificado do GlobalProvider,
 // aguardando permissões e dados antes de renderizar a aplicação principal.
@@ -6060,10 +6437,8 @@ function App() {
     return <MainApp />;
 }
 
-// Versão: 11.0.0
-// [NOVO] Adicionada a navegação e o roteamento para a nova tela de Monitoramento.
-// [MELHORIA] Aumentado o tamanho do logotipo e do texto no cabeçalho da barra lateral.
-// [NOVO] O cabeçalho da barra lateral agora é um botão que leva para a tela de boas-vindas.
+// Versão: 14.0.0
+// [NOVO] Adicionada a navegação e o roteamento para a nova tela de Gerenciar Anotações.
 const MainApp = () => {
     const [currentPage, setCurrentPage] = useState('welcome');
     const { currentUser, permissoes, auth: firebaseAuth } = useContext(GlobalContext);
@@ -6091,19 +6466,18 @@ const MainApp = () => {
     };
 
     const PageContent = () => {
-        if (currentPage === 'welcome') {
-            return <WelcomeComponent />;
-        }
-
-        if (!checkPermission(currentPage)) {
+        // Redireciona para o dashboard se a página atual não for permitida (exceto welcome)
+        if (currentPage !== 'welcome' && !checkPermission(currentPage)) {
             useEffect(() => {
                 toast.error("Você não tem permissão para acessar esta página.");
                 setCurrentPage('dashboard');
             }, [currentPage]);
+            // Renderiza o dashboard como fallback enquanto o redirecionamento ocorre
             return <DashboardComponent />;
         }
 
         switch (currentPage) {
+            case 'welcome': return <WelcomeComponent />;
             case 'dashboard': return <DashboardComponent />;
             case 'mapa': return <MapaAtividadesComponent />;
             case 'programacao': return <ProgramacaoSemanalComponent />;
@@ -6112,6 +6486,7 @@ const MainApp = () => {
             case 'anotacoes': return <TarefaPatioComponent />;
             case 'pendentes': return <TarefasPendentesComponent />;
             case 'monitoramento': return <MonitoramentoComponent />;
+            case 'gerenciar_anotacoes': return <AnotacoesComponent />;
             case 'config': return <ConfiguracoesComponent />;
             case 'relatorios': return <RelatoriosComponent />;
             default: return <WelcomeComponent />;
@@ -6163,6 +6538,7 @@ const MainApp = () => {
                         <div>
                              <NavGroupTitle title="Análise e Sistema" />
                             {checkPermission('relatorios') && <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>}
+                            {checkPermission('gerenciar_anotacoes') && <NavLink page="gerenciar_anotacoes" icon={LucideNotebookText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Gerenciar Anotações</NavLink>}
                             {checkPermission('monitoramento') && <NavLink page="monitoramento" icon={LucideActivity} currentPage={currentPage} setCurrentPage={setCurrentPage}>Monitoramento</NavLink>}
                             {checkPermission('config') && <NavLink page="config" icon={LucideSettings} currentPage={currentPage} setCurrentPage={setCurrentPage}>Configurações</NavLink>}
                         </div>
