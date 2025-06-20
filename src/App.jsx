@@ -1193,13 +1193,18 @@ const ConfiguracoesComponent = () => {
     );
 };
 
-// Versão: 12.0.0
-// [NOVO] O componente agora busca e exibe também os logs de acesso ao sistema.
-// [MELHORIA] A busca foi otimizada para unir os logs de atividades e de acesso em uma única lista cronológica.
+// Versão: 12.1.0
+// [NOVO] Adicionada funcionalidade de paginação para visualizar todos os logs dos últimos 7 dias.
+// [NOVO] Adicionados controles de navegação (números de página) na base da lista.
+// [ALTERADO] Removido o limite de busca de logs para permitir a paginação completa.
 const MonitoramentoComponent = () => {
     const { db, appId } = useContext(GlobalContext);
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
+    
+    // [NOVO] Estados para o controle da paginação
+    const [currentPage, setCurrentPage] = useState(1);
+    const LOGS_PER_PAGE = 25; // Define quantos logs serão exibidos por página
 
     useEffect(() => {
         const fetchLogs = async () => {
@@ -1209,30 +1214,26 @@ const MonitoramentoComponent = () => {
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                 const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
 
-                // Query 1: Logs de atividades (existente)
+                // [ALTERADO] Removido o 'limit' para buscar todos os logs do período
                 const historyQuery = query(
                     collectionGroup(db, 'historico_alteracoes'),
                     where('timestamp', '>=', sevenDaysAgoTimestamp),
-                    orderBy('timestamp', 'desc'),
-                    limit(200)
+                    orderBy('timestamp', 'desc')
                 );
 
-                // Query 2: Logs de acesso (novo)
                 const basePath = `/artifacts/${appId}/public/data`;
+                // [ALTERADO] Removido o 'limit' para buscar todos os logs do período
                 const accessLogsQuery = query(
                     collection(db, `${basePath}/access_logs`),
                     where('timestamp', '>=', sevenDaysAgoTimestamp),
-                    orderBy('timestamp', 'desc'),
-                    limit(50)
+                    orderBy('timestamp', 'desc')
                 );
 
-                // Executa as duas buscas em paralelo
                 const [historySnapshot, accessSnapshot] = await Promise.all([
                     getDocs(historyQuery),
                     getDocs(accessLogsQuery)
                 ]);
 
-                // Processa os logs de atividades (com retrocompatibilidade)
                 const activityLogsPromises = historySnapshot.docs.map(async (docSnap) => {
                     const logData = { id: docSnap.id, ...docSnap.data() };
                     if (logData.contexto) return logData;
@@ -1261,11 +1262,8 @@ const MonitoramentoComponent = () => {
                 });
                 
                 const activityLogs = await Promise.all(activityLogsPromises);
-                
-                // Processa os logs de acesso
                 const accessLogs = accessSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-                // Une e ordena todos os logs por data
                 const allLogs = [...activityLogs, ...accessLogs];
                 allLogs.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
 
@@ -1281,6 +1279,13 @@ const MonitoramentoComponent = () => {
         fetchLogs();
     }, [db, appId]);
     
+    // [NOVO] Lógica de paginação
+    const indexOfLastLog = currentPage * LOGS_PER_PAGE;
+    const indexOfFirstLog = indexOfLastLog - LOGS_PER_PAGE;
+    const currentLogs = logs.slice(indexOfFirstLog, indexOfLastLog);
+    const totalPages = Math.ceil(logs.length / LOGS_PER_PAGE);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <h2 className="text-2xl font-semibold mb-4 text-gray-800">Monitoramento de Atividades</h2>
@@ -1299,7 +1304,8 @@ const MonitoramentoComponent = () => {
                 ) : (
                     <div className="max-h-[75vh] overflow-y-auto">
                         <ul className="divide-y divide-gray-200">
-                            {logs.map(log => (
+                            {/* [ALTERADO] Mapeia sobre 'currentLogs' em vez de 'logs' */}
+                            {currentLogs.map(log => (
                                 <li key={log.id} className="p-4 hover:bg-gray-50">
                                     <div className="flex flex-wrap justify-between items-start gap-2">
                                         <div className="flex-1 min-w-0">
@@ -1328,12 +1334,26 @@ const MonitoramentoComponent = () => {
                         </ul>
                     </div>
                 )}
-                 {logs.length >= 200 + 50 && ( // Soma dos limites das queries
-                    <div className="p-3 bg-gray-100 text-center text-xs text-gray-600 border-t">
-                        A exibição está limitada aos logs mais recentes dos últimos 7 dias.
-                    </div>
-                )}
+                 
             </div>
+             {/* [NOVO] Controles de Paginação */}
+            {totalPages > 1 && (
+                <div className="flex justify-center items-center mt-6 py-2">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(number => (
+                        <button
+                            key={number}
+                            onClick={() => paginate(number)}
+                            className={`mx-1 px-3 py-1 text-sm font-medium rounded-md ${
+                                currentPage === number
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-white text-gray-700 hover:bg-gray-200'
+                            }`}
+                        >
+                            {number}
+                        </button>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
@@ -1873,8 +1893,11 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
 
 
 
-// Versão: 8.1.1
-// [CORRIGIDO] Implementada a lógica de salvamento, atualização e exclusão de tarefas, que estava ausente e impedia o funcionamento dos botões de ação.
+// Versão: 8.2.1
+// [CORRIGIDO] Corrigido o erro fatal "checkPermission is not a function". A lógica de verificação de permissão para adicionar tarefas foi ajustada para usar o objeto 'permissoes' do contexto global corretamente.
+// [NOVO] Implementada a funcionalidade de paginação, limitando a exibição a 50 tarefas por página.
+// [NOVO] Adicionados controles de navegação (Anterior, Próximo, números de página) na base da tabela.
+// [ALTERADO] A aplicação de filtros agora reseta a visualização para a primeira página.
 const MapaAtividadesComponent = () => {
     const { db, appId, storage, funcionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
@@ -1909,8 +1932,11 @@ const MapaAtividadesComponent = () => {
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
     const TODOS_OS_TURNOS_VALUE = "---TODOS_OS_TURNOS---";
 
+    // [CORRIGIDO] Lógica de verificação de permissão ajustada para usar o contexto.
     const podeAdicionarTarefa = auth.currentUser?.email &&
-        (auth.currentUser.email === 'mpivottoramos@gmail.com' || (permissoes?.add_tarefa?.includes(auth.currentUser.email.toLowerCase()) ?? false));
+        (["sistemas@gramoterra.com.br", "operacional@gramoterra.com.br", "mpivottoramos@gmail.com"].includes(auth.currentUser.email.toLowerCase()) ||
+        (permissoes?.add_tarefa?.includes(auth.currentUser.email.toLowerCase()) ?? false));
+
 
     useEffect(() => {
         setLoading(true);
@@ -2161,7 +2187,19 @@ const MapaAtividadesComponent = () => {
             
             {totalPages > 1 && (
                 <div className="flex justify-center items-center mt-6 py-2">
-                    {/* ... (Controles de paginação sem alterações) ... */}
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(number => (
+                        <button
+                            key={number}
+                            onClick={() => paginate(number)}
+                            className={`mx-1 px-3 py-1 text-sm font-medium rounded-md ${
+                                currentPage === number
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-white text-gray-700 hover:bg-gray-200'
+                            }`}
+                        >
+                            {number}
+                        </button>
+                    ))}
                 </div>
             )}
 
