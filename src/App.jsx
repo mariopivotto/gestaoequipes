@@ -1122,8 +1122,8 @@ const FuncionariosManager = () => {
     );
 };
 
-// Versão: 11.0.0
-// [NOVO] Adicionado o controle de permissão para a nova aba "Monitoramento".
+// Versão: 11.1.0
+// [NOVO] Adicionado o card para gerenciar as permissões de acesso à tela "Gerenciar Anotações".
 // [ALTERADO] Invertida a ordem das abas em Configurações, com "Cadastros Gerais" aparecendo primeiro.
 const ConfiguracoesComponent = () => {
     // A aba ativa inicial agora é 'cadastros'.
@@ -1169,6 +1169,7 @@ const ConfiguracoesComponent = () => {
                             <ListaAuxiliarManager nomeLista="Acesso às Tarefas Pendentes" nomeSingular="E-mail" collectionPathSegment="permissoes_pendentes" />
                             <ListaAuxiliarManager nomeLista="Acesso aos Relatórios" nomeSingular="E-mail" collectionPathSegment="permissoes_relatorios" />
                             <ListaAuxiliarManager nomeLista="Acesso ao Monitoramento" nomeSingular="E-mail" collectionPathSegment="permissoes_monitoramento" />
+                            <ListaAuxiliarManager nomeLista="Acesso ao Gerenciador de Anotações" nomeSingular="E-mail" collectionPathSegment="permissoes_gerenciar_anotacoes" />
                             <ListaAuxiliarManager nomeLista="Acesso às Configurações" nomeSingular="E-mail" collectionPathSegment="permissoes_config" />
                             <ListaAuxiliarManager nomeLista="Permissão para Adicionar Tarefas" nomeSingular="E-mail do Usuário" collectionPathSegment="permissoes_add_tarefa" />
                          </div>
