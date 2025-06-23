@@ -8,7 +8,7 @@ import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteD
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 // Versão: 14.0.0
 // [NOVO] Adicionado o ícone 'LucideNotebookText' para o novo menu de gerenciamento de anotações.
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText } from 'lucide-react';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase
@@ -2674,29 +2674,180 @@ const ControleFitossanitarioComponent = () => {
     );
 };
 
-// Versão: 6.4.0
-// [NOVO] Adicionada uma listagem informativa de tarefas pendentes na tela "Tarefa Pátio" para evitar duplicidade.
-const TarefaPatioComponent = () => {
-    const { userId, db, appId, listasAuxiliares, auth, storage } = useContext(GlobalContext);
-
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [loadingForm, setLoadingForm] = useState(false);
-
-    // Estados para o formulário do modal
-    const [tarefa, setTarefa] = useState('');
-    const [prioridade, setPrioridade] = useState('');
-    const [area, setArea] = useState('');
-    const [orientacao, setOrientacao] = useState('');
-    const [acao, setAcao] = useState('');
-    const [dataInicio, setDataInicio] = useState('');
+// Versão: 15.1.0
+// [MELHORIA] Modal agora aceita as props 'tarefaFixa' e 'acoesPermitidas' para se adaptar ao contexto
+// em que é chamado (Fitossanitário vs. Pátio), restringindo os campos conforme necessário.
+const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, titulo, tarefaFixa = null, acoesPermitidas = null }) => {
+    const [loading, setLoading] = useState(false);
+    // State do formulário
+    const [tarefa, setTarefa] = useState('');
+    const [prioridade, setPrioridade] = useState('');
+    const [area, setArea] = useState('');
+    const [orientacao, setOrientacao] = useState('');
+    const [acao, setAcao] = useState('');
+    const [dataInicio, setDataInicio] = useState('');
     const [novosAnexos, setNovosAnexos] = useState([]);
 
+    useEffect(() => {
+        if (isOpen) {
+            // Reseta o formulário ao abrir
+            setTarefa(tarefaFixa || ''); // Seta a tarefa fixa se for provida
+            setPrioridade('');
+            setArea('');
+            setOrientacao('');
+            setAcao('');
+            const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }).split('/').reverse().join('-');
+            setDataInicio(hoje);
+            setNovosAnexos([]);
+        }
+    }, [isOpen, tarefaFixa]);
+
+    const handleFileChange = (e) => {
+        if (e.target.files) {
+            setNovosAnexos(prev => [...prev, ...Array.from(e.target.files)]);
+        }
+    };
+
+    const handleRemoveNovoAnexo = (fileNameToRemove) => {
+        setNovosAnexos(novosAnexos.filter(file => file.name !== fileNameToRemove));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        const tarefaFinal = (tarefaFixa || tarefa).trim().toUpperCase();
+        if (!tarefaFinal || !acao || !dataInicio) {
+            toast.error("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios.");
+            return;
+        }
+        setLoading(true);
+
+        const formData = {
+            tarefa: tarefaFinal,
+            prioridade,
+            area,
+            acao,
+            dataInicio,
+            orientacao: orientacao.trim()
+        };
+        
+        await onSave(formData, novosAnexos);
+        
+        setLoading(false);
+        onClose();
+    };
+
+    const acoesDisponiveis = acoesPermitidas 
+        ? (listasAuxiliares.acoes || []).filter(a => acoesPermitidas.includes(a)) 
+        : (listasAuxiliares.acoes || []);
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={titulo || "Criar Nova Tarefa Pendente"} width="max-w-3xl">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label htmlFor="tarefaDescricaoPendente" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
+                    {tarefaFixa ? (
+                        <input
+                            type="text"
+                            value={tarefaFixa}
+                            disabled
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-200 cursor-not-allowed"
+                        />
+                    ) : (
+                        <select
+                            id="tarefaDescricaoPendente"
+                            value={tarefa}
+                            onChange={(e) => setTarefa(e.target.value)}
+                            required
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
+                        >
+                            <option value="">Selecione uma Tarefa...</option>
+                            {(listasAuxiliares.tarefas || []).map(t => (<option key={t} value={t}>{t}</option>))}
+                        </select>
+                    )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label htmlFor="tarefaAcaoPendente" className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
+                        <select
+                            id="tarefaAcaoPendente"
+                            value={acao}
+                            onChange={(e) => setAcao(e.target.value)}
+                            required
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
+                        >
+                            <option value="">Selecione uma Ação...</option>
+                            {acoesDisponiveis.map(ac => (<option key={ac} value={ac}>{ac}</option>))}
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="tarefaDataInicioPendente" className="block text-sm font-medium text-gray-700">Data da inclusão da tarefa <span className="text-red-500">*</span></label>
+                        <input id="tarefaDataInicioPendente" type="date" value={dataInicio} required disabled className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed"/>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label htmlFor="tarefaPrioridadePendente" className="block text-sm font-medium text-gray-700">Prioridade</label>
+                        <select id="tarefaPrioridadePendente" value={prioridade} onChange={(e) => setPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
+                            <option value="">Selecione se aplicável...</option>
+                            {(listasAuxiliares.prioridades || []).map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="tarefaAreaPendente" className="block text-sm font-medium text-gray-700">Área</label>
+                        <select id="tarefaAreaPendente" value={area} onChange={(e) => setArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
+                            <option value="">Selecione se aplicável...</option>
+                            {(listasAuxiliares.areas || []).map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label htmlFor="tarefaOrientacaoPendente" className="block text-sm font-medium text-gray-700">Observação/Orientação</label>
+                    <textarea id="tarefaOrientacaoPendente" value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
+                </div>
+                <div className="pt-4 border-t">
+                    <h4 className="text-md font-semibold text-gray-700 mb-2">Anexos</h4>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Adicionar Imagens</label>
+                        <input type="file" multiple accept="image/*" onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"/>
+                    </div>
+                    {novosAnexos.length > 0 && (
+                        <div className="mt-2">
+                            <p className="text-sm font-medium text-gray-600 mb-2">Imagens para Enviar:</p>
+                            <div className="flex flex-wrap gap-2">
+                                {novosAnexos.map((file, index) => (
+                                    <div key={index} className="relative group">
+                                        <img src={URL.createObjectURL(file)} alt={file.name} className="w-20 h-20 object-cover rounded-md"/>
+                                        <button type="button" onClick={() => handleRemoveNovoAnexo(file.name)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity" title="Remover"><LucideX size={14} /></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <div className="pt-4 flex justify-end space-x-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
+                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
+                        {loading ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+// Versão: 15.0.0
+// [ALTERADO] Componente agora utiliza o novo modal reutilizável 'TarefaPendenteFormModal' para criar tarefas.
+const TarefaPatioComponent = () => {
+    const { userId, db, appId, listasAuxiliares, auth, storage } = useContext(GlobalContext);
+
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    
     // Estados para a lista de tarefas pendentes
     const [tarefasPendentes, setTarefasPendentes] = useState([]);
     const [loadingList, setLoadingList] = useState(true);
 
-    const basePath = `/artifacts/${appId}/public/data`;
-    const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
+    const basePath = `/artifacts/${appId}/public/data`;
+    const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
     // Hook para carregar a lista de tarefas pendentes
     useEffect(() => {
@@ -2714,52 +2865,24 @@ const TarefaPatioComponent = () => {
         return () => unsubscribe();
     }, [userId, appId, db, basePath]);
 
-    const resetFormulario = () => {
-        setTarefa('');
-        setPrioridade('');
-        setArea('');
-        setOrientacao('');
-        setAcao('');
-        setDataInicio('');
-        setNovosAnexos([]);
-    };
+    const handleOpenModal = () => setIsModalOpen(true);
+    const handleCloseModal = () => setIsModalOpen(false);
 
-    const handleOpenModal = () => {
-        resetFormulario();
-        const hoje = new Date();
-        const dataFormatada = hoje.toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'}).split('/').reverse().join('-');
-        setDataInicio(dataFormatada);
-        setIsModalOpen(true);
-    };
-
-    const handleCloseModal = () => {
-        setIsModalOpen(false);
-    };
-
-    const handleFileChange = (e) => {
-        if (e.target.files) {
-            setNovosAnexos(prev => [...prev, ...Array.from(e.target.files)]);
+    // Esta função agora recebe os dados do formulário do modal
+    const handleCriarTarefaPendente = async (formData, novosAnexos) => {
+        const usuario = auth.currentUser;
+        if (!usuario) {
+            toast.error("Usuário não autenticado.");
+            return;
         }
-    };
 
-    const handleRemoveNovoAnexo = (fileNameToRemove) => {
-        setNovosAnexos(novosAnexos.filter(file => file.name !== fileNameToRemove));
-    };
+        const novoDocRef = doc(tarefasMapaCollectionRef);
+        const idDaNovaTarefa = novoDocRef.id;
 
-    const handleCriarTarefaPendente = async (e) => {
-        e.preventDefault();
-        if (!tarefa.trim() || !acao || !dataInicio) {
-            toast.error("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios.");
-            return;
-        }
-
-        setLoadingForm(true);
-        try {
-            const novoDocRef = doc(tarefasMapaCollectionRef);
-            const idDaNovaTarefa = novoDocRef.id;
-
+        try {
             const urlsDosNovosAnexos = [];
             if (novosAnexos.length > 0) {
+                toast.loading('Enviando anexos...', { id: 'upload-toast-patio' });
                 for (const anexo of novosAnexos) {
                     const caminhoStorage = `${basePath}/imagens_tarefas/${idDaNovaTarefa}/${Date.now()}_${anexo.name}`;
                     const storageRef = ref(storage, caminhoStorage);
@@ -2767,73 +2890,71 @@ const TarefaPatioComponent = () => {
                     const downloadURL = await getDownloadURL(uploadTask.ref);
                     urlsDosNovosAnexos.push(downloadURL);
                 }
+                toast.dismiss('upload-toast-patio');
             }
             
-            const dataInicioTimestamp = Timestamp.fromDate(new Date(dataInicio + "T00:00:00Z"));
+            const dataInicioTimestamp = Timestamp.fromDate(new Date(formData.dataInicio + "T00:00:00Z"));
 
-            const novaTarefaData = {
-                tarefa: tarefa.trim().toUpperCase(),
-                prioridade: prioridade || "",
-                area: area || "",
-                acao: acao,
-                dataInicio: dataInicioTimestamp,
-                dataProvavelTermino: dataInicioTimestamp,
-                orientacao: orientacao.trim(),
-                status: "AGUARDANDO ALOCAÇÃO",
-                responsaveis: [],
-                turno: "",
-                criadoPor: auth.currentUser?.uid || 'sistema',
-                criadoPorEmail: auth.currentUser?.email || 'sistema',
-                createdAt: Timestamp.now(),
-                updatedAt: Timestamp.now(),
-                semanaProgramada: "",
-                origem: "Tarefa Pátio",
+            const novaTarefaData = {
+                tarefa: formData.tarefa,
+                prioridade: formData.prioridade || "",
+                area: formData.area || "",
+                acao: formData.acao,
+                dataInicio: dataInicioTimestamp,
+                dataProvavelTermino: dataInicioTimestamp,
+                orientacao: formData.orientacao,
+                status: "AGUARDANDO ALOCAÇÃO",
+                responsaveis: [],
+                turno: "",
+                criadoPor: usuario.uid,
+                criadoPorEmail: usuario.email,
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+                origem: "Tarefa Pátio",
                 imagens: urlsDosNovosAnexos,
-            };
+            };
 
-            await setDoc(novoDocRef, novaTarefaData);
-            console.log("Nova tarefa do pátio criada no Mapa de Atividades com ID: ", idDaNovaTarefa);
+            await setDoc(novoDocRef, novaTarefaData);
 
-            await logAlteracaoTarefa(
-                db,
-                basePath,
-                idDaNovaTarefa,
-                auth.currentUser?.uid,
-                auth.currentUser?.email,
-                "Tarefa Criada (Pátio)",
-                `Tarefa "${novaTarefaData.tarefa}" criada via Tarefa Pátio.`
-            );
+            await logAlteracaoTarefa(
+                db,
+                basePath,
+                idDaNovaTarefa,
+                usuario.uid,
+                usuario.email,
+                "Tarefa Criada (Pátio)",
+                `Tarefa "${novaTarefaData.tarefa}" criada via Tarefa Pátio.`
+            );
 
-            toast.success("Nova tarefa criada com sucesso!");
-            handleCloseModal();
+            toast.success("Nova tarefa criada com sucesso!");
+            handleCloseModal();
 
-        } catch (error) {
-            console.error("Erro ao criar tarefa do pátio: ", error);
-            toast.error("Erro ao criar tarefa do pátio: " + error.message);
-        }
-        setLoadingForm(false);
-    };
+        } catch (error) {
+            console.error("Erro ao criar tarefa do pátio: ", error);
+            toast.error("Erro ao criar tarefa do pátio: " + error.message);
+            toast.dismiss('upload-toast-patio');
+        }
+    };
 
-    return (
-        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-800">Tarefa Pátio</h2>
-                <button
-                    onClick={handleOpenModal}
-                    className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
-                >
-                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa do Pátio
-                </button>
-            </div>
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-semibold text-gray-800">Tarefa Pátio</h2>
+                <button
+                    onClick={handleOpenModal}
+                    className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
+                >
+                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa do Pátio
+                </button>
+            </div>
 
-            <div className="text-center p-5 bg-white shadow rounded-md">
-                <p className="text-gray-600">
-                    Utilize o botão "Adicionar Tarefa do Pátio" para registrar rapidamente uma nova demanda
-                    que será incluída no Mapa de Atividades para posterior alocação e programação.
-                </p>
-            </div>
+            <div className="text-center p-5 bg-white shadow rounded-md">
+                <p className="text-gray-600">
+                    Utilize o botão "Adicionar Tarefa do Pátio" para registrar rapidamente uma nova demanda
+                    que será incluída no Mapa de Atividades para posterior alocação e programação.
+                </p>
+            </div>
 
-            {/* Início da Nova Seção de Listagem */}
             <div className="mt-8">
                 <h3 className="text-xl font-semibold text-gray-700 mb-4">
                     <LucideListTodo size={22} className="inline-block mr-2 text-orange-500" />
@@ -2869,109 +2990,16 @@ const TarefaPatioComponent = () => {
                     </table>
                 </div>
             </div>
-            {/* Fim da Nova Seção de Listagem */}
-
-            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title="Criar Nova Tarefa do Pátio" width="max-w-3xl">
-                <form onSubmit={handleCriarTarefaPendente} className="space-y-4">
-                    <div>
-                        <label htmlFor="tarefaDescricao" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
-                        <select
-                            id="tarefaDescricao"
-                            value={tarefa}
-                            onChange={(e) => setTarefa(e.target.value)}
-                            required
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
-                        >
-                            <option value="">Selecione uma Tarefa...</option>
-                            {(listasAuxiliares.tarefas || []).map(t => (<option key={t} value={t}>{t}</option>))}
-                        </select>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="tarefaAcao" className="block text-sm font-medium text-gray-700">Ação <span className="text-red-500">*</span></label>
-                            <select
-                                id="tarefaAcao"
-                                value={acao}
-                                onChange={(e) => setAcao(e.target.value)}
-                                required
-                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
-                            >
-                                <option value="">Selecione uma Ação...</option>
-                                {(listasAuxiliares && listasAuxiliares.acoes ? listasAuxiliares.acoes : []).map(ac => (
-                                    <option key={ac} value={ac}>{ac}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="tarefaDataInicio" className="block text-sm font-medium text-gray-700">Data da inclusão da tarefa <span className="text-red-500">*</span></label>
-                            <input id="tarefaDataInicio" type="date" value={dataInicio} required disabled className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed"/>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="tarefaPrioridade" className="block text-sm font-medium text-gray-700">Prioridade</label>
-                            <select id="tarefaPrioridade" value={prioridade} onChange={(e) => setPrioridade(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
-                                <option value="">Selecione se aplicável...</option>
-                                {(listasAuxiliares && listasAuxiliares.prioridades ? listasAuxiliares.prioridades : []).map(p => <option key={p} value={p}>{p}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="tarefaArea" className="block text-sm font-medium text-gray-700">Área</label>
-                            <select id="tarefaArea" value={area} onChange={(e) => setArea(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500">
-                                <option value="">Selecione se aplicável...</option>
-                                {(listasAuxiliares && listasAuxiliares.areas ? listasAuxiliares.areas : []).map(a => <option key={a} value={a}>{a}</option>)}
-                            </select>
-                        </div>
-                    </div>
-                    <div>
-                        <label htmlFor="tarefaOrientacao" className="block text-sm font-medium text-gray-700">Observação/Orientação</label>
-                        <textarea id="tarefaOrientacao" value={orientacao} onChange={(e) => setOrientacao(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"></textarea>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                        <h4 className="text-md font-semibold text-gray-700 mb-2">Anexos</h4>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Adicionar Imagens</label>
-                            <input
-                                type="file"
-                                multiple
-                                accept="image/*"
-                                onChange={handleFileChange}
-                                className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                            />
-                        </div>
-                        {novosAnexos.length > 0 && (
-                            <div className="mt-2">
-                                <p className="text-sm font-medium text-gray-600 mb-2">Imagens para Enviar:</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {novosAnexos.map((file, index) => (
-                                        <div key={index} className="relative group">
-                                            <img src={URL.createObjectURL(file)} alt={file.name} className="w-20 h-20 object-cover rounded-md"/>
-                                            <button 
-                                                type="button"
-                                                onClick={() => handleRemoveNovoAnexo(file.name)}
-                                                className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                title="Remover"
-                                            >
-                                            <LucideX size={14} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="pt-4 flex justify-end space-x-2">
-                        <button type="button" onClick={handleCloseModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={loadingForm} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
-                            {loadingForm ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
-        </div>
-    );
+            
+            <TarefaPendenteFormModal
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
+                onSave={handleCriarTarefaPendente}
+                listasAuxiliares={listasAuxiliares}
+                titulo="Criar Nova Tarefa do Pátio"
+            />
+        </div>
+    );
 };
 
 // Versão: 3.3.0
@@ -5025,7 +5053,9 @@ const CalendarioFitossanitarioComponent = () => {
     );
 };
 
-// Componente TarefasPendentes
+// Versão: 16.0.0
+// [NOVO] Adicionado um botão "Cancelar" ao lado de "Alocar" na lista de tarefas pendentes.
+// [NOVO] Ao clicar em "Cancelar", uma confirmação é exigida antes de alterar o status da tarefa para "CANCELADA".
 const TarefasPendentesComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext); 
     const [tarefasPendentes, setTarefasPendentes] = useState([]);
@@ -5069,77 +5099,106 @@ const TarefasPendentesComponent = () => {
         }).join(', ');
     };
 
-const handleSalvarAlocacao = async (tarefaId, dadosAlocacao) => {
-    setLoading(true);
-    const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
-    const usuario = auth.currentUser;
+    const handleSalvarAlocacao = async (tarefaId, dadosAlocacao) => {
+        setLoading(true);
+        const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefaId);
+        const usuario = auth.currentUser;
 
-    try {
-        const dadosParaAtualizar = {
-            ...dadosAlocacao,
-            status: "PROGRAMADA",
-            updatedAt: Timestamp.now(),
-            alocadoPor: usuario?.uid || 'sistema',
-            alocadoEm: Timestamp.now(),
-            semanaProgramada: "", // Valor padrão
-        };
+        try {
+            const dadosParaAtualizar = {
+                ...dadosAlocacao,
+                status: "PROGRAMADA",
+                updatedAt: Timestamp.now(),
+                alocadoPor: usuario?.uid || 'sistema',
+                alocadoEm: Timestamp.now(),
+                semanaProgramada: "", // Valor padrão
+            };
 
-        const dataInicioAlocacao = dadosAlocacao.dataInicio;
+            const dataInicioAlocacao = dadosAlocacao.dataInicio;
 
-        if (dataInicioAlocacao instanceof Timestamp) {
-            const dataInicioTarefaStr = dataInicioAlocacao.toDate().toISOString().split('T')[0];
-            const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
-            const todasSemanasSnap = await getDocs(todasSemanasQuery);
+            if (dataInicioAlocacao instanceof Timestamp) {
+                const dataInicioTarefaStr = dataInicioAlocacao.toDate().toISOString().split('T')[0];
+                const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
+                const todasSemanasSnap = await getDocs(todasSemanasQuery);
 
-            for (const semanaDocSnap of todasSemanasSnap.docs) {
-                const semana = semanaDocSnap.data();
-                
-                // [CORREÇÃO] Usando a função auxiliar robusta para converter as datas
-                const inicioSemanaDate = converterParaDate(semana.dataInicioSemana);
-                const fimSemanaDate = converterParaDate(semana.dataFimSemana);
+                for (const semanaDocSnap of todasSemanasSnap.docs) {
+                    const semana = semanaDocSnap.data();
+                    
+                    const inicioSemanaDate = converterParaDate(semana.dataInicioSemana);
+                    const fimSemanaDate = converterParaDate(semana.dataFimSemana);
 
-                if (inicioSemanaDate && fimSemanaDate) {
-                    const inicioSemanaStr = inicioSemanaDate.toISOString().split('T')[0];
-                    const fimSemanaStr = fimSemanaDate.toISOString().split('T')[0];
+                    if (inicioSemanaDate && fimSemanaDate) {
+                        const inicioSemanaStr = inicioSemanaDate.toISOString().split('T')[0];
+                        const fimSemanaStr = fimSemanaDate.toISOString().split('T')[0];
 
-                    if (dataInicioTarefaStr >= inicioSemanaStr && dataInicioTarefaStr <= fimSemanaStr) {
-                        dadosParaAtualizar.semanaProgramada = semana.nomeAba || semanaDocSnap.id;
-                        break; 
+                        if (dataInicioTarefaStr >= inicioSemanaStr && dataInicioTarefaStr <= fimSemanaStr) {
+                            dadosParaAtualizar.semanaProgramada = semana.nomeAba || semanaDocSnap.id;
+                            break; 
+                        }
                     }
                 }
             }
+
+            if (!dadosParaAtualizar.semanaProgramada && dadosAlocacao.dataInicio) {
+                toast.error("Atenção: A tarefa foi alocada, mas não há uma semana criada na Programação Semanal para o período selecionado. Crie a semana para visualizar a tarefa na programação.");
+            }
+
+            await updateDoc(tarefaDocRef, dadosParaAtualizar);
+
+            setTarefasPendentes(prevPendentes => prevPendentes.filter(t => t.id !== tarefaId));
+
+            const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
+            if (tarefaAtualizadaSnap.exists()) {
+                const dadosCompletosParaSync = { id: tarefaId, ...tarefaAtualizadaSnap.data() };
+                
+                await sincronizarTarefaComProgramacao(tarefaId, dadosCompletosParaSync, db, basePath);
+
+                const dataInicioLog = dadosParaAtualizar.dataInicio ? formatDate(dadosParaAtualizar.dataInicio) : 'N/A';
+                const dataFimLog = dadosParaAtualizar.dataProvavelTermino ? formatDate(dadosParaAtualizar.dataProvavelTermino) : 'N/A';
+
+                await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Alocada",
+                    `Alocada para: ${getResponsavelNomesParaLog(dadosParaAtualizar.responsaveis)}. Turno: ${dadosParaAtualizar.turno || 'N/A'}. Período: ${dataInicioLog} a ${dataFimLog}. Programada na semana: ${dadosParaAtualizar.semanaProgramada || 'Nenhuma'}`
+                );
+            }
+
+            toast.success("Tarefa alocada com sucesso!");
+            handleFecharModalAlocacao();
+        } catch (error) {
+            console.error("Erro ao alocar tarefa:", error);
+            toast.error("Erro ao alocar tarefa: " + error.message);
         }
+        setLoading(false);
+    };
 
-        if (!dadosParaAtualizar.semanaProgramada && dadosAlocacao.dataInicio) {
-            alert("Atenção: A tarefa foi alocada, mas não há uma semana criada na Programação Semanal para o período selecionado. Crie a semana para visualizar a tarefa na programação.");
+    const handleCancelarTarefa = async (tarefa) => {
+        if (window.confirm(`Tem certeza que deseja CANCELAR a tarefa "${tarefa.tarefa}"? Esta ação não pode ser desfeita.`)) {
+            const tarefaDocRef = doc(db, `${basePath}/tarefas_mapa`, tarefa.id);
+            const usuario = auth.currentUser;
+
+            try {
+                await updateDoc(tarefaDocRef, {
+                    status: "CANCELADA",
+                    updatedAt: Timestamp.now(),
+                    canceladoPor: usuario?.email || 'sistema'
+                });
+
+                await logAlteracaoTarefa(
+                    db,
+                    basePath,
+                    tarefa.id,
+                    usuario?.uid,
+                    usuario?.email,
+                    "Tarefa Cancelada (Pendente)",
+                    `A tarefa "${tarefa.tarefa}" que estava pendente de alocação foi cancelada.`
+                );
+
+                toast.success("Tarefa cancelada com sucesso.");
+            } catch (error) {
+                console.error("Erro ao cancelar tarefa:", error);
+                toast.error("Não foi possível cancelar a tarefa.");
+            }
         }
-
-        await updateDoc(tarefaDocRef, dadosParaAtualizar);
-
-        setTarefasPendentes(prevPendentes => prevPendentes.filter(t => t.id !== tarefaId));
-
-        const tarefaAtualizadaSnap = await getDoc(tarefaDocRef);
-        if (tarefaAtualizadaSnap.exists()) {
-            const dadosCompletosParaSync = { id: tarefaId, ...tarefaAtualizadaSnap.data() };
-            
-            await sincronizarTarefaComProgramacao(tarefaId, dadosCompletosParaSync, db, basePath);
-
-            const dataInicioLog = dadosParaAtualizar.dataInicio ? formatDate(dadosParaAtualizar.dataInicio) : 'N/A';
-            const dataFimLog = dadosParaAtualizar.dataProvavelTermino ? formatDate(dadosParaAtualizar.dataProvavelTermino) : 'N/A';
-
-            await logAlteracaoTarefa(db, basePath, tarefaId, usuario?.uid, usuario?.email, "Tarefa Alocada",
-                `Alocada para: ${getResponsavelNomesParaLog(dadosParaAtualizar.responsaveis)}. Turno: ${dadosParaAtualizar.turno || 'N/A'}. Período: ${dataInicioLog} a ${dataFimLog}. Programada na semana: ${dadosParaAtualizar.semanaProgramada || 'Nenhuma'}`
-            );
-        }
-
-        alert("Tarefa alocada com sucesso!");
-        handleFecharModalAlocacao();
-    } catch (error) {
-        console.error("Erro ao alocar tarefa:", error);
-        alert("Erro ao alocar tarefa: " + error.message);
-    }
-    setLoading(false);
-};
+    };
     
 
     if (loading && tarefasPendentes.length === 0) return <div className="p-6 text-center">Carregando tarefas pendentes...</div>;
@@ -5169,12 +5228,21 @@ const handleSalvarAlocacao = async (tarefaId, dadosAlocacao) => {
                                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.createdAt ? formatDate(tp.createdAt) : '-'}</td>
                                     <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal break-words">{tp.orientacao || '-'}</td>
                                     <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
-                                        <button 
-                                            onClick={() => handleAbrirModalAlocacao(tp)}
-                                            className="bg-green-500 hover:bg-green-600 text-white text-xs font-semibold py-1 px-3 rounded-md flex items-center transition-colors duration-150"
-                                        >
-                                           <LucideUserPlus size={14} className="mr-1"/> Alocar
-                                        </button>
+                                        <div className="flex items-center space-x-2">
+                                            <button 
+                                                onClick={() => handleAbrirModalAlocacao(tp)}
+                                                className="bg-green-500 hover:bg-green-600 text-white text-xs font-semibold py-1 px-3 rounded-md flex items-center transition-colors duration-150"
+                                            >
+                                               <LucideUserPlus size={14} className="mr-1"/> Alocar
+                                            </button>
+                                            <button
+                                                onClick={() => handleCancelarTarefa(tp)}
+                                                className="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-md flex items-center transition-colors duration-150"
+                                                title="Cancelar Tarefa"
+                                            >
+                                                <LucideXCircle size={14} className="mr-1"/> Cancelar
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -5302,11 +5370,10 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
     );
 };
 
-// Versão: 10.5.0
-// [ALTERADO] A lista principal agora exibe todas as tarefas de aplicação (programadas, concluídas, etc.) 
-// do Mapa de Atividades, incluindo uma coluna de status, em vez de apenas o histórico de registros.
+// Versão: 15.3.0
+// [MELHORIA] Adicionada a coluna "Observação/Orientação" na tabela de Acompanhamento de Aplicações.
 const RegistroAplicacaoComponent = () => {
-    const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
+    const { db, appId, listasAuxiliares, funcionarios, auth, storage } = useContext(GlobalContext);
     
     const [isRegistroModalOpen, setIsRegistroModalOpen] = useState(false);
     const [planoParaRegistrar, setPlanoParaRegistrar] = useState(null);
@@ -5317,6 +5384,9 @@ const RegistroAplicacaoComponent = () => {
     const [aplicacoesPendentes, setAplicacoesPendentes] = useState([]);
     const [todasAsAplicacoes, setTodasAsAplicacoes] = useState([]);
     const [filtroPlanoId, setFiltroPlanoId] = useState('TODOS');
+
+    // Estado para o novo modal de tarefa pendente
+    const [isPendenteModalOpen, setIsPendenteModalOpen] = useState(false);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
@@ -5329,7 +5399,7 @@ const RegistroAplicacaoComponent = () => {
         }, error => console.error("Erro ao carregar planos:", error));
 
         const qTarefas = query(tarefasCollectionRef, 
-            where("origem", "in", ["Controle Fitossanitário", "Registro Fito (App)", "Reagendamento Fito"]),
+            where("origem", "in", ["Controle Fitossanitário", "Registro Fito (App)", "Reagendamento Fito", "Controle Fitossanitário (Pendente)"]),
             orderBy("createdAt", "desc")
         );
         const unsubTarefas = onSnapshot(qTarefas, (snapshot) => {
@@ -5359,9 +5429,14 @@ const RegistroAplicacaoComponent = () => {
         return plano ? plano.nome : <span className="italic text-gray-500">Plano não encontrado</span>;
     };
 
+    // Handlers para os modais existentes
     const handleOpenRegistroManual = () => { setPlanoParaRegistrar(null); setIsRegistroModalOpen(true); };
     const handleOpenSelecaoPlano = () => setIsSelecionarPlanoModalOpen(true);
     const handleSelecionarPlano = (plano) => { setPlanoParaRegistrar(plano); setIsSelecionarPlanoModalOpen(false); setIsRegistroModalOpen(true); };
+
+    // Handlers para o novo modal
+    const handleOpenPendenteModal = () => setIsPendenteModalOpen(true);
+    const handleClosePendenteModal = () => setIsPendenteModalOpen(false);
 
     const handleSaveRegistro = async (dadosDoForm, registroOriginal, criarTarefa, reagendamento) => {
         if (registroOriginal) return;
@@ -5419,11 +5494,79 @@ const RegistroAplicacaoComponent = () => {
         }
     };
 
+    const handleSaveTarefaPendente = async (formData, novosAnexos) => {
+        const usuario = auth.currentUser;
+        if (!usuario) {
+            toast.error("Usuário não autenticado.");
+            return;
+        }
+
+        const novoDocRef = doc(tarefasCollectionRef);
+        const idDaNovaTarefa = novoDocRef.id;
+
+        try {
+            let urlsDosNovosAnexos = [];
+            if (novosAnexos && novosAnexos.length > 0) {
+                toast.loading('Enviando anexos...', { id: 'upload-toast-pendente-fito' });
+                for (const anexo of novosAnexos) {
+                    const caminhoStorage = `${basePath}/imagens_tarefas/${idDaNovaTarefa}/${Date.now()}_${anexo.name}`;
+                    const storageRef = ref(storage, caminhoStorage);
+                    const uploadTask = await uploadBytesResumable(storageRef, anexo);
+                    const downloadURL = await getDownloadURL(uploadTask.ref);
+                    urlsDosNovosAnexos.push(downloadURL);
+                }
+                toast.dismiss('upload-toast-pendente-fito');
+            }
+            
+            const dataInicioTimestamp = Timestamp.fromDate(new Date(formData.dataInicio + "T00:00:00Z"));
+            
+            const novaTarefaData = {
+                tarefa: formData.tarefa,
+                prioridade: formData.prioridade || "",
+                area: formData.area || "",
+                acao: formData.acao,
+                dataInicio: dataInicioTimestamp,
+                dataProvavelTermino: dataInicioTimestamp,
+                orientacao: formData.orientacao,
+                status: "AGUARDANDO ALOCAÇÃO",
+                responsaveis: [],
+                turno: "",
+                criadoPor: usuario.uid,
+                criadoPorEmail: usuario.email,
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+                origem: "Controle Fitossanitário (Pendente)", // Origem específica
+                imagens: urlsDosNovosAnexos,
+            };
+
+            await setDoc(novoDocRef, novaTarefaData);
+
+            await logAlteracaoTarefa(
+                db,
+                basePath,
+                idDaNovaTarefa,
+                usuario.uid,
+                usuario.email,
+                "Tarefa Pendente Criada (Fito)",
+                `Tarefa "${novaTarefaData.tarefa}" criada via Controle Fitossanitário.`
+            );
+
+            toast.success("Nova tarefa pendente criada com sucesso!");
+        } catch (error) {
+            console.error("Erro ao criar tarefa pendente (Fito):", error);
+            toast.error("Erro ao criar tarefa: " + error.message);
+            toast.dismiss('upload-toast-pendente-fito');
+        }
+    };
+
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Aplicações</h2>
                 <div className="flex items-center gap-2">
+                    <button onClick={handleOpenPendenteModal} className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
+                        <LucideClipboardPlus size={20} className="mr-2"/> Adicionar Tarefa Pendente
+                    </button>
                     <button onClick={handleOpenSelecaoPlano} disabled={loading} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400">
                         <LucideCheckSquare size={20} className="mr-2"/> Registrar Aplicação (Baseado em Plano)
                     </button>
@@ -5435,6 +5578,15 @@ const RegistroAplicacaoComponent = () => {
 
             <RegistroAplicacaoModal isOpen={isRegistroModalOpen} onClose={() => setIsRegistroModalOpen(false)} onSave={handleSaveRegistro} listasAuxiliares={listasAuxiliares} funcionarios={funcionarios} planoParaRegistrar={planoParaRegistrar} registroExistente={null} />
             <SelecionarPlanoModal isOpen={isSelecionarPlanoModalOpen} onClose={() => setIsSelecionarPlanoModalOpen(false)} planosDisponiveis={todosPlanosAtivos} onSelectPlano={handleSelecionarPlano} />
+            <TarefaPendenteFormModal 
+                isOpen={isPendenteModalOpen}
+                onClose={handleClosePendenteModal}
+                onSave={handleSaveTarefaPendente}
+                listasAuxiliares={listasAuxiliares}
+                titulo="Adicionar Tarefa Pendente (Fitossanitário)"
+                tarefaFixa="APLICAÇÃO FITO"
+                acoesPermitidas={['MANUTENÇÃO | PREVENTIVA', 'MANUTENÇÃO | TRATAMENTO']}
+            />
 
             <div className="my-8 bg-white p-6 rounded-lg shadow-md">
                 <h3 className="text-xl font-semibold text-gray-700 mb-4">Aplicações Pendentes de Aprovação</h3>
@@ -5475,14 +5627,15 @@ const RegistroAplicacaoComponent = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                             <tr>
-                                {["Data", "Aplicação", "Origem (Plano)", "Área(s)", "Responsável", "Status"].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>)}
+                                {/* Cabeçalho da tabela atualizado */}
+                                {["Data", "Aplicação", "Origem (Plano)", "Área(s)", "Responsável", "Observação/Orientação", "Status"].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{h}</th>)}
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {loading ? (
-                                <tr><td colSpan="6" className="text-center p-4">Carregando aplicações...</td></tr>
+                                <tr><td colSpan="7" className="text-center p-4">Carregando aplicações...</td></tr>
                             ) : aplicacoesExibidas.length === 0 ? (
-                                <tr><td colSpan="6" className="text-center p-4 text-gray-500">Nenhuma aplicação encontrada.</td></tr>
+                                <tr><td colSpan="7" className="text-center p-4 text-gray-500">Nenhuma aplicação encontrada.</td></tr>
                             ) : (
                                 aplicacoesExibidas.map(app => (
                                     <tr key={app.id}>
@@ -5491,6 +5644,8 @@ const RegistroAplicacaoComponent = () => {
                                         <td className="px-4 py-3 text-sm text-gray-700">{getPlanoNome(app.origemPlanoId)}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal">{app.area}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{(app.responsaveis || []).map(rId => funcionarios.find(f => f.id === rId)?.nome || rId).join(', ') || 'N/A'}</td>
+                                        {/* Nova célula para exibir a orientação */}
+                                        <td className="px-4 py-3 text-sm text-gray-700 max-w-sm whitespace-normal break-words">{app.orientacao || '-'}</td>
                                         <td className="px-4 py-3 text-sm"><span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(app.status)}`}>{app.status}</span></td>
                                     </tr>
                                 ))
@@ -5845,13 +6000,106 @@ const AlertaAtrasoModal = ({ isOpen, onClose, numeroDeTarefas, onVerTarefasClick
     );
 };
 
-// Versão: 10.7.2
-// [MELHORIA] Adicionada a exibição das orientações das tarefas nos cards "Prazo Próximo" e "Pendentes de Alocação" do Dashboard.
+// Versão: 17.0.0
+// [NOVO] Card para o Dashboard que exibe o status dos planos de aplicação fitossanitários.
+// Ele cruza informações dos planos com as tarefas já geradas para fornecer um status preciso.
+const StatusPlanosFitoCard = ({ planos, tarefas }) => {
+
+    const getStatusPlano = (proximaAplicacao) => {
+        if (!proximaAplicacao) {
+            return { texto: 'Concluído', cor: 'bg-green-100 text-green-800' };
+        }
+        const hojeUTC = new Date();
+        hojeUTC.setUTCHours(0, 0, 0, 0);
+
+        const proximaUTC = new Date(proximaAplicacao);
+        proximaUTC.setUTCHours(0, 0, 0, 0);
+
+        const diffTime = proximaUTC.getTime() - hojeUTC.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+            return { texto: `ATRASADO HÁ ${Math.abs(diffDays)} DIA(S)`, cor: 'bg-red-200 text-red-900' };
+        }
+        if (diffDays === 0) {
+            return { texto: 'APLICAÇÃO HOJE', cor: 'bg-blue-200 text-blue-900' };
+        }
+        if (diffDays <= 3) {
+            return { texto: `FALTAM ${diffDays} DIA(S)`, cor: 'bg-yellow-200 text-yellow-900' };
+        }
+        return { texto: `Próxima em ${diffDays} dias`, cor: 'bg-gray-100 text-gray-700' };
+    };
+
+    const planosComStatus = planos.map(plano => {
+        const proximaDataTeorica = calcularProximaAplicacao(plano);
+        if (!proximaDataTeorica) {
+            return { ...plano, statusInfo: { texto: 'Concluído', cor: 'bg-green-100 text-green-800' }, dataExibicao: 'N/A' };
+        }
+
+        const dataStringBusca = proximaDataTeorica.toISOString().split('T')[0];
+        
+        const tarefaCorrespondente = tarefas.find(t =>
+            t.origemPlanoId === plano.id &&
+            t.origemPlanoDataString === dataStringBusca
+        );
+
+        if (tarefaCorrespondente) {
+            return {
+                ...plano,
+                statusInfo: { texto: tarefaCorrespondente.status, cor: getStatusColor(tarefaCorrespondente.status) },
+                dataExibicao: formatDate(tarefaCorrespondente.dataInicio)
+            };
+        } else {
+            return {
+                ...plano,
+                statusInfo: getStatusPlano(proximaDataTeorica),
+                dataExibicao: formatDate(proximaDataTeorica)
+            };
+        }
+    }).sort((a, b) => {
+        const order = { 'ATRASADO': 1, 'APLICAÇÃO HOJE': 2, 'FALTAM': 3 };
+        const statusA = a.statusInfo.texto.split(' ')[0];
+        const statusB = b.statusInfo.texto.split(' ')[0];
+        return (order[statusA] || 99) - (order[statusB] || 99);
+    });
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-lg">
+            <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
+                <LucideSprayCan size={22} className="mr-2 text-green-600" />
+                Status dos Planos de Aplicação
+            </h3>
+            {planosComStatus.length > 0 ? (
+                <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                    {planosComStatus.map(plano => (
+                        <li key={plano.id} className="p-3 border rounded-md bg-gray-50/50">
+                            <p className="font-semibold text-sm text-gray-800">{plano.nome}</p>
+                            <div className="flex justify-between items-center mt-1.5">
+                                <p className="text-xs text-gray-600">Data Prevista: {plano.dataExibicao}</p>
+                                <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${plano.statusInfo.cor}`}>
+                                    {plano.statusInfo.texto}
+                                </span>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="text-sm text-gray-500">Nenhum plano de aplicação ativo encontrado.</p>
+            )}
+        </div>
+    );
+};
+
+// Versão: 17.0.0
+// [NOVO] Adicionado o card de "Status dos Planos de Aplicação" para uma visão proativa do controle fitossanitário.
+// [ALTERADO] O componente agora busca também os dados dos planos de aplicação para alimentar o novo card.
 const DashboardComponent = () => {
-    const { db, appId, listasAuxiliares, funcionarios, auth, loadingAuth } = useContext(GlobalContext);
+    const { db, appId, listasAuxiliares, funcionarios, auth, loading: loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
         porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], pendentesAtrasadas: [], porFuncionario: {}
     });
+    const [planosFito, setPlanosFito] = useState([]);
+    const [todasTarefas, setTodasTarefas] = useState([]);
     const [loadingDashboard, setLoadingDashboard] = useState(true);
     const basePath = `/artifacts/${appId}/public/data`;
 
@@ -5880,6 +6128,82 @@ const DashboardComponent = () => {
             }
         }
     }, [db, appId]);
+    
+    useEffect(() => {
+        if (loadingAuth || !funcionarios?.length) {
+            setLoadingDashboard(false);
+            return;
+        }
+    
+        const basePath = `/artifacts/${appId}/public/data`;
+        
+        // Listener para as Tarefas
+        const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
+        const qTarefas = query(tarefasRef);
+        const unsubscribeTarefas = onSnapshot(qTarefas, (snapshot) => {
+            const tarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setTodasTarefas(tarefas); // Armazena todas as tarefas para o novo card
+    
+            // Processamento para os cards de estatísticas existentes
+            const porStatus = {};
+            (listasAuxiliares.status || []).forEach(s => { porStatus[s] = 0 });
+            const porPrioridade = {};
+            (listasAuxiliares.prioridades || []).forEach(p => { porPrioridade[p] = 0 });
+            const porFuncionario = {};
+            (funcionarios || []).forEach(f => { if (f?.id) porFuncionario[f.id] = {count: 0, nome: f.nome}; });
+            porFuncionario["SEM_RESPONSAVEL"] = {count: 0, nome: "Sem Responsável Designado"};
+    
+            const hoje = new Date();
+            hoje.setHours(0, 0, 0, 0);
+            const daqui7Dias = new Date();
+            daqui7Dias.setDate(daqui7Dias.getDate() + 7);
+    
+            let proximoPrazo = [], atrasadas = [], pendentesAtrasadas = [];
+    
+            tarefas.forEach(tarefa => {
+                if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) { porStatus[tarefa.status]++; }
+                if (tarefa.status !== "CANCELADA" && tarefa.status !== "CONCLUÍDA") {
+                    if (tarefa.responsaveis?.length > 0) {
+                        tarefa.responsaveis.forEach(id => { if (porFuncionario[id]) porFuncionario[id].count++; });
+                    } else { porFuncionario["SEM_RESPONSAVEL"].count++; }
+                    if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) { porPrioridade[tarefa.prioridade]++; }
+                }
+                if (tarefa.dataProvavelTermino?.toDate && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
+                    const dataTermino = tarefa.dataProvavelTermino.toDate();
+                    dataTermino.setHours(0, 0, 0, 0);
+                    if (dataTermino < hoje) {
+                        if (tarefa.status === 'PROGRAMADA' || tarefa.status === 'EM OPERAÇÃO') { atrasadas.push(tarefa); }
+                    } else if (dataTermino <= daqui7Dias) { proximoPrazo.push(tarefa); }
+                }
+                if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') { pendentesAtrasadas.push(tarefa); }
+            });
+    
+            proximoPrazo.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+            atrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
+            pendentesAtrasadas.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0));
+    
+            setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, pendentesAtrasadas, porFuncionario });
+    
+            if (atrasadas.length > 0 && !notificacaoAtrasoMostrada) {
+                setAlertaAtrasoVisivel(true);
+                setNotificacaoAtrasoMostrada(true);
+            }
+            setLoadingDashboard(false);
+        }, (error) => { console.error("[Dashboard] Erro ao buscar tarefas:", error); setLoadingDashboard(false); });
+    
+        // Listener para os Planos Fitossanitários
+        const planosRef = collection(db, `${basePath}/planos_fitossanitarios`);
+        const qPlanos = query(planosRef, where("ativo", "==", true));
+        const unsubscribePlanos = onSnapshot(qPlanos, (snapshot) => {
+            const planos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setPlanosFito(planos);
+        }, (error) => { console.error("[Dashboard] Erro ao buscar planos fito:", error); });
+    
+        return () => {
+            unsubscribeTarefas();
+            unsubscribePlanos();
+        };
+    }, [loadingAuth, funcionarios, listasAuxiliares, appId, db, notificacaoAtrasoMostrada]);
 
 
     const handleOpenTratarAtrasoModal = (tarefa) => {
@@ -5951,89 +6275,6 @@ const DashboardComponent = () => {
         }, 1000);
     };
     
-    useEffect(() => {
-        if (loadingAuth || !funcionarios?.length) {
-            setLoadingDashboard(false);
-            return;
-        }
-
-        const basePath = `/artifacts/${appId}/public/data`;
-        const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
-        const q = query(tarefasRef);
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setLoadingDashboard(true);
-            const todasTarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            
-            const porStatus = {};
-            (listasAuxiliares.status || []).forEach(s => { porStatus[s] = 0 });
-            
-            const porPrioridade = {};
-            (listasAuxiliares.prioridades || []).forEach(p => { porPrioridade[p] = 0 });
-            
-            const porFuncionario = {};
-            (funcionarios || []).forEach(f => { if (f?.id) porFuncionario[f.id] = {count: 0, nome: f.nome}; });
-            porFuncionario["SEM_RESPONSAVEL"] = {count: 0, nome: "Sem Responsável Designado"};
-
-            const hoje = new Date();
-            hoje.setHours(0, 0, 0, 0);
-            const daqui7Dias = new Date();
-            daqui7Dias.setDate(daqui7Dias.getDate() + 7);
-
-            let proximoPrazo = [], atrasadas = [], pendentesAtrasadas = [];
-
-            todasTarefas.forEach(tarefa => {
-                if (tarefa.status && porStatus.hasOwnProperty(tarefa.status)) {
-                    porStatus[tarefa.status]++;
-                }
-                
-                if (tarefa.status !== "CANCELADA" && tarefa.status !== "CONCLUÍDA") {
-                    if (tarefa.responsaveis?.length > 0) {
-                        tarefa.responsaveis.forEach(id => { if (porFuncionario[id]) porFuncionario[id].count++; });
-                    } else {
-                        porFuncionario["SEM_RESPONSAVEL"].count++;
-                    }
-
-                    if (tarefa.prioridade && porPrioridade.hasOwnProperty(tarefa.prioridade)) {
-                        porPrioridade[tarefa.prioridade]++;
-                    }
-                }
-                
-                if (tarefa.dataProvavelTermino?.toDate && tarefa.status !== "CONCLUÍDA" && tarefa.status !== "CANCELADA") {
-                    const dataTermino = tarefa.dataProvavelTermino.toDate();
-                    dataTermino.setHours(0, 0, 0, 0);
-                    if (dataTermino < hoje) {
-                        if (tarefa.status === 'PROGRAMADA' || tarefa.status === 'EM OPERAÇÃO') {
-                            atrasadas.push(tarefa);
-                        }
-                    } else if (dataTermino <= daqui7Dias) {
-                        proximoPrazo.push(tarefa);
-                    }
-                }
-                if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') {
-                    pendentesAtrasadas.push(tarefa);
-                }
-            });
-
-            proximoPrazo.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-            atrasadas.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
-            pendentesAtrasadas.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0));
-
-            setStats({ porStatus, porPrioridade, proximoPrazo, atrasadas, pendentesAtrasadas, porFuncionario });
-
-            if (atrasadas.length > 0 && !notificacaoAtrasoMostrada) {
-                setAlertaAtrasoVisivel(true);
-                setNotificacaoAtrasoMostrada(true);
-            }
-            setLoadingDashboard(false);
-        }, (error) => {
-            console.error("[Dashboard] Erro ao buscar dados:", error);
-            setLoadingDashboard(false);
-        });
-        
-        return () => unsubscribe();
-    }, [loadingAuth, funcionarios, listasAuxiliares, appId, db, notificacaoAtrasoMostrada]);
-
     const getPrioridadeColor = (prioridade) => {
         if (prioridade === "P4 - URGENTE") return "bg-red-500 text-white";
         if (prioridade === "P1 - CURTO PRAZO") return "bg-orange-400 text-white";
@@ -6091,6 +6332,12 @@ const DashboardComponent = () => {
                     </ul>
                 </div>
             </div>
+
+            {/* Nova Linha para o Card Fitossanitário */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                <StatusPlanosFitoCard planos={planosFito} tarefas={todasTarefas} />
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
