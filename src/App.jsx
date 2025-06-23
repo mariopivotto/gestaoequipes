@@ -6090,9 +6090,39 @@ const StatusPlanosFitoCard = ({ planos, tarefas }) => {
     );
 };
 
-// Versão: 17.0.0
-// [NOVO] Adicionado o card de "Status dos Planos de Aplicação" para uma visão proativa do controle fitossanitário.
-// [ALTERADO] O componente agora busca também os dados dos planos de aplicação para alimentar o novo card.
+// Versão: 19.1.0
+// [MELHORIA] Adicionada a exibição da orientação/observação em cada item do card para fornecer mais contexto.
+const AguardandoAlocacaoFitoCard = ({ aplicacoes }) => {
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-lg">
+            <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
+                <LucideAlertTriangle size={22} className="mr-2 text-red-600" />
+                Aplicações Fito Aguardando Alocação
+            </h3>
+            {aplicacoes.length > 0 ? (
+                <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                    {aplicacoes.map(app => (
+                        <li key={app.id} className="p-3 border-l-4 border-red-400 rounded-r-md bg-red-50">
+                            <p className="font-semibold text-sm text-red-800">{app.tarefa}</p>
+                            {app.orientacao && (
+                                <p className="text-xs text-gray-700 mt-1">{app.orientacao}</p>
+                            )}
+                            <p className="text-xs text-red-700 mt-2 pt-1 border-t border-red-200">
+                                Área: {app.area || 'N/A'} | Data: {formatDate(app.dataInicio)}
+                            </p>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="text-sm text-gray-500">Nenhuma aplicação fitossanitária aguardando alocação.</p>
+            )}
+        </div>
+    );
+};
+
+// Versão: 19.0.0
+// [ALTERADO] O layout do Dashboard foi reorganizado para um grid de 4 colunas por linha,
+// redistribuindo os cards conforme a solicitação do usuário.
 const DashboardComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loading: loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
@@ -6109,6 +6139,15 @@ const DashboardComponent = () => {
     const [notificacaoAtrasoMostrada, setNotificacaoAtrasoMostrada] = useState(false);
     const [highlightAtrasadas, setHighlightAtrasadas] = useState(false);
     const atrasadasCardRef = useRef(null);
+
+    // Filtra os dados para o novo card de alocação fito
+    const aplicacoesFitoAguardandoAlocacao = useMemo(() => {
+        const fitoOrigins = ["Controle Fitossanitário", "Registro Fito (App)", "Reagendamento Fito", "Controle Fitossanitário (Pendente)"];
+        return todasTarefas.filter(t =>
+            t.status === 'AGUARDANDO ALOCAÇÃO' &&
+            fitoOrigins.includes(t.origem)
+        ).sort((a,b) => (a.dataInicio?.toMillis() || 0) - (b.dataInicio?.toMillis() || 0));
+    }, [todasTarefas]);
 
     useEffect(() => {
         if (db && appId) {
@@ -6137,14 +6176,12 @@ const DashboardComponent = () => {
     
         const basePath = `/artifacts/${appId}/public/data`;
         
-        // Listener para as Tarefas
         const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
         const qTarefas = query(tarefasRef);
         const unsubscribeTarefas = onSnapshot(qTarefas, (snapshot) => {
             const tarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setTodasTarefas(tarefas); // Armazena todas as tarefas para o novo card
+            setTodasTarefas(tarefas); 
     
-            // Processamento para os cards de estatísticas existentes
             const porStatus = {};
             (listasAuxiliares.status || []).forEach(s => { porStatus[s] = 0 });
             const porPrioridade = {};
@@ -6175,7 +6212,12 @@ const DashboardComponent = () => {
                         if (tarefa.status === 'PROGRAMADA' || tarefa.status === 'EM OPERAÇÃO') { atrasadas.push(tarefa); }
                     } else if (dataTermino <= daqui7Dias) { proximoPrazo.push(tarefa); }
                 }
-                if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') { pendentesAtrasadas.push(tarefa); }
+                if (tarefa.status === 'AGUARDANDO ALOCAÇÃO') {
+                    const fitoOrigins = ["Controle Fitossanitário", "Registro Fito (App)", "Reagendamento Fito", "Controle Fitossanitário (Pendente)"];
+                    if (!fitoOrigins.includes(tarefa.origem)) {
+                       pendentesAtrasadas.push(tarefa);
+                    }
+                }
             });
     
             proximoPrazo.sort((a, b) => a.dataProvavelTermino.toMillis() - b.dataProvavelTermino.toMillis());
@@ -6191,7 +6233,6 @@ const DashboardComponent = () => {
             setLoadingDashboard(false);
         }, (error) => { console.error("[Dashboard] Erro ao buscar tarefas:", error); setLoadingDashboard(false); });
     
-        // Listener para os Planos Fitossanitários
         const planosRef = collection(db, `${basePath}/planos_fitossanitarios`);
         const qPlanos = query(planosRef, where("ativo", "==", true));
         const unsubscribePlanos = onSnapshot(qPlanos, (snapshot) => {
@@ -6306,7 +6347,8 @@ const DashboardComponent = () => {
             />
             <h2 className="text-3xl font-semibold text-gray-800 mb-8">Dashboard</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            {/* Linha 1 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-gray-700 mb-4">Tarefas por Status</h3>
                     <ul className="space-y-2">
@@ -6331,14 +6373,11 @@ const DashboardComponent = () => {
                         ))}
                     </ul>
                 </div>
-            </div>
-
-            {/* Nova Linha para o Card Fitossanitário */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                 <StatusPlanosFitoCard planos={planosFito} tarefas={todasTarefas} />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {/* Linha 2 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
                     {stats.proximoPrazo.length > 0 ? (
@@ -6365,6 +6404,7 @@ const DashboardComponent = () => {
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa aguardando alocação.</p>}
                 </div>
+                <AguardandoAlocacaoFitoCard aplicacoes={aplicacoesFitoAguardandoAlocacao} />
                 <div ref={atrasadasCardRef} className={`bg-white p-6 rounded-lg shadow-lg scroll-mt-6 transition-all duration-300 ${highlightAtrasadas ? 'ring-4 ring-offset-4 ring-red-500' : 'ring-0'}`}>
                     <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
                     {stats.atrasadas.length > 0 ? (
