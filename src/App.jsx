@@ -398,10 +398,13 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 13.0.0
-// [MELHORIA] A função agora também sincroniza os dados da última anotação (texto e data)
-// da tarefa principal para a programação semanal.
-async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath) {
+// Versão: 19.1.1
+// [CORRIGIDO] Adicionado um parâmetro 'options.forceStatus' para garantir que as alterações de status
+// feitas no Mapa de Atividades sejam propagadas para todas as instâncias diárias na programação semanal,
+// resolvendo o bug que revertia o status "CONCLUÍDA".
+async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath, options = {}) {
+    const { forceStatus = false } = options;
+
     // 1. Memoriza o progresso diário existente antes de qualquer alteração.
     const progressoDiarioSalvo = new Map();
     const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
@@ -484,8 +487,8 @@ async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePat
                         const itemTarefaProgramacao = {
                             mapaTaskId: tarefaId,
                             textoVisivel: textoVisivelFinal,
-                            statusLocal: progressoSalvo?.statusLocal || tarefaData.status,
-                            conclusao: progressoSalvo?.conclusao || '',
+                            statusLocal: forceStatus ? tarefaData.status : (progressoSalvo?.statusLocal || tarefaData.status),
+                            conclusao: (forceStatus && tarefaData.status === 'CONCLUÍDA') ? (progressoSalvo?.conclusao || 'OK') : (forceStatus ? '' : (progressoSalvo?.conclusao || '')),
                             mapaStatus: tarefaData.status,
                             acao: tarefaData.acao || '',
                             turno: tarefaData.turno || TURNO_DIA_INTEIRO,
@@ -1893,7 +1896,9 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
 
 
 
-// Versão: 8.2.1
+// Versão: 8.2.2
+// [CORRIGIDO] A função 'handleQuickStatusUpdate' agora passa a opção 'forceStatus: true'
+// para a sincronização, garantindo que a alteração de status se propague para a programação semanal.
 // [CORRIGIDO] Corrigido o erro fatal "checkPermission is not a function". A lógica de verificação de permissão para adicionar tarefas foi ajustada para usar o objeto 'permissoes' do contexto global corretamente.
 // [NOVO] Implementada a funcionalidade de paginação, limitando a exibição a 50 tarefas por página.
 // [NOVO] Adicionados controles de navegação (Anterior, Próximo, números de página) na base da tabela.
@@ -2067,7 +2072,7 @@ const MapaAtividadesComponent = () => {
             await updateDoc(tarefaDocRef, { status: novoStatus, updatedAt: Timestamp.now() });
 
             const dadosAtualizadosParaSync = { ...tarefaOriginal, status: novoStatus };
-            await sincronizarTarefaComProgramacao(tarefaId, dadosAtualizadosParaSync, db, basePath);
+            await sincronizarTarefaComProgramacao(tarefaId, dadosAtualizadosParaSync, db, basePath, { forceStatus: true });
             await verificarEAtualizarStatusConclusaoMapa(tarefaId, db, basePath);
 
             await logAlteracaoTarefa(db, basePath, tarefaId, usuario.uid, usuario.email, "Status Alterado (Rápido)",
