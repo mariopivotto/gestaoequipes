@@ -3075,8 +3075,9 @@ const ConclusaoTarefaModal = ({ isOpen, onClose, onSave, tarefa }) => {
 };
 
 
-// Versão: 7.7.0
-// [ALTERADO] O modal "Gerenciar Tarefas" da programação agora busca e exibe as anotações de cada tarefa abaixo de suas orientações.
+// Versão: 7.7.2
+// [ALTERADO] O botão "Registrar Conclusão" (ícone de prancheta) foi temporariamente desabilitado (comentado) no modal de gerenciamento de tarefas da programação, conforme solicitado.
+// [ALTERADO] O botão "Remover desta célula" (ícone de X) também foi temporariamente desabilitado (comentado), conforme solicitado.
 const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, responsavelId, tarefasDaCelula, semanaId, onAlteracaoSalva }) => {
     const { db, appId, funcionarios, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [tarefasEditaveis, setTarefasEditaveis] = useState([]);
@@ -3085,7 +3086,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
     const [isConclusaoModalOpen, setIsConclusaoModalOpen] = useState(false);
     const [tarefaParaConcluir, setTarefaParaConcluir] = useState(null);
     const [tarefaIndexParaConcluir, setTarefaIndexParaConcluir] = useState(null);
-    const [anotacoesPorTarefa, setAnotacoesPorTarefa] = useState({}); // [NOVO] Estado para as anotações
+    const [anotacoesPorTarefa, setAnotacoesPorTarefa] = useState({});
 
     useEffect(() => {
         if (isOpen && tarefasDaCelula && tarefasDaCelula.length > 0) {
@@ -3120,7 +3121,6 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
         }
     }, [tarefasDaCelula, isOpen, appId, db]);
     
-    // [NOVO] Hook para buscar as anotações de cada tarefa no modal
     useEffect(() => {
         if (isOpen && tarefasDaCelula && tarefasDaCelula.length > 0) {
             const unsubscribers = [];
@@ -3246,6 +3246,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                                         )}
                                     </div>
                                     <div className="flex space-x-2 items-center">
+                                        {/* Botão de Registrar Conclusão desabilitado temporariamente
                                          <button
                                             onClick={() => handleOpenConclusaoModal(tarefa, index)}
                                             title="Registrar Conclusão"
@@ -3253,6 +3254,8 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                                         >
                                             <LucideClipboardEdit size={16} />
                                         </button>
+                                        */}
+                                        {/* Botão de Remover da Célula desabilitado temporariamente
                                         <button
                                             onClick={() => handleRemoverTarefaDaCelula(index)}
                                             title="Remover desta célula"
@@ -3260,6 +3263,7 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
                                         >
                                             <LucideXCircle size={16} />
                                         </button>
+                                        */}
                                     </div>
                                 </div>
                                 
