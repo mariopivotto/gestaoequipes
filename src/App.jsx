@@ -2217,9 +2217,10 @@ const MapaAtividadesComponent = () => {
 };
 
 
-// Versão: 10.6.0
-// [CORRIGIDO] A função 'handleSalvarRegistroDiario' agora detecta quando uma anotação é limpa
-// no modal, excluindo o registro correspondente e atualizando a tarefa principal com a anotação anterior mais recente.
+// Versão: 10.7.0
+// [MELHORIA] O status definido no "Registro de Conclusão do Dia" agora atualiza diretamente o status principal da tarefa no Mapa de Atividades.
+// [CORRIGIDO] Adicionado o parâmetro { forceStatus: true } na chamada de 'sincronizarTarefaComProgramacao'. Isso garante que a mudança de status feita no registro diário se torne o status principal da tarefa e seja propagada para todas as suas instâncias na programação semanal, resolvendo a dessincronização.
+
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2511,24 +2512,30 @@ const ProgramacaoSemanalComponent = () => {
     
             // Finalmente, ressincroniza e verifica o status de todas as tarefas afetadas.
             for (const taskId of affectedTaskIds) {
-                // Atualiza o status principal se tiver mudado no dia
                 const tarefaDoDia = tarefasAtualizadas.find(t => t.mapaTaskId === taskId);
-                if(tarefaDoDia) {
+                if (tarefaDoDia) {
                     const tarefaMapaDocRef = doc(db, `${basePath}/tarefas_mapa`, taskId);
                     const tarefaMapaSnap = await getDoc(tarefaMapaDocRef);
-                    if(tarefaMapaSnap.exists() && tarefaMapaSnap.data().status !== tarefaDoDia.statusLocal) {
-                        await updateDoc(tarefaMapaDocRef, { status: tarefaDoDia.statusLocal });
-                         await logAlteracaoTarefa(db, basePath, taskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${tarefaMapaSnap.data().status}" para "${tarefaDoDia.statusLocal}".`);
+                    if (tarefaMapaSnap.exists()) {
+                        const statusPrincipalAtual = tarefaMapaSnap.data().status;
+                        const statusDoDia = tarefaDoDia.statusLocal;
+                        
+                        // Atualiza o status principal SE ele mudou no registro diário
+                        if (statusPrincipalAtual !== statusDoDia) {
+                            await updateDoc(tarefaMapaDocRef, { status: statusDoDia });
+                            await logAlteracaoTarefa(db, basePath, taskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${statusPrincipalAtual}" para "${statusDoDia}".`);
+                        }
+
+                        // Busca os dados mais recentes da tarefa (já com status atualizado) para sincronizar
+                        const tarefaMaisRecenteSnap = await getDoc(tarefaMapaDocRef);
+                        if (tarefaMaisRecenteSnap.exists()) {
+                            // [CORRIGIDO] Força a propagação do novo status para todas as outras instâncias na programação
+                            await sincronizarTarefaComProgramacao(taskId, tarefaMaisRecenteSnap.data(), db, basePath, { forceStatus: true });
+                        }
                     }
                 }
-
-                // Sincroniza os dados completos (incluindo a última anotação atualizada) de volta para a programação
-                const tarefaAtualizadaSnap = await getDoc(doc(db, `${basePath}/tarefas_mapa`, taskId));
-                if (tarefaAtualizadaSnap.exists()) {
-                    await sincronizarTarefaComProgramacao(taskId, tarefaAtualizadaSnap.data(), db, basePath);
-                }
-    
-                // Verifica se a tarefa principal deve ser marcada como concluída
+                
+                // Verifica se a tarefa principal deve ser marcada como concluída com base em todos os seus dias
                 await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
             }
     
