@@ -8,7 +8,7 @@ import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteD
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 // Versão: 14.0.0
 // [NOVO] Adicionado o ícone 'LucideNotebookText' para o novo menu de gerenciamento de anotações.
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy } from 'lucide-react';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy, LucideKanbanSquare } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase
@@ -617,8 +617,9 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 14.0.0
-// [NOVO] Adicionada a chave de permissão 'gerenciar_anotacoes' para a nova tela.
+// Versão: 21.0.0
+// [REMOVIDO] A chave de permissão 'planejamento' foi removida, pois a funcionalidade se tornou de acesso geral
+// para usuários que já podem ver a programação.
 const GlobalProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(undefined);
     const [userId, setUserId] = useState(null);
@@ -630,7 +631,7 @@ const GlobalProvider = ({ children }) => {
     const [permissoes, setPermissoes] = useState({});
     const basePath = `/artifacts/${appId}/public/data`;
 
-    // Efeito para autenticação
+    // Efeito para autenticação (sem alterações)
     useEffect(() => {
         const DEV_EMAIL = import.meta.env.VITE_DEV_EMAIL;
         const DEV_PASSWORD = import.meta.env.VITE_DEV_PASSWORD;
@@ -638,15 +639,13 @@ const GlobalProvider = ({ children }) => {
 
         const unsubscribe = onAuthStateChanged(authGlobal, async (user) => {
             if (user) {
-                // Se um usuário for autenticado com sucesso
                 setCurrentUser(user);
                 setUserId(user.uid);
                 
-                // [NOVO] Registra o evento de login no banco de dados
                 const loginLogKey = `login_logged_${user.uid}`;
                 if (!sessionStorage.getItem(loginLogKey)) {
                     await logUserLogin(db, basePath, user);
-                    sessionStorage.setItem(loginLogKey, 'true'); // Evita log duplo em reloads rápidos
+                    sessionStorage.setItem(loginLogKey, 'true');
                 }
 
             } else if (IS_DEV && DEV_EMAIL && DEV_PASSWORD) {
@@ -676,7 +675,9 @@ const GlobalProvider = ({ children }) => {
         }
 
         const fetches = [];
+        // [REMOVIDO] Chave 'planejamento' removida da lista
         const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda', 'monitoramento', 'gerenciar_anotacoes'];
+        
         chavesDePermissao.forEach(chave => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/permissoes_${chave}/items`));
             fetches.push(getDocs(q).then(snapshot => ({ chave, snapshot })));
@@ -2427,13 +2428,157 @@ const OrdemServicoModal = ({ isOpen, onClose, dadosProgramacao, funcionarios, lo
     );
 };
 
+// Versão: 21.3.0
+// [ALTERADO] O nome do funcionário foi movido para o topo do card de tarefa, alinhado à esquerda,
+// com um separador abaixo para melhor organização visual.
 
-// Versão: 19.2.0
-// [NOVO] Adicionada a funcionalidade de "Ordem de Serviço" para gerar relatórios diários por funcionário.
-// [NOVO] Adicionado estado para controlar a visibilidade do novo modal de Ordem de Serviço.
-// [NOVO] Adicionado um botão "Ordem de Serviço" na barra de ferramentas da programação.
-// [NOVO] Adicionada a chamada para o componente <OrdemServicoModal /> dentro do JSX.
-const ProgramacaoSemanalComponent = () => {
+const PlanejamentoSemanalCardViewComponent = () => {
+    const { db, appId, funcionarios: contextFuncionarios } = useContext(GlobalContext);
+    const [semanas, setSemanas] = useState([]);
+    const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
+    const [dadosProgramacao, setDadosProgramacao] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    const basePath = `/artifacts/${appId}/public/data`;
+    const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
+
+    const DIAS_DA_SEMANA = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+
+    useEffect(() => {
+        setLoading(true);
+        const q = query(programacaoCollectionRef, orderBy("criadoEm", "desc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSemanas(fetchedSemanas);
+            if (fetchedSemanas.length > 0 && !semanaSelecionadaId) {
+                setSemanaSelecionadaId(fetchedSemanas[0].id);
+            } else if (fetchedSemanas.length === 0) {
+                setSemanaSelecionadaId(null);
+            }
+            setLoading(false);
+        }, () => setLoading(false));
+        return () => unsubscribe();
+    }, [appId, db]);
+
+    useEffect(() => {
+        if (!semanaSelecionadaId) {
+            setDadosProgramacao(null);
+            return;
+        }
+        setLoading(true);
+        const unsub = onSnapshot(doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId), (docSnap) => {
+            if (docSnap.exists()) {
+                setDadosProgramacao({ id: docSnap.id, ...docSnap.data() });
+            } else {
+                setDadosProgramacao(null);
+            }
+            setLoading(false);
+        }, () => setLoading(false));
+        return unsub;
+    }, [semanaSelecionadaId, db, basePath]);
+
+    const renderColunasDaSemana = () => {
+        if (loading || !dadosProgramacao || !dadosProgramacao.dataInicioSemana) {
+            return DIAS_DA_SEMANA.map(dia => (
+                <div key={dia} className="bg-gray-100 rounded-lg p-3 flex-1">
+                    <h3 className="font-bold text-gray-700 mb-3">{dia}</h3>
+                    <div className="text-sm text-gray-500">Carregando...</div>
+                </div>
+            ));
+        }
+
+        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
+        const colunas = [];
+
+        for (let i = 0; i < 6; i++) {
+            const dataDia = new Date(dataInicio);
+            dataDia.setUTCDate(dataDia.getUTCDate() + i);
+            const diaFormatado = dataDia.toISOString().split('T')[0];
+            const diaDaSemanaNome = DIAS_DA_SEMANA[i];
+            const dataLabel = dataDia.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' });
+
+            const todasAsTarefasDoDia = [];
+            if (dadosProgramacao.dias?.[diaFormatado]) {
+                Object.keys(dadosProgramacao.dias[diaFormatado]).forEach(funcId => {
+                    const funcionario = contextFuncionarios.find(f => f.id === funcId);
+                    if (funcionario) {
+                        const tarefasDoFuncionario = dadosProgramacao.dias[diaFormatado][funcId];
+                        tarefasDoFuncionario.forEach((tarefa, index) => {
+                            todasAsTarefasDoDia.push({
+                                ...tarefa,
+                                funcionarioNome: funcionario.nome,
+                                uniqueKey: `${funcId}-${tarefa.mapaTaskId || index}` 
+                            });
+                        });
+                    }
+                });
+            }
+            todasAsTarefasDoDia.sort((a, b) => a.funcionarioNome.localeCompare(b.funcionarioNome));
+
+            colunas.push(
+                <div key={diaFormatado} className="bg-gray-200 rounded-lg p-3 flex flex-col h-full">
+                    <h3 className="font-bold text-gray-800 text-center mb-1">{diaDaSemanaNome}</h3>
+                    <p className="text-xs text-gray-500 text-center mb-4">{dataLabel}</p>
+                    <div className="space-y-3 overflow-y-auto flex-1">
+                        {todasAsTarefasDoDia.length > 0 ? (
+                            todasAsTarefasDoDia.map(tarefa => (
+                                // [ALTERADO] A ordem dos elementos dentro do card foi ajustada.
+                                <div 
+                                    key={tarefa.uniqueKey} 
+                                    className="p-2 rounded-md shadow-sm text-black text-[11px] leading-tight flex flex-col" 
+                                    style={{ backgroundColor: getAcaoColor(tarefa.acao) }}
+                                >
+                                    {/* Nome do funcionário agora está no topo, à esquerda */}
+                                    <div className="mb-1 pb-1 border-b border-black border-opacity-20 text-left font-semibold">
+                                        {tarefa.funcionarioNome}
+                                    </div>
+                                    
+                                    {/* Detalhes da tarefa logo abaixo */}
+                                    <div className="font-semibold">{tarefa.textoVisivel}</div>
+                                    
+                                    {tarefa.orientacao && (
+                                        <div className="font-normal italic opacity-90 mt-1">{tarefa.orientacao}</div>
+                                    )}
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center text-sm text-gray-500 pt-10">Sem planejamento</div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+        return colunas;
+    };
+    
+    const semanaAtual = semanas.find(s => s.id === semanaSelecionadaId);
+
+    return (
+        <div className="p-4 md:p-6 bg-gray-50 min-h-full flex flex-col">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <h2 className="text-2xl font-semibold text-gray-800">Planejamento Semanal (Visão por Colunas)</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                    <select value={semanaSelecionadaId || ''} onChange={(e) => setSemanaSelecionadaId(e.target.value)} className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" disabled={semanas.length === 0}>
+                        {semanas.length === 0 ? <option>Nenhuma semana criada</option> : semanas.map(s => (<option key={s.id} value={s.id}>{s.nomeAba}</option>))}
+                    </select>
+                    <span className='text-sm text-gray-600 font-medium'>
+                         {semanaAtual && `(${formatDate(semanaAtual.dataInicioSemana)} - ${formatDate(semanaAtual.dataFimSemana)})`}
+                    </span>
+                </div>
+            </div>
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 h-full">
+                {renderColunasDaSemana()}
+            </div>
+        </div>
+    );
+};
+
+// Versão: 21.4.0
+// [ALTERADO] Os botões "Atualizar com Mapa" e "Criar Nova Semana" foram movidos da barra de ferramentas principal
+// para dentro do modal "Gerenciar Semana", centralizando as ações de gestão.
+// [ALTERADO] A ação do botão "Criar Nova Semana" agora fecha o modal atual antes de abrir o novo.
+
+const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
     const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
@@ -2449,15 +2594,15 @@ const ProgramacaoSemanalComponent = () => {
     const [tarefasDoDiaParaRegistro, setTarefasDoDiaParaRegistro] = useState([]);
     const [diaParaRegistro, setDiaParaRegistro] = useState('');
     const [dataParaRegistro, setDataParaRegistro] = useState(new Date().toISOString().split('T')[0]);
-    
-    // [NOVO] Estado para o novo modal de Ordem de Serviço
     const [isOrdemServicoModalOpen, setIsOrdemServicoModalOpen] = useState(false);
-
 
     const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
 
-    const formatDateProg = (timestamp) => {
+    // ... (todas as suas funções internas como useEffect, handleCriarNovaSemana, etc., permanecem exatamente as mesmas) ...
+    // Nenhuma lógica de função precisa ser alterada.
+
+    const formatDateProg = (timestamp) => {
         if (timestamp && typeof timestamp.toDate === 'function') {
             return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         }
@@ -2815,11 +2960,18 @@ const ProgramacaoSemanalComponent = () => {
                         {!loading && semanas.length === 0 && <option>Nenhuma semana criada</option>}
                         {semanas.map(s => (<option key={s.id} value={s.id}>{s.nomeAba} ({formatDateProg(s.dataInicioSemana)} - {formatDateProg(s.dataFimSemana)})</option>))}
                     </select>
+                    
+                    <button 
+                        onClick={() => setCurrentPage('planejamento')} 
+                        className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
+                    >
+                        <LucideKanbanSquare size={18} className="mr-2"/> Visão Semanal
+                    </button>
+
                     <div className="flex items-center gap-1 bg-white p-1 rounded-md shadow-sm border border-gray-200">
                          <input type="date" value={dataParaRegistro} onChange={(e) => setDataParaRegistro(e.target.value)} className="p-1 border-none rounded-md focus:ring-blue-500 focus:border-transparent"/>
                         <button onClick={handleAbrirRegistroDiario} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md flex items-center disabled:bg-gray-400"><LucideClipboardEdit size={18} className="mr-2"/> Registro do Dia</button>
                     </div>
-                    {/* [NOVO] Botão Ordem de Serviço */}
                     <button 
                         onClick={() => setIsOrdemServicoModalOpen(true)} 
                         disabled={!semanaSelecionadaId || loadingAtualizacao} 
@@ -2827,9 +2979,7 @@ const ProgramacaoSemanalComponent = () => {
                     >
                         <LucidePrinter size={18} className="mr-2"/> Ordem de Serviço
                     </button>
-                    <button onClick={handleAtualizarProgramacaoDaSemana} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>{loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}</button>
-                    <button onClick={() => setIsNovaSemanaModalOpen(true)} disabled={loadingAtualizacao} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana</button>
-                    <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideSettings size={18} className="mr-2"/> Gerenciar Semana</button>
+                    <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideSettings size={18} className="mr-2"/> Gerenciar Semana</button>
                 </div>
             </div>
             {loading ? <p className="text-center py-4">Carregando...</p> : !semanaSelecionadaId || !dadosProgramacao ? <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda ou não foi possível carregar os dados.</p> : (
@@ -2849,18 +2999,46 @@ const ProgramacaoSemanalComponent = () => {
                     </table>
                 </div>
             )}
-
-            {/* [NOVO] Chamada para o novo Modal */}
-            <OrdemServicoModal
-                isOpen={isOrdemServicoModalOpen}
-                onClose={() => setIsOrdemServicoModalOpen(false)}
-                dadosProgramacao={dadosProgramacao}
-                funcionarios={contextFuncionarios}
-                logoUrl={LOGO_URL}
-            />
-
+            <OrdemServicoModal isOpen={isOrdemServicoModalOpen} onClose={() => setIsOrdemServicoModalOpen(false)} dadosProgramacao={dadosProgramacao} funcionarios={contextFuncionarios} logoUrl={LOGO_URL} />
             <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação"><div className="space-y-4"><div><label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label><input type="date" id="novaSemanaData" value={novaSemanaDataInicio} onChange={(e) => setNovaSemanaDataInicio(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"/></div><div className="flex justify-end space-x-2"><button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md">Cancelar</button><button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md">{loadingAtualizacao ? "Criando..." : "Criar Semana"}</button></div></div></Modal>
-            {dadosProgramacao && (<Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}><div className="space-y-4"><p className="text-sm text-gray-600">Semana: <strong>{dadosProgramacao?.nomeAba}</strong></p><div className="mt-6 pt-4 border-t"><h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4><button onClick={handleExcluirSemana} disabled={loadingAtualizacao} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center"><LucideTrash2 size={18} className="mr-2"/> Excluir Semana</button></div></div></Modal>)}
+            
+            {/* [ALTERADO] Modal "Gerenciar Semana" agora contém os botões de Ações */}
+            {dadosProgramacao && (
+                <Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}>
+                    <div className="space-y-6">
+                        <div>
+                            <h4 className="text-md font-semibold text-gray-700 mb-3">Ações da Semana</h4>
+                            <div className="space-y-2">
+                                <button 
+                                    onClick={handleAtualizarProgramacaoDaSemana} 
+                                    disabled={loadingAtualizacao} 
+                                    className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center shadow-sm disabled:bg-gray-400"
+                                >
+                                    <LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>
+                                    {loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        setIsGerenciarSemanaModalOpen(false); // Fecha o modal atual
+                                        setIsNovaSemanaModalOpen(true);     // Abre o modal de criar semana
+                                    }} 
+                                    disabled={loadingAtualizacao} 
+                                    className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center shadow-sm disabled:bg-gray-400"
+                                >
+                                    <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
+                                </button>
+                            </div>
+                        </div>
+                        <div className="pt-4 border-t">
+                            <h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4>
+                            <button onClick={handleExcluirSemana} disabled={loadingAtualizacao} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center">
+                                <LucideTrash2 size={18} className="mr-2"/> Excluir Semana
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
             {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (<GerenciarTarefaProgramacaoModal isOpen={isGerenciarTarefaModalOpen} onClose={() => setIsGerenciarTarefaModalOpen(false)} diaFormatado={dadosCelulaParaGerenciar.diaFormatado} responsavelId={dadosCelulaParaGerenciar.responsavelId} tarefasDaCelula={dadosCelulaParaGerenciar.tarefas} semanaId={semanaSelecionadaId} onAlteracaoSalva={() => {}}/>)}
             <RegistroDiarioModal isOpen={isRegistroDiarioModalOpen} onClose={() => setIsRegistroDiarioModalOpen(false)} onSave={handleSalvarRegistroDiario} tarefasDoDia={tarefasDoDiaParaRegistro} funcionarios={contextFuncionarios} dia={diaParaRegistro} />
         </div>
@@ -7003,8 +7181,9 @@ function App() {
     return <MainApp />;
 }
 
-// Versão: 14.0.0
-// [NOVO] Adicionada a navegação e o roteamento para a nova tela de Gerenciar Anotações.
+// Versão: 21.0.0
+// [ALTERADO] A permissão do menu 'Planejamento Semanal' agora está vinculada à permissão de 'programacao'.
+// [ALTERADO] A função 'setCurrentPage' é passada como prop para o 'ProgramacaoSemanalComponent' para permitir a navegação interna.
 const MainApp = () => {
     const [currentPage, setCurrentPage] = useState('welcome');
     const { currentUser, permissoes, auth: firebaseAuth } = useContext(GlobalContext);
@@ -7032,13 +7211,17 @@ const MainApp = () => {
     };
 
     const PageContent = () => {
-        // Redireciona para o dashboard se a página atual não for permitida (exceto welcome)
         if (currentPage !== 'welcome' && !checkPermission(currentPage)) {
             useEffect(() => {
-                toast.error("Você não tem permissão para acessar esta página.");
-                setCurrentPage('dashboard');
+                // Se a página de planejamento for acessada sem permissão de programação, redireciona
+                if (currentPage === 'planejamento' && !checkPermission('programacao')) {
+                     toast.error("Você não tem permissão para acessar esta página.");
+                     setCurrentPage('dashboard');
+                } else if (currentPage !== 'planejamento') {
+                    toast.error("Você não tem permissão para acessar esta página.");
+                    setCurrentPage('dashboard');
+                }
             }, [currentPage]);
-            // Renderiza o dashboard como fallback enquanto o redirecionamento ocorre
             return <DashboardComponent />;
         }
 
@@ -7046,7 +7229,18 @@ const MainApp = () => {
             case 'welcome': return <WelcomeComponent />;
             case 'dashboard': return <DashboardComponent />;
             case 'mapa': return <MapaAtividadesComponent />;
-            case 'programacao': return <ProgramacaoSemanalComponent />;
+            
+            // [ALTERADO] Passa a função setCurrentPage como prop
+            case 'programacao': return <ProgramacaoSemanalComponent setCurrentPage={setCurrentPage} />;
+            
+            case 'planejamento': 
+                // Acesso à visão de planejamento está atrelado à permissão de programação
+                if (!checkPermission('programacao')) {
+                    toast.error("Você não tem permissão para acessar esta página.");
+                    return <DashboardComponent />;
+                }
+                return <PlanejamentoSemanalCardViewComponent />;
+
             case 'fito': return <ControleFitossanitarioComponent />;
             case 'agenda': return <AgendaDiariaComponent />;
             case 'anotacoes': return <TarefaPatioComponent />;
@@ -7085,22 +7279,27 @@ const MainApp = () => {
                         <div>
                             <NavGroupTitle title="Gestão" />
                             {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
-                            {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação Semanal</NavLink>}
+                            
+                            {/* [ALTERADO] Renomeado para 'Programação (Grade)' para diferenciar */}
+                            {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação (Grade)</NavLink>}
+                            
+                            {/* [ALTERADO] Permissão agora é 'programacao' */}
+                            {checkPermission('programacao') && <NavLink page="planejamento" icon={LucideKanbanSquare} currentPage={currentPage} setCurrentPage={setCurrentPage}>Planejamento (Visão)</NavLink>}
+
                             {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Semanal</NavLink>}
                         </div>
 
+                        {/* O resto do menu permanece igual */}
                         <div>
                             <NavGroupTitle title="Operação" />
                             {checkPermission('anotacoes') && <NavLink page="anotacoes" icon={LucideClipboardEdit} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>}
                             {checkPermission('pendentes') && <NavLink page="pendentes" icon={LucideListTodo} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefas Pendentes</NavLink>}
                             {checkPermission('mapa') && <NavLink page="mapa" icon={LucideClipboardList} currentPage={currentPage} setCurrentPage={setCurrentPage}>Mapa de Atividades</NavLink>}
                         </div>
-
                         <div>
                             <NavGroupTitle title="Fitossanitário" />
                             {checkPermission('fito') && <NavLink page="fito" icon={LucideSprayCan} currentPage={currentPage} setCurrentPage={setCurrentPage}>Controle Fitossanitário</NavLink>}
                         </div>
-                        
                         <div>
                              <NavGroupTitle title="Análise e Sistema" />
                             {checkPermission('relatorios') && <NavLink page="relatorios" icon={LucideFileText} currentPage={currentPage} setCurrentPage={setCurrentPage}>Relatórios</NavLink>}
