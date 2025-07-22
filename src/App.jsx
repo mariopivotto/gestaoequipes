@@ -8,7 +8,7 @@ import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteD
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 // Versão: 14.0.0
 // [NOVO] Adicionado o ícone 'LucideNotebookText' para o novo menu de gerenciamento de anotações.
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus } from 'lucide-react';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 // Inicialização do Firebase
@@ -2216,11 +2216,223 @@ const MapaAtividadesComponent = () => {
     );
 };
 
+// Versão: 19.5.0
+// [NOVO] Adicionado estado 'observacoes' para armazenar dinamicamente o texto para cada funcionário.
+// [NOVO] Adicionado um campo de 'textarea' para cada funcionário na lista para inserir observações.
+// [ALTERADO] As funções 'abrirModalImpressao' e 'copiarTextoWhatsApp' agora recebem e incluem as observações dinâmicas.
+// [ALTERADO] O estado de observações é limpo sempre que a data selecionada no modal é alterada.
 
-// Versão: 10.7.0
-// [MELHORIA] O status definido no "Registro de Conclusão do Dia" agora atualiza diretamente o status principal da tarefa no Mapa de Atividades.
-// [CORRIGIDO] Adicionado o parâmetro { forceStatus: true } na chamada de 'sincronizarTarefaComProgramacao'. Isso garante que a mudança de status feita no registro diário se torne o status principal da tarefa e seja propagada para todas as suas instâncias na programação semanal, resolvendo a dessincronização.
+// ===================================================================================
+// [COMPONENTE ATUALIZADO] OrdemServicoModal - Responsável por gerar os PDFs e compartilhar
+// ===================================================================================
+const OrdemServicoModal = ({ isOpen, onClose, dadosProgramacao, funcionarios, logoUrl }) => {
+    const [dataSelecionada, setDataSelecionada] = useState(new Date().toISOString().split('T')[0]);
+    // [NOVO] Estado para guardar as observações. Ex: { 'ID_DO_FUNCIONARIO': 'Texto da obs...' }
+    const [observacoes, setObservacoes] = useState({});
 
+    // [ALTERADO] Limpa as observações sempre que o usuário muda a data.
+    useEffect(() => {
+        setObservacoes({});
+    }, [dataSelecionada]);
+
+    const funcionariosDoDia = useMemo(() => {
+        if (!dadosProgramacao || !dadosProgramacao.dias || !dataSelecionada) return [];
+        const tarefasDoDia = dadosProgramacao.dias[dataSelecionada];
+        if (!tarefasDoDia) return [];
+        
+        const funcionariosComTarefas = Object.keys(tarefasDoDia)
+            .map(idFuncionario => {
+                const funcionario = funcionarios.find(f => f.id === idFuncionario);
+                const tarefas = tarefasDoDia[idFuncionario] || [];
+                if (funcionario && tarefas.length > 0) return { ...funcionario, tarefas };
+                return null;
+            })
+            .filter(Boolean);
+        return funcionariosComTarefas.sort((a,b) => a.nome.localeCompare(b.nome));
+    }, [dataSelecionada, dadosProgramacao, funcionarios]);
+
+    // [NOVO] Função para atualizar o estado das observações quando o usuário digita.
+    const handleObsChange = (funcionarioId, texto) => {
+        setObservacoes(prevObs => ({
+            ...prevObs,
+            [funcionarioId]: texto,
+        }));
+    };
+    
+    // [ALTERADO] Função agora aceita e processa a observação.
+    const abrirModalImpressao = (funcionario, data, tarefas, observacao) => {
+        const dataFormatada = new Date(data + 'T12:00:00Z').toLocaleDateString('pt-BR');
+        
+        let tarefasHtml = '';
+        tarefas.forEach(t => {
+            tarefasHtml += `
+                <div class="tarefa-item">
+                    <div class="tarefa-header">
+                        <span class="acao">${t.acao || 'N/A'}</span>
+                        <span class="localizacao">${t.localizacao || 'N/A'}</span>
+                    </div>
+                    <div class="tarefa-body">
+                        <p class="tarefa-titulo">${t.textoVisivel || 'N/A'}</p>
+                        <p class="tarefa-orientacao">${t.orientacao || '-'}</p>
+                    </div>
+                </div>
+            `;
+        });
+
+        // [ALTERADO] Gera o HTML das observações dinamicamente.
+        const observacaoHtml = observacao
+            ? `<p class="obs-texto">${observacao.replace(/\n/g, '<br>')}</p>`
+            : `<div class="linha"></div><div class="linha"></div><div class="linha"></div>`;
+
+        const htmlContent = `
+            <html>
+            <head>
+                <title>Ordem de Serviço - ${funcionario.nome} - ${dataFormatada}</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 25px; color: #212529; }
+                    .container { width: 100%; max-width: 750px; margin: auto; }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .header img { max-height: 45px; margin-bottom: 15px; }
+                    .header h2 { margin: 0; font-size: 22px; font-weight: 600; }
+                    .tarefa-item { border-top: 1px solid #dee2e6; padding: 15px 5px; }
+                    .tarefa-item:last-of-type { border-bottom: 1px solid #dee2e6; }
+                    .tarefa-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+                    .acao { font-size: 11px; font-weight: bold; color: #495057; background-color: #e9ecef; padding: 3px 8px; border-radius: 4px; }
+                    .localizacao { font-size: 11px; font-style: italic; color: #6c757d; }
+                    .tarefa-titulo { font-size: 16px; font-weight: 600; margin: 0 0 5px 0; }
+                    .tarefa-orientacao { font-size: 14px; color: #495057; margin: 0; white-space: pre-wrap; }
+                    .observacoes { margin-top: 30px; }
+                    .observacoes h4 { font-size: 16px; margin-bottom: 10px; }
+                    .obs-texto { font-size: 14px; white-space: pre-wrap; }
+                    .observacoes .linha { border-bottom: 1px dotted #adb5bd; height: 20px; margin-bottom: 20px; }
+                    @media print {
+                        body { margin: 20px; font-size: 10pt; }
+                        .tarefa-item { page-break-inside: avoid; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        ${logoUrl ? `<img src="${logoUrl}" alt="Logo">` : ''}
+                        <h2>Ordem de Serviço - ${funcionario.nome} - ${dataFormatada}</h2>
+                    </div>
+                    <div class="lista-tarefas">
+                        ${tarefasHtml}
+                    </div>
+                    <div class="observacoes">
+                        <h4>Observações:</h4>
+                        ${observacaoHtml}
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+    };
+
+    // [ALTERADO] Função agora aceita e processa a observação.
+    const copiarTextoWhatsApp = (funcionario, data, tarefas, observacao) => {
+        let mensagem = `*Ordem de Serviço - ${new Date(data + 'T12:00:00Z').toLocaleDateString('pt-BR')}*\n`;
+        mensagem += `*Responsável:* ${funcionario.nome}\n\n`;
+        
+        tarefas.forEach((t, index) => {
+            mensagem += `*Tarefa ${index + 1}:* ${t.textoVisivel}\n`;
+            if (t.orientacao) mensagem += `  - _Orientação:_ ${t.orientacao}\n`;
+            if (t.localizacao) mensagem += `  - _Local:_ ${t.localizacao}\n`;
+            mensagem += '\n';
+        });
+
+        // [ALTERADO] Adiciona a observação ao texto se ela existir.
+        if (observacao && observacao.trim() !== '') {
+            mensagem += `*Observações:*\n${observacao.trim()}\n\n`;
+        }
+
+        mensagem += `_Sistema de Gestão de Equipes_`;
+
+        navigator.clipboard.writeText(mensagem).then(() => {
+            toast.success('Texto da Ordem de Serviço copiado para a área de transferência!');
+        }, (err) => {
+            toast.error('Não foi possível copiar o texto.');
+            console.error('Erro ao copiar: ', err);
+        });
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Gerar Ordens de Serviço do Dia" width="max-w-3xl">
+            <div className="space-y-4">
+                <div>
+                    <label htmlFor="dataOS" className="block text-sm font-medium text-gray-700">
+                        Selecione a data para gerar as ordens de serviço:
+                    </label>
+                    <input
+                        type="date"
+                        id="dataOS"
+                        value={dataSelecionada}
+                        onChange={(e) => setDataSelecionada(e.target.value)}
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2"
+                    />
+                </div>
+                <div className="mt-4 pt-4 border-t">
+                    <h4 className="text-md font-semibold text-gray-800 mb-2">
+                        Funcionários com tarefas em {new Date(dataSelecionada + 'T12:00:00Z').toLocaleDateString('pt-BR')}:
+                    </h4>
+                    {funcionariosDoDia.length > 0 ? (
+                        <ul className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                            {funcionariosDoDia.map(func => (
+                                <li key={func.id} className="p-3 bg-gray-100 rounded-md">
+                                    <div className="flex justify-between items-center">
+                                        <span className="font-medium text-gray-900">{func.nome}</span>
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                onClick={() => abrirModalImpressao(func, dataSelecionada, func.tarefas, observacoes[func.id] || '')}
+                                                className="flex items-center gap-1.5 text-sm text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-md shadow-sm"
+                                                title="Abrir para Impressão"
+                                            >
+                                                <LucidePrinter size={16} /> Imprimir
+                                            </button>
+                                            <button 
+                                                onClick={() => copiarTextoWhatsApp(func, dataSelecionada, func.tarefas, observacoes[func.id] || '')}
+                                                className="flex items-center gap-1.5 text-sm text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-md shadow-sm"
+                                                title="Copiar texto para compartilhar"
+                                            >
+                                                <LucideClipboardCopy size={16} /> Copiar Texto
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {/* [NOVO] Textarea para as observações */}
+                                    <div className="mt-2">
+                                        <textarea
+                                            value={observacoes[func.id] || ''}
+                                            onChange={(e) => handleObsChange(func.id, e.target.value)}
+                                            placeholder="Adicionar observações para este funcionário..."
+                                            rows="2"
+                                            className="w-full text-sm p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                        ></textarea>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="text-center text-gray-500 py-4">Nenhum funcionário com tarefas programadas para esta data.</p>
+                    )}
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+
+// Versão: 19.2.0
+// [NOVO] Adicionada a funcionalidade de "Ordem de Serviço" para gerar relatórios diários por funcionário.
+// [NOVO] Adicionado estado para controlar a visibilidade do novo modal de Ordem de Serviço.
+// [NOVO] Adicionado um botão "Ordem de Serviço" na barra de ferramentas da programação.
+// [NOVO] Adicionada a chamada para o componente <OrdemServicoModal /> dentro do JSX.
 const ProgramacaoSemanalComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2237,6 +2449,10 @@ const ProgramacaoSemanalComponent = () => {
     const [tarefasDoDiaParaRegistro, setTarefasDoDiaParaRegistro] = useState([]);
     const [diaParaRegistro, setDiaParaRegistro] = useState('');
     const [dataParaRegistro, setDataParaRegistro] = useState(new Date().toISOString().split('T')[0]);
+    
+    // [NOVO] Estado para o novo modal de Ordem de Serviço
+    const [isOrdemServicoModalOpen, setIsOrdemServicoModalOpen] = useState(false);
+
 
     const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
@@ -2453,7 +2669,6 @@ const ProgramacaoSemanalComponent = () => {
         const diaSendoAtualizado = diaParaRegistro;
     
         try {
-            // Primeiro, atualiza o documento da programação semanal com os novos dados de conclusão e status local.
             const semanaDocSnap = await getDoc(semanaDocRef);
             if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
             const novosDias = JSON.parse(JSON.stringify(semanaDocSnap.data().dias));
@@ -2470,7 +2685,6 @@ const ProgramacaoSemanalComponent = () => {
             });
             await updateDoc(semanaDocRef, { dias: novosDias });
     
-            // Em seguida, processa as anotações e o status principal de cada tarefa.
             const affectedTaskIds = new Set();
     
             for (const tarefaAtualizada of tarefasAtualizadas) {
@@ -2482,11 +2696,9 @@ const ProgramacaoSemanalComponent = () => {
                 if (!taskId) continue;
                 affectedTaskIds.add(taskId);
     
-                // Caso de adição/edição de anotação
                 if (conclusaoDepois && conclusaoDepois !== conclusaoAntes) {
                     await logAnotacaoTarefa(db, basePath, taskId, usuario?.email, conclusaoDepois, diaSendoAtualizado);
                 } 
-                // Caso de remoção de anotação
                 else if (!conclusaoDepois && conclusaoAntes) {
                     const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${taskId}/anotacoes`);
                     const q = query(anotacoesRef, where("texto", "==", conclusaoAntes), where("dataDoRegistro", "==", diaSendoAtualizado), orderBy("criadoEm", "desc"), limit(1));
@@ -2495,7 +2707,6 @@ const ProgramacaoSemanalComponent = () => {
                     if (!snapToDelete.empty) {
                         await deleteDoc(snapToDelete.docs[0].ref);
     
-                        // Lógica de backfill para a última anotação da tarefa principal
                         const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, taskId);
                         const backfillQuery = query(collection(db, `${basePath}/tarefas_mapa/${taskId}/anotacoes`), orderBy('criadoEm', 'desc'), limit(1));
                         const backfillSnap = await getDocs(backfillQuery);
@@ -2510,7 +2721,6 @@ const ProgramacaoSemanalComponent = () => {
                 }
             }
     
-            // Finalmente, ressincroniza e verifica o status de todas as tarefas afetadas.
             for (const taskId of affectedTaskIds) {
                 const tarefaDoDia = tarefasAtualizadas.find(t => t.mapaTaskId === taskId);
                 if (tarefaDoDia) {
@@ -2520,22 +2730,18 @@ const ProgramacaoSemanalComponent = () => {
                         const statusPrincipalAtual = tarefaMapaSnap.data().status;
                         const statusDoDia = tarefaDoDia.statusLocal;
                         
-                        // Atualiza o status principal SE ele mudou no registro diário
                         if (statusPrincipalAtual !== statusDoDia) {
                             await updateDoc(tarefaMapaDocRef, { status: statusDoDia });
                             await logAlteracaoTarefa(db, basePath, taskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${statusPrincipalAtual}" para "${statusDoDia}".`);
                         }
 
-                        // Busca os dados mais recentes da tarefa (já com status atualizado) para sincronizar
                         const tarefaMaisRecenteSnap = await getDoc(tarefaMapaDocRef);
                         if (tarefaMaisRecenteSnap.exists()) {
-                            // [CORRIGIDO] Força a propagação do novo status para todas as outras instâncias na programação
                             await sincronizarTarefaComProgramacao(taskId, tarefaMaisRecenteSnap.data(), db, basePath, { forceStatus: true });
                         }
                     }
                 }
                 
-                // Verifica se a tarefa principal deve ser marcada como concluída com base em todos os seus dias
                 await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
             }
     
@@ -2613,6 +2819,14 @@ const ProgramacaoSemanalComponent = () => {
                          <input type="date" value={dataParaRegistro} onChange={(e) => setDataParaRegistro(e.target.value)} className="p-1 border-none rounded-md focus:ring-blue-500 focus:border-transparent"/>
                         <button onClick={handleAbrirRegistroDiario} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md flex items-center disabled:bg-gray-400"><LucideClipboardEdit size={18} className="mr-2"/> Registro do Dia</button>
                     </div>
+                    {/* [NOVO] Botão Ordem de Serviço */}
+                    <button 
+                        onClick={() => setIsOrdemServicoModalOpen(true)} 
+                        disabled={!semanaSelecionadaId || loadingAtualizacao} 
+                        className="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
+                    >
+                        <LucidePrinter size={18} className="mr-2"/> Ordem de Serviço
+                    </button>
                     <button onClick={handleAtualizarProgramacaoDaSemana} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>{loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}</button>
                     <button onClick={() => setIsNovaSemanaModalOpen(true)} disabled={loadingAtualizacao} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana</button>
                     <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideSettings size={18} className="mr-2"/> Gerenciar Semana</button>
@@ -2635,6 +2849,16 @@ const ProgramacaoSemanalComponent = () => {
                     </table>
                 </div>
             )}
+
+            {/* [NOVO] Chamada para o novo Modal */}
+            <OrdemServicoModal
+                isOpen={isOrdemServicoModalOpen}
+                onClose={() => setIsOrdemServicoModalOpen(false)}
+                dadosProgramacao={dadosProgramacao}
+                funcionarios={contextFuncionarios}
+                logoUrl={LOGO_URL}
+            />
+
             <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação"><div className="space-y-4"><div><label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label><input type="date" id="novaSemanaData" value={novaSemanaDataInicio} onChange={(e) => setNovaSemanaDataInicio(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"/></div><div className="flex justify-end space-x-2"><button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md">Cancelar</button><button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md">{loadingAtualizacao ? "Criando..." : "Criar Semana"}</button></div></div></Modal>
             {dadosProgramacao && (<Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}><div className="space-y-4"><p className="text-sm text-gray-600">Semana: <strong>{dadosProgramacao?.nomeAba}</strong></p><div className="mt-6 pt-4 border-t"><h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4><button onClick={handleExcluirSemana} disabled={loadingAtualizacao} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center"><LucideTrash2 size={18} className="mr-2"/> Excluir Semana</button></div></div></Modal>)}
             {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (<GerenciarTarefaProgramacaoModal isOpen={isGerenciarTarefaModalOpen} onClose={() => setIsGerenciarTarefaModalOpen(false)} diaFormatado={dadosCelulaParaGerenciar.diaFormatado} responsavelId={dadosCelulaParaGerenciar.responsavelId} tarefasDaCelula={dadosCelulaParaGerenciar.tarefas} semanaId={semanaSelecionadaId} onAlteracaoSalva={() => {}}/>)}
