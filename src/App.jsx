@@ -131,6 +131,81 @@ const getStatusColor = (status) => {
     return "bg-gray-200 text-gray-800";
 };
 
+// Versão: 8.5.1
+// [NOVO] [CORREÇÃO] Adicionada a função 'calcularProximaAplicacao', que estava ausente e causando erro de referência no Dashboard.
+// Esta função determina a próxima data de aplicação de um plano com base em sua frequência e último registro.
+const calcularProximaAplicacao = (plano) => {
+    if (!plano || !plano.ativo || !plano.dataInicio?.toDate) {
+        return null;
+    }
+
+    const hojeUTC = new Date();
+    hojeUTC.setUTCHours(0, 0, 0, 0);
+
+    // Usa a última aplicação como base, se existir; senão, usa a data de início do plano.
+    const baseDate = plano.ultimaAplicacao ? plano.ultimaAplicacao.toDate() : plano.dataInicio.toDate();
+    // Clona a data para evitar mutação do objeto original do plano.
+    let proxima = new Date(baseDate.getTime());
+    proxima.setUTCHours(0, 0, 0, 0); // Normaliza para o início do dia em UTC.
+
+    // Se houve uma última aplicação, calcula a data seguinte a partir dela.
+    if (plano.ultimaAplicacao) {
+        switch (plano.frequencia) {
+            case 'SEMANAL':
+                proxima.setUTCDate(proxima.getUTCDate() + 7);
+                break;
+            case 'QUINZENAL':
+                proxima.setUTCDate(proxima.getUTCDate() + 14);
+                break;
+            case 'MENSAL':
+                proxima.setUTCMonth(proxima.getUTCMonth() + 1);
+                break;
+            case 'INTERVALO_DIAS':
+                proxima.setUTCDate(proxima.getUTCDate() + (plano.diasIntervalo || 1));
+                break;
+            case 'UNICA':
+                // Se era única e já foi aplicada, não há próxima.
+                return null;
+            default:
+                return null; // Frequência desconhecida.
+        }
+    }
+
+    // Para planos recorrentes, se a data calculada já passou, avança até a próxima data válida a partir de hoje.
+    if (proxima < hojeUTC && plano.frequencia !== 'UNICA') {
+        while (proxima < hojeUTC) {
+             switch (plano.frequencia) {
+                case 'SEMANAL':
+                    proxima.setUTCDate(proxima.getUTCDate() + 7);
+                    break;
+                case 'QUINZENAL':
+                    proxima.setUTCDate(proxima.getUTCDate() + 14);
+                    break;
+                case 'MENSAL':
+                    proxima.setUTCMonth(proxima.getUTCMonth() + 1);
+                    break;
+                case 'INTERVALO_DIAS':
+                    proxima.setUTCDate(proxima.getUTCDate() + (plano.diasIntervalo || 1));
+                    break;
+                default:
+                    return null; // Salvaguarda para evitar loop infinito.
+            }
+        }
+    }
+    
+    // Se for um evento único que ainda não ocorreu, a próxima data é a data de início.
+    if (plano.frequencia === 'UNICA' && !plano.ultimaAplicacao) {
+        return plano.dataInicio.toDate();
+    }
+
+    // Se for um evento único que já ocorreu.
+    if (plano.frequencia === 'UNICA' && plano.ultimaAplicacao) {
+        return null;
+    }
+
+    return proxima;
+};
+
 // Versão: 10.3.0
 // [ALTERADO] Adicionadas novas cores para ações de manutenção fitossanitária.
 const getAcaoColor = (acao) => {
@@ -972,158 +1047,190 @@ const ListaAuxiliarManager = ({ nomeLista, nomeSingular, collectionPathSegment }
     );
 };
 
-// Componente para Gerenciar Funcionários
+// Versão: 22.0.0
+// [CORRIGIDO] Adicionado um listener em tempo real (onSnapshot) para a coleção de funcionários.
+// Isso resolve o bug onde a lista de funcionários na tela de Configurações não era
+// atualizada automaticamente após adicionar ou excluir um funcionário, exigindo um refresh da página.
+// O componente agora gerencia seu próprio estado da lista, garantindo que a UI esteja sempre
+// sincronizada com o banco de dados.
 const FuncionariosManager = () => {
-    const { userId, db, appId, funcionarios: contextFuncionarios } = useContext(GlobalContext);
-    const [novoFuncionarioNome, setNovoFuncionarioNome] = useState('');
-    const [editingFuncionario, setEditingFuncionario] = useState(null); 
-    const [loading, setLoading] = useState(false);
+    const { db, appId } = useContext(GlobalContext);
+    // [NOVO] Estado local para gerenciar a lista de funcionários em tempo real.
+    const [funcionarios, setFuncionarios] = useState([]); 
+    const [novoFuncionarioNome, setNovoFuncionarioNome] = useState('');
+    const [editingFuncionario, setEditingFuncionario] = useState(null);
+    const [loading, setLoading] = useState(true); // Alterado para true para refletir o carregamento inicial
 
-    const basePath = `/artifacts/${appId}/public/data`;
-    const funcionariosCollectionRef = collection(db, `${basePath}/funcionarios`);
+    const basePath = `/artifacts/${appId}/public/data`;
+    const funcionariosCollectionRef = collection(db, `${basePath}/funcionarios`);
 
-    const handleAddFuncionario = async () => {
-        if (!novoFuncionarioNome.trim()) return;
-        setLoading(true);
-        try {
-            const nomeIdFormatado = novoFuncionarioNome.trim().toUpperCase().replace(/\//g, '_');
-            const nomeDisplayFormatado = novoFuncionarioNome.trim().toUpperCase(); 
+    // [NOVO] useEffect para ouvir as alterações na coleção de funcionários em tempo real.
+    useEffect(() => {
+        setLoading(true);
+        const q = query(funcionariosCollectionRef, orderBy("nome", "asc"));
 
-            if (!nomeIdFormatado) {
-                alert("O nome do funcionário não pode ser vazio ou consistir apenas em caracteres inválidos.");
-                setLoading(false);
-                return;
-            }
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedFuncionarios = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setFuncionarios(fetchedFuncionarios);
+            setLoading(false);
+        }, (error) => {
+            console.error("Erro ao carregar funcionários em tempo real: ", error);
+            toast.error("Não foi possível carregar a lista de funcionários.");
+            setLoading(false);
+        });
 
-            const docRef = doc(funcionariosCollectionRef, nomeIdFormatado);
-            const docSnap = await getDoc(docRef);
+        // Limpa o listener quando o componente é desmontado para evitar vazamentos de memória.
+        return () => unsubscribe();
+    }, [db, appId, basePath]); // As dependências garantem que o listener seja recriado se necessário.
 
-            if (docSnap.exists()) {
-                alert("Funcionário com este ID (nome formatado: " + nomeIdFormatado + ") já existe.");
-                setLoading(false);
-                return;
-            }
-            await setDoc(docRef, { nome: nomeDisplayFormatado });
-            setNovoFuncionarioNome('');
-        } catch (error) {
-            console.error("Erro ao adicionar funcionário: ", error);
-            alert("Erro ao adicionar funcionário: " + error.message);
-        }
-        setLoading(false);
-    };
-    
-    const handleUpdateFuncionario = async () => {
-        if (!editingFuncionario || !editingFuncionario.nome.trim()) return;
-        setLoading(true);
-        try {
-            const nomeDisplayAtualizado = editingFuncionario.nome.trim().toUpperCase();
-            const funcDocRef = doc(db, `${basePath}/funcionarios`, editingFuncionario.id); // ID não muda
-            await setDoc(funcDocRef, { nome: nomeDisplayAtualizado }); 
-            setEditingFuncionario(null);
-        } catch (error) {
-            console.error("Erro ao atualizar funcionário: ", error);
-             alert("Erro ao atualizar funcionário: " + error.message);
-        }
-        setLoading(false);
-    };
+    const handleAddFuncionario = async () => {
+        if (!novoFuncionarioNome.trim()) return;
+        setLoading(true);
+        try {
+            const nomeIdFormatado = novoFuncionarioNome.trim().toUpperCase().replace(/\//g, '_');
+            const nomeDisplayFormatado = novoFuncionarioNome.trim().toUpperCase();
 
-    const handleDeleteFuncionario = async (funcionarioId) => {
-        const funcionarioParaExcluir = contextFuncionarios.find(f => f.id === funcionarioId);
-        const nomeExibicao = funcionarioParaExcluir ? funcionarioParaExcluir.nome : funcionarioId;
+            if (!nomeIdFormatado) {
+                alert("O nome do funcionário não pode ser vazio ou consistir apenas em caracteres inválidos.");
+                setLoading(false);
+                return;
+            }
 
-        if (window.confirm(`Tem certeza que deseja excluir o funcionário "${nomeExibicao}"? Isso pode afetar tarefas associadas.`)) {
-            setLoading(true);
-            try {
-                const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
-                const todasSemanasSnap = await getDocs(todasSemanasQuery);
-                const batchLimpezaProgramacao = writeBatch(db);
-                let programacaoModificada = false;
+            const docRef = doc(funcionariosCollectionRef, nomeIdFormatado);
+            const docSnap = await getDoc(docRef);
 
-                todasSemanasSnap.forEach(semanaDocSnap => {
-                    const semanaData = semanaDocSnap.data();
-                    const novosDias = JSON.parse(JSON.stringify(semanaData.dias || {}));
-                    let estaSemanaModificada = false;
-                    Object.keys(novosDias).forEach(diaKey => {
-                        if (novosDias[diaKey][funcionarioId]) {
-                            delete novosDias[diaKey][funcionarioId];
-                            estaSemanaModificada = true;
-                        }
-                    });
-                    if (estaSemanaModificada) {
-                        batchLimpezaProgramacao.update(semanaDocSnap.ref, { dias: novosDias });
-                        programacaoModificada = true;
-                    }
-                });
+            if (docSnap.exists()) {
+                alert("Funcionário com este ID (nome formatado: " + nomeIdFormatado + ") já existe.");
+                setLoading(false);
+                return;
+            }
+            // A UI será atualizada automaticamente pelo listener 'onSnapshot' após esta operação.
+            await setDoc(docRef, { nome: nomeDisplayFormatado }); 
+            setNovoFuncionarioNome('');
+        } catch (error) {
+            console.error("Erro ao adicionar funcionário: ", error);
+            alert("Erro ao adicionar funcionário: " + error.message);
+        }
+        // O loading é resetado pelo listener, mas garantimos aqui caso haja erro.
+        setLoading(false); 
+    };
+    
+    const handleUpdateFuncionario = async () => {
+        if (!editingFuncionario || !editingFuncionario.nome.trim()) return;
+        setLoading(true);
+        try {
+            const nomeDisplayAtualizado = editingFuncionario.nome.trim().toUpperCase();
+            const funcDocRef = doc(db, `${basePath}/funcionarios`, editingFuncionario.id);
+            // A UI será atualizada automaticamente pelo listener 'onSnapshot'.
+            await setDoc(funcDocRef, { nome: nomeDisplayAtualizado }); 
+            setEditingFuncionario(null);
+        } catch (error) {
+            console.error("Erro ao atualizar funcionário: ", error);
+            alert("Erro ao atualizar funcionário: " + error.message);
+        }
+        setLoading(false);
+    };
 
-                if (programacaoModificada) {
-                    await batchLimpezaProgramacao.commit();
-                    console.log(`Tarefas do funcionário ${nomeExibicao} removidas da programação semanal.`);
-                }
-                
-                const funcDocRef = doc(db, `${basePath}/funcionarios`, funcionarioId);
-                await deleteDoc(funcDocRef);
+    const handleDeleteFuncionario = async (funcionarioId) => {
+        const funcionarioParaExcluir = funcionarios.find(f => f.id === funcionarioId);
+        const nomeExibicao = funcionarioParaExcluir ? funcionarioParaExcluir.nome : funcionarioId;
 
-                const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`), where("responsaveis", "array-contains", funcionarioId));
-                const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
-                const batchAtualizaMapa = writeBatch(db);
-                tarefasMapaSnap.forEach(tarefaDocSnap => {
-                    const tarefaData = tarefaDocSnap.data();
-                    const novosResponsaveis = tarefaData.responsaveis.filter(rId => rId !== funcionarioId);
-                    batchAtualizaMapa.update(tarefaDocSnap.ref, { responsaveis: novosResponsaveis });
-                });
-                await batchAtualizaMapa.commit();
-                console.log(`Funcionário ${nomeExibicao} removido das responsabilidades no Mapa de Atividades.`);
+        if (window.confirm(`Tem certeza que deseja excluir o funcionário "${nomeExibicao}"? Isso pode afetar tarefas associadas.`)) {
+            setLoading(true);
+            try {
+                // Limpeza de referências na programação semanal (lógica mantida)
+                const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
+                const todasSemanasSnap = await getDocs(todasSemanasQuery);
+                const batchLimpezaProgramacao = writeBatch(db);
+                let programacaoModificada = false;
 
-            } catch (error) {
-                console.error("Erro ao excluir funcionário e limpar referências: ", error);
-                alert("Erro ao excluir funcionário: " + error.message);
-            }
-            setLoading(false);
-        }
-    };
-    
-    return (
-        <div className="mb-8 p-4 border rounded-md shadow-sm bg-white">
-            <h3 className="text-lg font-semibold mb-3 text-gray-700">Gerenciar Funcionários/Responsáveis</h3>
-            <div className="flex mb-3">
-                 <input
-                    type="text"
-                    value={editingFuncionario ? editingFuncionario.nome : novoFuncionarioNome}
-                    onChange={(e) => editingFuncionario ? setEditingFuncionario({...editingFuncionario, nome: e.target.value}) : setNovoFuncionarioNome(e.target.value)}
-                    placeholder="Nome do Funcionário (ex: JOÃO SILVA ou CARGA/DESCARGA)"
-                    className="border p-2 rounded-l-md flex-grow focus:ring-blue-500 focus:border-blue-500"
-                />
-                <button
-                    onClick={editingFuncionario ? handleUpdateFuncionario : handleAddFuncionario}
-                    disabled={loading}
-                    className="bg-blue-500 text-white p-2 rounded-r-md hover:bg-blue-600 flex items-center disabled:bg-gray-400"
-                >
-                    {editingFuncionario ? <LucideEdit size={18} className="mr-1"/> : <LucidePlusCircle size={18} className="mr-1"/>}
-                    {loading ? 'Salvando...' : (editingFuncionario ? 'Atualizar' : 'Adicionar')}
-                </button>
-                 {editingFuncionario && (
-                    <button
-                        onClick={() => setEditingFuncionario(null)}
-                        className="bg-gray-300 text-gray-700 p-2 ml-2 rounded-md hover:bg-gray-400"
-                    >
-                        Cancelar
-                    </button>
-                )}
-            </div>
-            {(loading && contextFuncionarios.length === 0) && <p>Carregando funcionários...</p>}
-            <ul className="space-y-1 max-h-60 overflow-y-auto">
-                {contextFuncionarios.map(f => ( 
-                    <li key={f.id} className="flex justify-between items-center p-2 border-b hover:bg-gray-50 rounded-md">
-                        <span>{f.nome}</span> 
-                        <div>
-                            <button onClick={() => setEditingFuncionario(f)} className="text-blue-500 hover:text-blue-700 mr-2"><LucideEdit size={16}/></button>
-                            <button onClick={() => handleDeleteFuncionario(f.id)} className="text-red-500 hover:text-red-700"><LucideTrash2 size={16}/></button>
-                        </div>
-                    </li>
-                ))}
-            </ul>
-        </div>
-    );
+                todasSemanasSnap.forEach(semanaDocSnap => {
+                    const semanaData = semanaDocSnap.data();
+                    const novosDias = JSON.parse(JSON.stringify(semanaData.dias || {}));
+                    let estaSemanaModificada = false;
+                    Object.keys(novosDias).forEach(diaKey => {
+                        if (novosDias[diaKey][funcionarioId]) {
+                            delete novosDias[diaKey][funcionarioId];
+                            estaSemanaModificada = true;
+                        }
+                    });
+                    if (estaSemanaModificada) {
+                        batchLimpezaProgramacao.update(semanaDocSnap.ref, { dias: novosDias });
+                        programacaoModificada = true;
+                    }
+                });
+
+                if (programacaoModificada) {
+                    await batchLimpezaProgramacao.commit();
+                }
+                
+                // Limpeza de referências no mapa de atividades (lógica mantida)
+                const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`), where("responsaveis", "array-contains", funcionarioId));
+                const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
+                const batchAtualizaMapa = writeBatch(db);
+                tarefasMapaSnap.forEach(tarefaDocSnap => {
+                    const tarefaData = tarefaDocSnap.data();
+                    const novosResponsaveis = tarefaData.responsaveis.filter(rId => rId !== funcionarioId);
+                    batchAtualizaMapa.update(tarefaDocSnap.ref, { responsaveis: novosResponsaveis });
+                });
+                await batchAtualizaMapa.commit();
+
+                // Exclusão do documento do funcionário. A UI será atualizada pelo 'onSnapshot'.
+                const funcDocRef = doc(db, `${basePath}/funcionarios`, funcionarioId);
+                await deleteDoc(funcDocRef);
+
+            } catch (error) {
+                console.error("Erro ao excluir funcionário e limpar referências: ", error);
+                alert("Erro ao excluir funcionário: " + error.message);
+                setLoading(false); // Garante que o loading para em caso de erro.
+            }
+            // Não é mais necessário setLoading(false) aqui, o listener fará o trabalho.
+        }
+    };
+    
+    return (
+        <div className="mb-8 p-4 border rounded-md shadow-sm bg-white">
+            <h3 className="text-lg font-semibold mb-3 text-gray-700">Gerenciar Funcionários/Responsáveis</h3>
+            <div className="flex mb-3">
+                <input
+                    type="text"
+                    value={editingFuncionario ? editingFuncionario.nome : novoFuncionarioNome}
+                    onChange={(e) => editingFuncionario ? setEditingFuncionario({...editingFuncionario, nome: e.target.value}) : setNovoFuncionarioNome(e.target.value)}
+                    placeholder="Nome do Funcionário (ex: JOÃO SILVA ou CARGA/DESCARGA)"
+                    className="border p-2 rounded-l-md flex-grow focus:ring-blue-500 focus:border-blue-500"
+                />
+                <button
+                    onClick={editingFuncionario ? handleUpdateFuncionario : handleAddFuncionario}
+                    disabled={loading}
+                    className="bg-blue-500 text-white p-2 rounded-r-md hover:bg-blue-600 flex items-center disabled:bg-gray-400"
+                >
+                    {editingFuncionario ? <LucideEdit size={18} className="mr-1"/> : <LucidePlusCircle size={18} className="mr-1"/>}
+                    {loading && !editingFuncionario ? 'Adicionando...' : (editingFuncionario ? 'Atualizar' : 'Adicionar')}
+                </button>
+                {editingFuncionario && (
+                    <button
+                        onClick={() => setEditingFuncionario(null)}
+                        className="bg-gray-300 text-gray-700 p-2 ml-2 rounded-md hover:bg-gray-400"
+                    >
+                        Cancelar
+                    </button>
+                )}
+            </div>
+            {/* [ALTERADO] A lista agora é renderizada a partir do estado local 'funcionarios'. */}
+            {loading && funcionarios.length === 0 && <p>Carregando funcionários...</p>}
+            <ul className="space-y-1 max-h-60 overflow-y-auto">
+                {funcionarios.map(f => (
+                    <li key={f.id} className="flex justify-between items-center p-2 border-b hover:bg-gray-50 rounded-md">
+                        <span>{f.nome}</span>
+                        <div>
+                            <button onClick={() => setEditingFuncionario(f)} className="text-blue-500 hover:text-blue-700 mr-2"><LucideEdit size={16}/></button>
+                            <button onClick={() => handleDeleteFuncionario(f.id)} className="text-red-500 hover:text-red-700"><LucideTrash2 size={16}/></button>
+                        </div>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
 };
 
 // Versão: 11.1.0
@@ -1897,13 +2004,11 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
 
 
 
-// Versão: 8.2.2
-// [CORRIGIDO] A função 'handleQuickStatusUpdate' agora passa a opção 'forceStatus: true'
-// para a sincronização, garantindo que a alteração de status se propague para a programação semanal.
-// [CORRIGIDO] Corrigido o erro fatal "checkPermission is not a function". A lógica de verificação de permissão para adicionar tarefas foi ajustada para usar o objeto 'permissoes' do contexto global corretamente.
-// [NOVO] Implementada a funcionalidade de paginação, limitando a exibição a 50 tarefas por página.
-// [NOVO] Adicionados controles de navegação (Anterior, Próximo, números de página) na base da tabela.
-// [ALTERADO] A aplicação de filtros agora reseta a visualização para a primeira página.
+// Versão: 24.0.0
+// [MELHORIA] Os filtros de data "Início do Período" e "Fim do Período" no Mapa de Atividades
+// agora são preenchidos automaticamente com o primeiro e o último dia do mês atual ao carregar a página.
+// Isso melhora a usabilidade, exibindo um filtro relevante por padrão, mas ainda permite
+// que o usuário modifique as datas manualmente conforme necessário.
 const MapaAtividadesComponent = () => {
     const { db, appId, storage, funcionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
@@ -1919,14 +2024,20 @@ const MapaAtividadesComponent = () => {
     const [isImagensModalOpen, setIsImagensModalOpen] = useState(false);
     const [imagensParaVer, setImagensParaVer] = useState([]);
 
+    // [ALTERADO] Lógica para definir o intervalo de datas do mês atual como padrão.
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+    const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
     // Filtros
     const [filtroResponsavel, setFiltroResponsavel] = useState("TODOS");
     const [filtroStatus, setFiltroStatus] = useState(TODOS_OS_STATUS_VALUE);
     const [filtroPrioridade, setFiltroPrioridade] = useState(TODAS_AS_PRIORIDADES_VALUE);
     const [filtroArea, setFiltroArea] = useState(TODAS_AS_AREAS_VALUE);
     const [filtroTurno, setFiltroTurno] = useState("---TODOS_OS_TURNOS---");
-    const [filtroDataInicio, setFiltroDataInicio] = useState('');
-    const [filtroDataFim, setFiltroDataFim] = useState('');
+    // [ALTERADO] O estado inicial dos filtros de data agora usa as constantes do mês atual.
+    const [filtroDataInicio, setFiltroDataInicio] = useState(firstDayOfMonth);
+    const [filtroDataFim, setFiltroDataFim] = useState(lastDayOfMonth);
     const [termoBusca, setTermoBusca] = useState('');
 
     // Paginação
@@ -1938,7 +2049,6 @@ const MapaAtividadesComponent = () => {
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
     const TODOS_OS_TURNOS_VALUE = "---TODOS_OS_TURNOS---";
 
-    // [CORRIGIDO] Lógica de verificação de permissão ajustada para usar o contexto.
     const podeAdicionarTarefa = auth.currentUser?.email &&
         (["sistemas@gramoterra.com.br", "operacional@gramoterra.com.br", "mpivottoramos@gmail.com"].includes(auth.currentUser.email.toLowerCase()) ||
         (permissoes?.add_tarefa?.includes(auth.currentUser.email.toLowerCase()) ?? false));
@@ -2573,13 +2683,20 @@ const PlanejamentoSemanalCardViewComponent = () => {
     );
 };
 
-// Versão: 21.4.0
-// [ALTERADO] Os botões "Atualizar com Mapa" e "Criar Nova Semana" foram movidos da barra de ferramentas principal
-// para dentro do modal "Gerenciar Semana", centralizando as ações de gestão.
-// [ALTERADO] A ação do botão "Criar Nova Semana" agora fecha o modal atual antes de abrir o novo.
+// Versão: 25.2.0
+// [CORRIGIDO] Restaurado o corpo completo de TODAS as funções internas do componente (como handleAbrirRegistroDiario, 
+// handleCriarNovaSemana, etc.), que foram omitidas por engano na versão anterior. Este erro impedia o funcionamento
+// de botões como "Registro do Dia" e a renderização correta da tabela. O componente agora está completo e funcional.
+
+import DatePicker, { registerLocale } from 'react-datepicker';
+import ptBR from 'date-fns/locale/pt-BR';
+import "react-datepicker/dist/react-datepicker.css";
+
+// Registra o locale em português para o calendário
+registerLocale('pt-BR', ptBR);
 
 const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
-    const { userId, db, appId, listasAuxiliares, funcionarios: contextFuncionarios, auth: authGlobal } = useContext(GlobalContext);
+    const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
     const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
     const [dadosProgramacao, setDadosProgramacao] = useState(null);
@@ -2595,37 +2712,44 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const [diaParaRegistro, setDiaParaRegistro] = useState('');
     const [dataParaRegistro, setDataParaRegistro] = useState(new Date().toISOString().split('T')[0]);
     const [isOrdemServicoModalOpen, setIsOrdemServicoModalOpen] = useState(false);
+    const [funcionarios, setFuncionarios] = useState([]);
+    const [loadingFuncionarios, setLoadingFuncionarios] = useState(true);
 
-    const basePath = `/artifacts/${appId}/public/data`;
+    const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
-
-    // ... (todas as suas funções internas como useEffect, handleCriarNovaSemana, etc., permanecem exatamente as mesmas) ...
-    // Nenhuma lógica de função precisa ser alterada.
-
-    const formatDateProg = (timestamp) => {
-        if (timestamp && typeof timestamp.toDate === 'function') {
-            return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        }
-        return 'N/A';
-    };
-    const DIAS_SEMANA_PROG = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
+    
+    // Hooks useEffect para buscar dados (funcionarios, semanas, etc.)
+    useEffect(() => {
+        const funcionariosCollectionRef = collection(db, `${basePath}/funcionarios`);
+        const q = query(funcionariosCollectionRef, orderBy("nome", "asc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedFuncionarios = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setFuncionarios(fetchedFuncionarios);
+            setLoadingFuncionarios(false);
+        }, (error) => {
+            console.error("Erro ao carregar funcionários em tempo real na Programação:", error);
+            toast.error("Não foi possível carregar a lista de funcionários.");
+            setLoadingFuncionarios(false);
+        });
+        return () => unsubscribe();
+    }, [db, appId, basePath]);
 
     useEffect(() => {
-        setLoading(true);
-        const q = query(programacaoCollectionRef, orderBy("criadoEm", "desc"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setSemanas(fetchedSemanas);
-            const currentSelectedExists = fetchedSemanas.some(s => s.id === semanaSelecionadaId);
-            if (fetchedSemanas.length > 0 && (!semanaSelecionadaId || !currentSelectedExists)) {
-                setSemanaSelecionadaId(fetchedSemanas[0].id);
-            } else if (fetchedSemanas.length === 0) {
-                setSemanaSelecionadaId(null);
-            }
-            setLoading(false);
-        }, error => { console.error("Erro ao carregar semanas:", error); setLoading(false); });
-        return () => unsubscribe();
-    }, [userId, appId, db]);
+        setLoading(true);
+        const q = query(programacaoCollectionRef, orderBy("criadoEm", "desc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedSemanas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSemanas(fetchedSemanas);
+            const currentSelectedExists = fetchedSemanas.some(s => s.id === semanaSelecionadaId);
+            if (fetchedSemanas.length > 0 && (!semanaSelecionadaId || !currentSelectedExists)) {
+                setSemanaSelecionadaId(fetchedSemanas[0].id);
+            } else if (fetchedSemanas.length === 0) {
+                setSemanaSelecionadaId(null);
+            }
+            setLoading(false);
+        }, error => { console.error("Erro ao carregar semanas:", error); setLoading(false); });
+        return () => unsubscribe();
+    }, [userId, appId, db]);
 
     useEffect(() => {
         if (!semanaSelecionadaId) { setDadosProgramacao(null); setLoading(false); return; }
@@ -2644,7 +2768,65 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
         }, error => { console.error("Erro ao carregar dados da programação:", error); setLoading(false); });
         return unsub;
     }, [semanaSelecionadaId, db, basePath]);
-    
+
+    // Lógica do Calendário
+    const handleDateSelect = (date) => {
+        const selectedTime = date.getTime();
+        
+        const semanaEncontrada = semanas.find(s => {
+            if (s.dataInicioSemana && s.dataFimSemana) {
+                const inicio = s.dataInicioSemana.toDate();
+                inicio.setUTCHours(0,0,0,0);
+
+                const fim = s.dataFimSemana.toDate();
+                fim.setUTCHours(23,59,59,999);
+
+                return selectedTime >= inicio.getTime() && selectedTime <= fim.getTime();
+            }
+            return false;
+        });
+
+        if (semanaEncontrada) {
+            setSemanaSelecionadaId(semanaEncontrada.id);
+        } else {
+            toast.error("Nenhuma semana de programação criada para a data selecionada.");
+        }
+    };
+
+    const CustomCalendarInput = React.forwardRef(({ value, onClick }, ref) => (
+        <button 
+            className="p-2 border rounded-md shadow-sm bg-white hover:bg-gray-50 flex items-center gap-2" 
+            onClick={onClick} 
+            ref={ref}
+        >
+            <LucideCalendarDays size={18} className="text-gray-600" />
+            <span className="font-semibold text-gray-800">{value}</span>
+        </button>
+    ));
+
+    const highlightedDates = useMemo(() => {
+        const dates = [];
+        semanas.forEach(s => {
+            if (s.dataInicioSemana && s.dataFimSemana) {
+                let current = new Date(s.dataInicioSemana.toDate());
+                const end = s.dataFimSemana.toDate();
+                while (current <= end) {
+                    dates.push(new Date(current));
+                    current.setDate(current.getDate() + 1);
+                }
+            }
+        });
+        return dates;
+    }, [semanas]);
+
+    // Funções auxiliares e handlers (CORPO COMPLETO RESTAURADO)
+    const formatDateProg = (timestamp) => {
+        if (timestamp && typeof timestamp.toDate === 'function') {
+            return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        }
+        return 'N/A';
+    };
+    const DIAS_SEMANA_PROG = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
     const getWeekOfYear = (date) => {
         const targetDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
         const dayNumber = (targetDate.getUTCDay() + 6) % 7;
@@ -2678,7 +2860,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                  diaAtualLoop.setUTCDate(diaAtualLoop.getUTCDate() + i);
                  const diaFormatado = diaAtualLoop.toISOString().split('T')[0];
                  novaSemanaData.dias[diaFormatado] = {};
-                 (Array.isArray(contextFuncionarios) ? contextFuncionarios : []).forEach(func => { if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = []; });
+                 (Array.isArray(funcionarios) ? funcionarios : []).forEach(func => { if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = []; });
              }
              await setDoc(doc(db, `${basePath}/programacao_semanal`, novaSemanaDocId), novaSemanaData);
              toast.success(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
@@ -2720,7 +2902,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
             while (diaCorrente <= dataFimSemanaDate) {
                 const diaFmt = diaCorrente.toISOString().split('T')[0];
                 novosDiasDaSemana[diaFmt] = {};
-                contextFuncionarios.forEach(func => { if (func && func.id) novosDiasDaSemana[diaFmt][func.id] = []; });
+                funcionarios.forEach(func => { if (func && func.id) novosDiasDaSemana[diaFmt][func.id] = []; });
                 diaCorrente.setUTCDate(diaCorrente.getUTCDate() + 1);
             }
     
@@ -2950,46 +3132,46 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
         return celulas;
     };
 
+    const semanaAtual = semanas.find(s => s.id === semanaSelecionadaId);
+
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
                 <div className="flex flex-wrap items-center gap-2">
-                    <select value={semanaSelecionadaId || ''} onChange={(e) => setSemanaSelecionadaId(e.target.value)} className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" disabled={semanas.length === 0}>
-                        {loading && <option>Carregando...</option>}
-                        {!loading && semanas.length === 0 && <option>Nenhuma semana criada</option>}
-                        {semanas.map(s => (<option key={s.id} value={s.id}>{s.nomeAba} ({formatDateProg(s.dataInicioSemana)} - {formatDateProg(s.dataFimSemana)})</option>))}
-                    </select>
-                    
-                    <button 
-                        onClick={() => setCurrentPage('planejamento')} 
-                        className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
-                    >
-                        <LucideKanbanSquare size={18} className="mr-2"/> Visão Semanal
-                    </button>
-
+                    <div className="relative">
+                        <DatePicker
+                            selected={semanaAtual?.dataInicioSemana?.toDate()}
+                            onChange={handleDateSelect}
+                            locale="pt-BR"
+                            dateFormat="dd/MM/yyyy"
+                            showWeekNumbers
+                            highlightDates={highlightedDates}
+                            customInput={
+                                <CustomCalendarInput 
+                                    value={semanaAtual ? `${semanaAtual.nomeAba} (${formatDateProg(semanaAtual.dataInicioSemana)} - ${formatDateProg(semanaAtual.dataFimSemana)})` : "Selecione a Semana"}
+                                />
+                            }
+                            popperPlacement="bottom-start"
+                        />
+                    </div>
+                    <button onClick={() => setCurrentPage('planejamento')} className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"><LucideKanbanSquare size={18} className="mr-2"/> Visão Semanal</button>
                     <div className="flex items-center gap-1 bg-white p-1 rounded-md shadow-sm border border-gray-200">
                          <input type="date" value={dataParaRegistro} onChange={(e) => setDataParaRegistro(e.target.value)} className="p-1 border-none rounded-md focus:ring-blue-500 focus:border-transparent"/>
                         <button onClick={handleAbrirRegistroDiario} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md flex items-center disabled:bg-gray-400"><LucideClipboardEdit size={18} className="mr-2"/> Registro do Dia</button>
                     </div>
-                    <button 
-                        onClick={() => setIsOrdemServicoModalOpen(true)} 
-                        disabled={!semanaSelecionadaId || loadingAtualizacao} 
-                        className="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
-                    >
-                        <LucidePrinter size={18} className="mr-2"/> Ordem de Serviço
-                    </button>
+                    <button onClick={() => setIsOrdemServicoModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucidePrinter size={18} className="mr-2"/> Ordem de Serviço</button>
                     <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideSettings size={18} className="mr-2"/> Gerenciar Semana</button>
                 </div>
             </div>
-            {loading ? <p className="text-center py-4">Carregando...</p> : !semanaSelecionadaId || !dadosProgramacao ? <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda ou não foi possível carregar os dados.</p> : (
+            {(loading || loadingFuncionarios) ? <p className="text-center py-4">Carregando...</p> : !semanaSelecionadaId || !dadosProgramacao ? <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda ou não foi possível carregar os dados.</p> : (
                  <div className="bg-white shadow-md rounded-lg overflow-x-auto">
                     <table className="min-w-full border-separate border-spacing-0.5">
                         <caption className="text-lg font-semibold p-2 bg-teal-700 text-white">PROGRAMAÇÃO DIÁRIA - Semana de: {formatDateProg(dadosProgramacao.dataInicioSemana)} a {formatDateProg(dadosProgramacao.dataFimSemana)}</caption>
                         <thead><tr key="header-row"><th className="border-y border-y-gray-300 border-l border-l-gray-300 px-3 py-2 bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>{renderCabecalhoDias()}</tr></thead>
                         <tbody>
-                            {(!contextFuncionarios || contextFuncionarios.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado.</td></tr>) : 
-                                (contextFuncionarios.map((func, index) => (
+                            {(!funcionarios || funcionarios.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado.</td></tr>) : 
+                                (funcionarios.map((func, index) => (
                                     <tr key={func.id}>
                                         <td className={`border-y border-y-gray-300 border-l border-l-gray-300 px-3 py-2 font-semibold text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10 ${index % 2 === 0 ? 'bg-teal-50' : 'bg-teal-100'}`}>{func.nome}</td>
                                         {renderCelulasTarefas(func.id)}
@@ -2999,48 +3181,27 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                     </table>
                 </div>
             )}
-            <OrdemServicoModal isOpen={isOrdemServicoModalOpen} onClose={() => setIsOrdemServicoModalOpen(false)} dadosProgramacao={dadosProgramacao} funcionarios={contextFuncionarios} logoUrl={LOGO_URL} />
+            <OrdemServicoModal isOpen={isOrdemServicoModalOpen} onClose={() => setIsOrdemServicoModalOpen(false)} dadosProgramacao={dadosProgramacao} funcionarios={funcionarios} logoUrl={LOGO_URL} />
             <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação"><div className="space-y-4"><div><label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label><input type="date" id="novaSemanaData" value={novaSemanaDataInicio} onChange={(e) => setNovaSemanaDataInicio(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"/></div><div className="flex justify-end space-x-2"><button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md">Cancelar</button><button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md">{loadingAtualizacao ? "Criando..." : "Criar Semana"}</button></div></div></Modal>
-            
-            {/* [ALTERADO] Modal "Gerenciar Semana" agora contém os botões de Ações */}
-            {dadosProgramacao && (
+            {dadosProgramacao && (
                 <Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}>
                     <div className="space-y-6">
                         <div>
                             <h4 className="text-md font-semibold text-gray-700 mb-3">Ações da Semana</h4>
                             <div className="space-y-2">
-                                <button 
-                                    onClick={handleAtualizarProgramacaoDaSemana} 
-                                    disabled={loadingAtualizacao} 
-                                    className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center shadow-sm disabled:bg-gray-400"
-                                >
-                                    <LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>
-                                    {loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}
-                                </button>
-                                <button 
-                                    onClick={() => {
-                                        setIsGerenciarSemanaModalOpen(false); // Fecha o modal atual
-                                        setIsNovaSemanaModalOpen(true);     // Abre o modal de criar semana
-                                    }} 
-                                    disabled={loadingAtualizacao} 
-                                    className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center shadow-sm disabled:bg-gray-400"
-                                >
-                                    <LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana
-                                </button>
+                                <button onClick={handleAtualizarProgramacaoDaSemana} disabled={loadingAtualizacao} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center shadow-sm disabled:bg-gray-400"><LucideRefreshCw size={18} className={`mr-2 ${loadingAtualizacao ? 'animate-spin' : ''}`}/>{loadingAtualizacao ? "Atualizando..." : "Atualizar com Mapa"}</button>
+                                <button onClick={() => { setIsGerenciarSemanaModalOpen(false); setIsNovaSemanaModalOpen(true); }} disabled={loadingAtualizacao} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center shadow-sm disabled:bg-gray-400"><LucidePlusCircle size={20} className="mr-2"/> Criar Nova Semana</button>
                             </div>
                         </div>
                         <div className="pt-4 border-t">
                             <h4 className="text-md font-semibold text-red-700 mb-2">Zona de Perigo</h4>
-                            <button onClick={handleExcluirSemana} disabled={loadingAtualizacao} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center">
-                                <LucideTrash2 size={18} className="mr-2"/> Excluir Semana
-                            </button>
+                            <button onClick={handleExcluirSemana} disabled={loadingAtualizacao} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md flex items-center justify-center"><LucideTrash2 size={18} className="mr-2"/> Excluir Semana</button>
                         </div>
                     </div>
                 </Modal>
             )}
-
             {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (<GerenciarTarefaProgramacaoModal isOpen={isGerenciarTarefaModalOpen} onClose={() => setIsGerenciarTarefaModalOpen(false)} diaFormatado={dadosCelulaParaGerenciar.diaFormatado} responsavelId={dadosCelulaParaGerenciar.responsavelId} tarefasDaCelula={dadosCelulaParaGerenciar.tarefas} semanaId={semanaSelecionadaId} onAlteracaoSalva={() => {}}/>)}
-            <RegistroDiarioModal isOpen={isRegistroDiarioModalOpen} onClose={() => setIsRegistroDiarioModalOpen(false)} onSave={handleSalvarRegistroDiario} tarefasDoDia={tarefasDoDiaParaRegistro} funcionarios={contextFuncionarios} dia={diaParaRegistro} />
+            <RegistroDiarioModal isOpen={isRegistroDiarioModalOpen} onClose={() => setIsRegistroDiarioModalOpen(false)} onSave={handleSalvarRegistroDiario} tarefasDoDia={tarefasDoDiaParaRegistro} funcionarios={funcionarios} dia={diaParaRegistro} />
         </div>
     );
 };
@@ -3249,21 +3410,22 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
     );
 };
 
-// Versão: 15.0.0
-// [ALTERADO] Componente agora utiliza o novo modal reutilizável 'TarefaPendenteFormModal' para criar tarefas.
+// Versão: 23.5.0
+// [ALTERADO] O layout de impressão foi refinado para atender às últimas solicitações:
+// - O cabeçalho agora é impresso apenas uma vez, no topo da página.
+// - Cada tarefa é separada em um "quadro" (uma caixa com bordas) para melhor organização visual.
+// - O espaçamento entre as linhas dentro de cada quadro foi reduzido para um layout mais compacto e minimalista.
 const TarefaPatioComponent = () => {
     const { userId, db, appId, listasAuxiliares, auth, storage } = useContext(GlobalContext);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     
-    // Estados para a lista de tarefas pendentes
     const [tarefasPendentes, setTarefasPendentes] = useState([]);
     const [loadingList, setLoadingList] = useState(true);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const tarefasMapaCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
-    // Hook para carregar a lista de tarefas pendentes
     useEffect(() => {
         setLoadingList(true);
         const q = query(tarefasMapaCollectionRef, where("status", "==", "AGUARDANDO ALOCAÇÃO"), orderBy("createdAt", "asc"));
@@ -3282,7 +3444,121 @@ const TarefaPatioComponent = () => {
     const handleOpenModal = () => setIsModalOpen(true);
     const handleCloseModal = () => setIsModalOpen(false);
 
-    // Esta função agora recebe os dados do formulário do modal
+    // [ALTERADO] Função de impressão com cabeçalho único e tarefas em quadros.
+    const handlePrintTarefas = (tarefasParaImprimir) => {
+        if (!tarefasParaImprimir || tarefasParaImprimir.length === 0) {
+            toast.info("Não há tarefas pendentes para imprimir.");
+            return;
+        }
+
+        const tarefasHtml = tarefasParaImprimir.map(tarefa => `
+            <div class="quadro-tarefa">
+                <div class="detalhes-grid">
+                    <p><strong>Tarefa:</strong> ${tarefa.tarefa || 'N/A'}</p>
+                    <p><strong>Prioridade:</strong> ${tarefa.prioridade || 'N/A'}</p>
+                    <p><strong>Área:</strong> ${tarefa.area || 'N/A'}</p>
+                    <p><strong>Ação:</strong> ${tarefa.acao || 'N/A'}</p>
+                    <p><strong>Data de Criação:</strong> ${formatDate(tarefa.createdAt)}</p>
+                    <p><strong>Criado por:</strong> ${tarefa.criadoPorEmail || 'N/A'}</p>
+                </div>
+                <div class="orientacao">
+                    <strong>Orientação / Observação:</strong>
+                    <p class="orientacao-texto">${tarefa.orientacao || 'Nenhuma'}</p>
+                </div>
+            </div>
+        `).join('');
+
+        const htmlContent = `
+            <html>
+            <head>
+                <title>Lista de Tarefas Pendentes</title>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+                    body {
+                        font-family: 'Roboto', sans-serif;
+                        margin: 20px;
+                        color: #333;
+                        font-size: 10pt;
+                    }
+                    .cabecalho {
+                        text-align: center;
+                        border-bottom: 1px solid #ccc;
+                        padding-bottom: 10px;
+                        margin-bottom: 25px;
+                    }
+                    .cabecalho img {
+                        max-height: 45px;
+                        margin-bottom: 10px;
+                    }
+                    .cabecalho h1 {
+                        font-size: 1.4em;
+                        margin: 0;
+                        color: #000;
+                        font-weight: 700;
+                    }
+                    .quadro-tarefa {
+                        border: 1px solid #ccc;
+                        border-radius: 8px;
+                        padding: 15px;
+                        margin-bottom: 15px;
+                        page-break-inside: avoid;
+                    }
+                    .quadro-tarefa:last-child {
+                        margin-bottom: 0;
+                    }
+                    .detalhes-grid {
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 8px 20px; /* Espaçamento entre linhas diminuído */
+                        margin-bottom: 15px;
+                    }
+                    .detalhes-grid p {
+                        margin: 0;
+                        line-height: 1.4; /* Espaçamento entre linhas diminuído */
+                    }
+                    .detalhes-grid p strong {
+                        font-weight: 700;
+                        color: #000;
+                        margin-right: 8px;
+                    }
+                    .orientacao strong {
+                        display: block;
+                        font-weight: 700;
+                        color: #000;
+                        margin-bottom: 5px;
+                    }
+                    .orientacao-texto {
+                        white-space: pre-wrap;
+                        border-top: 1px solid #eee;
+                        padding-top: 8px;
+                        margin-top: 8px;
+                        line-height: 1.4; /* Espaçamento entre linhas diminuído */
+                    }
+                    @media print {
+                        body {
+                            margin: 0;
+                        }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="cabecalho">
+                    ${LOGO_URL ? `<img src="${LOGO_URL}" alt="Logo">` : ''}
+                    <h1>ORDENS DE SERVIÇO PENDENTES</h1>
+                </div>
+                ${tarefasHtml}
+            </body>
+            </html>
+        `;
+
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); }, 250);
+    };
+
+
     const handleCriarTarefaPendente = async (formData, novosAnexos) => {
         const usuario = auth.currentUser;
         if (!usuario) {
@@ -3299,7 +3575,7 @@ const TarefaPatioComponent = () => {
                 toast.loading('Enviando anexos...', { id: 'upload-toast-patio' });
                 for (const anexo of novosAnexos) {
                     const caminhoStorage = `${basePath}/imagens_tarefas/${idDaNovaTarefa}/${Date.now()}_${anexo.name}`;
-                    const storageRef = ref(storage, caminhoStorage);
+                    const storageRef = ref(storage, anexo);
                     const uploadTask = await uploadBytesResumable(storageRef, anexo);
                     const downloadURL = await getDownloadURL(uploadTask.ref);
                     urlsDosNovosAnexos.push(downloadURL);
@@ -3354,12 +3630,22 @@ const TarefaPatioComponent = () => {
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-semibold text-gray-800">Tarefa Pátio</h2>
-                <button
-                    onClick={handleOpenModal}
-                    className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
-                >
-                    <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa do Pátio
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => handlePrintTarefas(tarefasPendentes)}
+                        disabled={tarefasPendentes.length === 0}
+                        className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        title="Imprimir todas as tarefas pendentes"
+                    >
+                        <LucidePrinter size={20} className="mr-2"/> Imprimir Todas
+                    </button>
+                    <button
+                        onClick={handleOpenModal}
+                        className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
+                    >
+                        <LucidePlusCircle size={20} className="mr-2"/> Adicionar Tarefa do Pátio
+                    </button>
+                </div>
             </div>
 
             <div className="text-center p-5 bg-white shadow rounded-md">
@@ -3378,16 +3664,16 @@ const TarefaPatioComponent = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-100">
                             <tr>
-                                {["Tarefa", "Prioridade", "Área", "Ação", "Data Criação", "Orientação"].map(header => (
+                                {["Tarefa", "Prioridade", "Área", "Ação", "Data Criação", "Orientação", "Imprimir"].map(header => (
                                     <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap">{header}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {loadingList ? (
-                                <tr><td colSpan="6" className="text-center p-4">Carregando tarefas pendentes...</td></tr>
+                                <tr><td colSpan="7" className="text-center p-4">Carregando tarefas pendentes...</td></tr>
                             ) : tarefasPendentes.length === 0 ? (
-                                <tr><td colSpan="6" className="text-center p-4 text-gray-500">Nenhuma tarefa pendente no momento.</td></tr>
+                                <tr><td colSpan="7" className="text-center p-4 text-gray-500">Nenhuma tarefa pendente no momento.</td></tr>
                             ) : (
                                 tarefasPendentes.map(tp => (
                                     <tr key={tp.id} className="hover:bg-gray-50">
@@ -3397,6 +3683,15 @@ const TarefaPatioComponent = () => {
                                         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.acao || '-'}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.createdAt ? formatDate(tp.createdAt) : '-'}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal break-words">{tp.orientacao || '-'}</td>
+                                        <td className="px-4 py-3 text-sm">
+                                            <button 
+                                                onClick={() => handlePrintTarefas([tp])}
+                                                className="text-gray-500 hover:text-blue-600 p-1 rounded-full hover:bg-blue-100"
+                                                title="Imprimir esta tarefa"
+                                            >
+                                                <LucidePrinter size={18} />
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))
                             )}
@@ -6110,42 +6405,6 @@ const PlanosFitossanitariosComponent = () => {
         }, error => { console.error("Erro ao carregar histórico:", error); });
         return () => unsubscribe();
     }, []);
-
-    const calcularProximaAplicacao = (plano) => {
-        if (!plano.ativo || !plano.dataInicio?.toDate) return null;
-    
-        const agoraUTC = new Date();
-        agoraUTC.setUTCHours(0, 0, 0, 0);
-    
-        const ultima = plano.ultimaAplicacao ? plano.ultimaAplicacao.toDate() : null;
-        let proxima = plano.dataInicio.toDate();
-    
-        if (ultima) {
-            let dataBaseCalculo = ultima;
-            switch (plano.frequencia) {
-                case 'SEMANAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 7); break;
-                case 'QUINZENAL': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + 14); break;
-                case 'MENSAL': dataBaseCalculo.setUTCMonth(dataBaseCalculo.getUTCMonth() + 1); break;
-                case 'INTERVALO_DIAS': dataBaseCalculo.setUTCDate(dataBaseCalculo.getUTCDate() + (plano.diasIntervalo || 1)); break;
-                default: return proxima;
-            }
-            proxima = dataBaseCalculo;
-        }
-    
-        // Avança a data para a próxima ocorrência válida a partir de hoje
-        if (proxima < agoraUTC && plano.frequencia !== 'UNICA') {
-            while (proxima < agoraUTC) {
-                switch (plano.frequencia) {
-                    case 'SEMANAL': proxima.setUTCDate(proxima.getUTCDate() + 7); break;
-                    case 'QUINZENAL': proxima.setUTCDate(proxima.getUTCDate() + 14); break;
-                    case 'MENSAL': proxima.setUTCMonth(proxima.getUTCMonth() + 1); break;
-                    case 'INTERVALO_DIAS': proxima.setUTCDate(proxima.getUTCDate() + (plano.diasIntervalo || 1)); break;
-                    default: break;
-                }
-            }
-        }
-        return proxima;
-    };
     
     const getContagemRegressivaInfo = (proximaAplicacao) => {
         if (!proximaAplicacao) {
@@ -6508,6 +6767,8 @@ const StatusPlanosFitoCard = ({ planos, tarefas }) => {
     );
 };
 
+
+
 // Versão: 19.1.0
 // [MELHORIA] Adicionada a exibição da orientação/observação em cada item do card para fornecer mais contexto.
 const AguardandoAlocacaoFitoCard = ({ aplicacoes }) => {
@@ -6539,8 +6800,7 @@ const AguardandoAlocacaoFitoCard = ({ aplicacoes }) => {
 };
 
 // Versão: 19.0.0
-// [ALTERADO] O layout do Dashboard foi reorganizado para um grid de 4 colunas por linha,
-// redistribuindo os cards conforme a solicitação do usuário.
+// [REVISADO] Componentes de card movidos para dentro do Dashboard para evitar declarações duplicadas.
 const DashboardComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loading: loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
@@ -6558,7 +6818,123 @@ const DashboardComponent = () => {
     const [highlightAtrasadas, setHighlightAtrasadas] = useState(false);
     const atrasadasCardRef = useRef(null);
 
-    // Filtra os dados para o novo card de alocação fito
+    // Card de Status dos Planos (agora interno)
+    const StatusPlanosFitoCard = ({ planos, tarefas }) => {
+        const getStatusPlano = (proximaAplicacao) => {
+            if (!proximaAplicacao) {
+                return { texto: 'Concluído', cor: 'bg-green-100 text-green-800' };
+            }
+            const hojeUTC = new Date();
+            hojeUTC.setUTCHours(0, 0, 0, 0);
+    
+            const proximaUTC = new Date(proximaAplicacao);
+            proximaUTC.setUTCHours(0, 0, 0, 0);
+    
+            const diffTime = proximaUTC.getTime() - hojeUTC.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+            if (diffDays < 0) {
+                return { texto: `ATRASADO HÁ ${Math.abs(diffDays)} DIA(S)`, cor: 'bg-red-200 text-red-900' };
+            }
+            if (diffDays === 0) {
+                return { texto: 'APLICAÇÃO HOJE', cor: 'bg-blue-200 text-blue-900' };
+            }
+            if (diffDays <= 3) {
+                return { texto: `FALTAM ${diffDays} DIA(S)`, cor: 'bg-yellow-200 text-yellow-900' };
+            }
+            return { texto: `Próxima em ${diffDays} dias`, cor: 'bg-gray-100 text-gray-700' };
+        };
+    
+        const planosComStatus = planos.map(plano => {
+            const proximaDataTeorica = calcularProximaAplicacao(plano);
+            if (!proximaDataTeorica) {
+                return { ...plano, statusInfo: { texto: 'Concluído', cor: 'bg-green-100 text-green-800' }, dataExibicao: 'N/A' };
+            }
+    
+            const dataStringBusca = proximaDataTeorica.toISOString().split('T')[0];
+            
+            const tarefaCorrespondente = tarefas.find(t =>
+                t.origemPlanoId === plano.id &&
+                t.origemPlanoDataString === dataStringBusca
+            );
+    
+            if (tarefaCorrespondente) {
+                return {
+                    ...plano,
+                    statusInfo: { texto: tarefaCorrespondente.status, cor: getStatusColor(tarefaCorrespondente.status) },
+                    dataExibicao: formatDate(tarefaCorrespondente.dataInicio)
+                };
+            } else {
+                return {
+                    ...plano,
+                    statusInfo: getStatusPlano(proximaDataTeorica),
+                    dataExibicao: formatDate(proximaDataTeorica)
+                };
+            }
+        }).sort((a, b) => {
+            const order = { 'ATRASADO': 1, 'APLICAÇÃO HOJE': 2, 'FALTAM': 3 };
+            const statusA = a.statusInfo.texto.split(' ')[0];
+            const statusB = b.statusInfo.texto.split(' ')[0];
+            return (order[statusA] || 99) - (order[statusB] || 99);
+        });
+    
+        return (
+            <div className="bg-white p-6 rounded-lg shadow-lg">
+                <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
+                    <LucideSprayCan size={22} className="mr-2 text-green-600" />
+                    Status dos Planos de Aplicação
+                </h3>
+                {planosComStatus.length > 0 ? (
+                    <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                        {planosComStatus.map(plano => (
+                            <li key={plano.id} className="p-3 border rounded-md bg-gray-50/50">
+                                <p className="font-semibold text-sm text-gray-800">{plano.nome}</p>
+                                <div className="flex justify-between items-center mt-1.5">
+                                    <p className="text-xs text-gray-600">Data Prevista: {plano.dataExibicao}</p>
+                                    <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${plano.statusInfo.cor}`}>
+                                        {plano.statusInfo.texto}
+                                    </span>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-sm text-gray-500">Nenhum plano de aplicação ativo encontrado.</p>
+                )}
+            </div>
+        );
+    };
+
+    // Card de Alocação Fito (agora interno)
+    const AguardandoAlocacaoFitoCard = ({ aplicacoes }) => {
+        return (
+            <div className="bg-white p-6 rounded-lg shadow-lg">
+                <h3 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
+                    <LucideAlertTriangle size={22} className="mr-2 text-red-600" />
+                    Aplicações Fito Aguardando Alocação
+                </h3>
+                {aplicacoes.length > 0 ? (
+                    <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                        {aplicacoes.map(app => (
+                            <li key={app.id} className="p-3 border-l-4 border-red-400 rounded-r-md bg-red-50">
+                                <p className="font-semibold text-sm text-red-800">{app.tarefa}</p>
+                                {app.orientacao && (
+                                    <p className="text-xs text-gray-700 mt-1">{app.orientacao}</p>
+                                )}
+                                <p className="text-xs text-red-700 mt-2 pt-1 border-t border-red-200">
+                                    Área: {app.area || 'N/A'} | Data: {formatDate(app.dataInicio)}
+                                </p>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-sm text-gray-500">Nenhuma aplicação fitossanitária aguardando alocação.</p>
+                )}
+            </div>
+        );
+    };
+
+    // Filtra os dados para o card de alocação fito
     const aplicacoesFitoAguardandoAlocacao = useMemo(() => {
         const fitoOrigins = ["Controle Fitossanitário", "Registro Fito (App)", "Reagendamento Fito", "Controle Fitossanitário (Pendente)"];
         return todasTarefas.filter(t =>

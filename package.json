@@ -10,11 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "date-fns": "^4.1.0",
     "firebase": "^11.8.1",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.511.0",
     "react": "^18.2.0",
+    "react-datepicker": "^8.7.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.5.2"
   },
