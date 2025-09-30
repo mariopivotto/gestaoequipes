@@ -6,10 +6,12 @@ import firebaseAppInstance from './firebaseConfig';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc, deleteDoc, onSnapshot, query, where, Timestamp, writeBatch, updateDoc, orderBy, limit, collectionGroup } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
-// Versão: 14.0.0
-// [NOVO] Adicionado o ícone 'LucideNotebookText' para o novo menu de gerenciamento de anotações.
+import DatePicker, { registerLocale } from 'react-datepicker';
+import ptBR from 'date-fns/locale/pt-BR';
+import "react-datepicker/dist/react-datepicker.css";
 import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy, LucideKanbanSquare } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+registerLocale('pt-BR', ptBR);
 
 // Inicialização do Firebase
 const firebaseApp = firebaseAppInstance;
@@ -692,9 +694,10 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 21.0.0
-// [REMOVIDO] A chave de permissão 'planejamento' foi removida, pois a funcionalidade se tornou de acesso geral
-// para usuários que já podem ver a programação.
+// Versão: 27.0.0 (GlobalProvider)
+// [NOVO] Adicionada a chave de permissão 'planejamento' ao array `chavesDePermissao`.
+// Isso faz com que a aplicação passe a carregar a lista de usuários autorizados a acessar
+// o "Planejamento (Visão)" a partir da coleção `permissoes_planejamento` no Firestore.
 const GlobalProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(undefined);
     const [userId, setUserId] = useState(null);
@@ -750,8 +753,8 @@ const GlobalProvider = ({ children }) => {
         }
 
         const fetches = [];
-        // [REMOVIDO] Chave 'planejamento' removida da lista
-        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda', 'monitoramento', 'gerenciar_anotacoes'];
+        // [ALTERADO] Adicionada a chave 'planejamento'.
+        const chavesDePermissao = ['dashboard', 'mapa', 'programacao', 'planejamento', 'anotacoes', 'pendentes', 'relatorios', 'config', 'add_tarefa', 'fito', 'agenda', 'monitoramento', 'gerenciar_anotacoes'];
         
         chavesDePermissao.forEach(chave => {
             const q = query(collection(db, `${basePath}/listas_auxiliares/permissoes_${chave}/items`));
@@ -1047,30 +1050,32 @@ const ListaAuxiliarManager = ({ nomeLista, nomeSingular, collectionPathSegment }
     );
 };
 
-// Versão: 22.0.0
-// [CORRIGIDO] Adicionado um listener em tempo real (onSnapshot) para a coleção de funcionários.
-// Isso resolve o bug onde a lista de funcionários na tela de Configurações não era
-// atualizada automaticamente após adicionar ou excluir um funcionário, exigindo um refresh da página.
-// O componente agora gerencia seu próprio estado da lista, garantindo que a UI esteja sempre
-// sincronizada com o banco de dados.
+// Versão: 22.1.0 (FuncionariosManager)
+// [ARQUITETURA] Implementado o conceito de "Soft Delete" (inativação).
+// A exclusão de um funcionário agora apenas o marca como 'ativo: false', preservando
+// todo o histórico de tarefas associadas para fins de auditoria.
 const FuncionariosManager = () => {
     const { db, appId } = useContext(GlobalContext);
-    // [NOVO] Estado local para gerenciar a lista de funcionários em tempo real.
     const [funcionarios, setFuncionarios] = useState([]); 
     const [novoFuncionarioNome, setNovoFuncionarioNome] = useState('');
     const [editingFuncionario, setEditingFuncionario] = useState(null);
-    const [loading, setLoading] = useState(true); // Alterado para true para refletir o carregamento inicial
+    const [loading, setLoading] = useState(true);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const funcionariosCollectionRef = collection(db, `${basePath}/funcionarios`);
 
-    // [NOVO] useEffect para ouvir as alterações na coleção de funcionários em tempo real.
     useEffect(() => {
         setLoading(true);
-        const q = query(funcionariosCollectionRef, orderBy("nome", "asc"));
+        // Ordena primeiro por status 'ativo' (true vem primeiro) e depois por nome.
+        const q = query(funcionariosCollectionRef, orderBy("ativo", "desc"), orderBy("nome", "asc"));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedFuncionarios = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const fetchedFuncionarios = snapshot.docs.map(doc => ({ 
+                id: doc.id, 
+                ...doc.data(),
+                // Garante que funcionários antigos sem o campo 'ativo' sejam considerados ativos.
+                ativo: doc.data().ativo !== false 
+            }));
             setFuncionarios(fetchedFuncionarios);
             setLoading(false);
         }, (error) => {
@@ -1079,9 +1084,8 @@ const FuncionariosManager = () => {
             setLoading(false);
         });
 
-        // Limpa o listener quando o componente é desmontado para evitar vazamentos de memória.
         return () => unsubscribe();
-    }, [db, appId, basePath]); // As dependências garantem que o listener seja recriado se necessário.
+    }, [db, appId, basePath]);
 
     const handleAddFuncionario = async () => {
         if (!novoFuncionarioNome.trim()) return;
@@ -1090,28 +1094,23 @@ const FuncionariosManager = () => {
             const nomeIdFormatado = novoFuncionarioNome.trim().toUpperCase().replace(/\//g, '_');
             const nomeDisplayFormatado = novoFuncionarioNome.trim().toUpperCase();
 
-            if (!nomeIdFormatado) {
-                alert("O nome do funcionário não pode ser vazio ou consistir apenas em caracteres inválidos.");
-                setLoading(false);
-                return;
-            }
-
             const docRef = doc(funcionariosCollectionRef, nomeIdFormatado);
             const docSnap = await getDoc(docRef);
 
             if (docSnap.exists()) {
-                alert("Funcionário com este ID (nome formatado: " + nomeIdFormatado + ") já existe.");
+                toast.error("Um funcionário com este nome (ID formatado) já existe.");
                 setLoading(false);
                 return;
             }
-            // A UI será atualizada automaticamente pelo listener 'onSnapshot' após esta operação.
-            await setDoc(docRef, { nome: nomeDisplayFormatado }); 
+            
+            // Adiciona o novo funcionário com o status 'ativo: true' por padrão.
+            await setDoc(docRef, { nome: nomeDisplayFormatado, ativo: true }); 
             setNovoFuncionarioNome('');
+            toast.success("Funcionário adicionado com sucesso!");
         } catch (error) {
             console.error("Erro ao adicionar funcionário: ", error);
-            alert("Erro ao adicionar funcionário: " + error.message);
+            toast.error("Erro ao adicionar funcionário: " + error.message);
         }
-        // O loading é resetado pelo listener, mas garantimos aqui caso haja erro.
         setLoading(false); 
     };
     
@@ -1121,70 +1120,34 @@ const FuncionariosManager = () => {
         try {
             const nomeDisplayAtualizado = editingFuncionario.nome.trim().toUpperCase();
             const funcDocRef = doc(db, `${basePath}/funcionarios`, editingFuncionario.id);
-            // A UI será atualizada automaticamente pelo listener 'onSnapshot'.
-            await setDoc(funcDocRef, { nome: nomeDisplayAtualizado }); 
+            
+            // Apenas atualiza o nome, preservando o status 'ativo'.
+            await updateDoc(funcDocRef, { nome: nomeDisplayAtualizado }); 
             setEditingFuncionario(null);
+            toast.success("Nome do funcionário atualizado!");
         } catch (error) {
             console.error("Erro ao atualizar funcionário: ", error);
-            alert("Erro ao atualizar funcionário: " + error.message);
+            toast.error("Erro ao atualizar funcionário: " + error.message);
         }
         setLoading(false);
     };
 
-    const handleDeleteFuncionario = async (funcionarioId) => {
-        const funcionarioParaExcluir = funcionarios.find(f => f.id === funcionarioId);
-        const nomeExibicao = funcionarioParaExcluir ? funcionarioParaExcluir.nome : funcionarioId;
-
-        if (window.confirm(`Tem certeza que deseja excluir o funcionário "${nomeExibicao}"? Isso pode afetar tarefas associadas.`)) {
+    // [NOVA FUNÇÃO] para inativar/ativar em vez de excluir.
+    const handleToggleAtivoFuncionario = async (funcionario) => {
+        const novoStatus = !funcionario.ativo;
+        const acao = novoStatus ? "reativar" : "inativar";
+        
+        if (window.confirm(`Tem certeza que deseja ${acao} o funcionário "${funcionario.nome}"?`)) {
             setLoading(true);
             try {
-                // Limpeza de referências na programação semanal (lógica mantida)
-                const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
-                const todasSemanasSnap = await getDocs(todasSemanasQuery);
-                const batchLimpezaProgramacao = writeBatch(db);
-                let programacaoModificada = false;
-
-                todasSemanasSnap.forEach(semanaDocSnap => {
-                    const semanaData = semanaDocSnap.data();
-                    const novosDias = JSON.parse(JSON.stringify(semanaData.dias || {}));
-                    let estaSemanaModificada = false;
-                    Object.keys(novosDias).forEach(diaKey => {
-                        if (novosDias[diaKey][funcionarioId]) {
-                            delete novosDias[diaKey][funcionarioId];
-                            estaSemanaModificada = true;
-                        }
-                    });
-                    if (estaSemanaModificada) {
-                        batchLimpezaProgramacao.update(semanaDocSnap.ref, { dias: novosDias });
-                        programacaoModificada = true;
-                    }
-                });
-
-                if (programacaoModificada) {
-                    await batchLimpezaProgramacao.commit();
-                }
-                
-                // Limpeza de referências no mapa de atividades (lógica mantida)
-                const tarefasMapaQuery = query(collection(db, `${basePath}/tarefas_mapa`), where("responsaveis", "array-contains", funcionarioId));
-                const tarefasMapaSnap = await getDocs(tarefasMapaQuery);
-                const batchAtualizaMapa = writeBatch(db);
-                tarefasMapaSnap.forEach(tarefaDocSnap => {
-                    const tarefaData = tarefaDocSnap.data();
-                    const novosResponsaveis = tarefaData.responsaveis.filter(rId => rId !== funcionarioId);
-                    batchAtualizaMapa.update(tarefaDocSnap.ref, { responsaveis: novosResponsaveis });
-                });
-                await batchAtualizaMapa.commit();
-
-                // Exclusão do documento do funcionário. A UI será atualizada pelo 'onSnapshot'.
-                const funcDocRef = doc(db, `${basePath}/funcionarios`, funcionarioId);
-                await deleteDoc(funcDocRef);
-
+                const funcDocRef = doc(db, `${basePath}/funcionarios`, funcionario.id);
+                await updateDoc(funcDocRef, { ativo: novoStatus });
+                toast.success(`Funcionário ${novoStatus ? 'reativado' : 'inativado'} com sucesso.`);
             } catch (error) {
-                console.error("Erro ao excluir funcionário e limpar referências: ", error);
-                alert("Erro ao excluir funcionário: " + error.message);
-                setLoading(false); // Garante que o loading para em caso de erro.
+                console.error(`Erro ao ${acao} funcionário: `, error);
+                toast.error(`Erro ao ${acao} funcionário: ` + error.message);
             }
-            // Não é mais necessário setLoading(false) aqui, o listener fará o trabalho.
+            setLoading(false);
         }
     };
     
@@ -1196,7 +1159,7 @@ const FuncionariosManager = () => {
                     type="text"
                     value={editingFuncionario ? editingFuncionario.nome : novoFuncionarioNome}
                     onChange={(e) => editingFuncionario ? setEditingFuncionario({...editingFuncionario, nome: e.target.value}) : setNovoFuncionarioNome(e.target.value)}
-                    placeholder="Nome do Funcionário (ex: JOÃO SILVA ou CARGA/DESCARGA)"
+                    placeholder="Nome do Funcionário"
                     className="border p-2 rounded-l-md flex-grow focus:ring-blue-500 focus:border-blue-500"
                 />
                 <button
@@ -1216,15 +1179,18 @@ const FuncionariosManager = () => {
                     </button>
                 )}
             </div>
-            {/* [ALTERADO] A lista agora é renderizada a partir do estado local 'funcionarios'. */}
             {loading && funcionarios.length === 0 && <p>Carregando funcionários...</p>}
             <ul className="space-y-1 max-h-60 overflow-y-auto">
                 {funcionarios.map(f => (
-                    <li key={f.id} className="flex justify-between items-center p-2 border-b hover:bg-gray-50 rounded-md">
-                        <span>{f.nome}</span>
-                        <div>
-                            <button onClick={() => setEditingFuncionario(f)} className="text-blue-500 hover:text-blue-700 mr-2"><LucideEdit size={16}/></button>
-                            <button onClick={() => handleDeleteFuncionario(f.id)} className="text-red-500 hover:text-red-700"><LucideTrash2 size={16}/></button>
+                    <li key={f.id} className={`flex justify-between items-center p-2 border-b rounded-md ${!f.ativo ? 'bg-gray-100' : 'hover:bg-gray-50'}`}>
+                        <span className={`${!f.ativo ? 'text-gray-500 line-through' : ''}`}>{f.nome}</span>
+                        <div className="flex items-center gap-2">
+                             <button onClick={() => setEditingFuncionario(f)} className="text-blue-500 hover:text-blue-700" title="Editar Nome"><LucideEdit size={16}/></button>
+                             {f.ativo ? (
+                                <button onClick={() => handleToggleAtivoFuncionario(f)} className="text-red-500 hover:text-red-700" title="Inativar Funcionário"><LucideXCircle size={16}/></button>
+                             ) : (
+                                <button onClick={() => handleToggleAtivoFuncionario(f)} className="text-green-500 hover:text-green-700" title="Reativar Funcionário"><LucideCheckCircle size={16}/></button>
+                             )}
                         </div>
                     </li>
                 ))}
@@ -1233,11 +1199,11 @@ const FuncionariosManager = () => {
     );
 };
 
-// Versão: 11.1.0
-// [NOVO] Adicionado o card para gerenciar as permissões de acesso à tela "Gerenciar Anotações".
-// [ALTERADO] Invertida a ordem das abas em Configurações, com "Cadastros Gerais" aparecendo primeiro.
+// Versão: 27.0.0 (ConfiguracoesComponent)
+// [NOVO] Adicionado um card de gerenciamento de permissões para o "Planejamento (Visão)".
+// Agora é possível controlar o acesso a essa tela de forma independente através da interface de Configurações,
+// associado à nova chave de permissão `permissoes_planejamento`.
 const ConfiguracoesComponent = () => {
-    // A aba ativa inicial agora é 'cadastros'.
     const [activeTab, setActiveTab] = useState('cadastros');
 
     const TabButton = ({ tabName, currentTab, setTab, children }) => {
@@ -1261,7 +1227,6 @@ const ConfiguracoesComponent = () => {
             <h2 className="text-2xl font-semibold mb-6 text-gray-800">Configurações Gerais</h2>
             <div className="border-b border-gray-200 mb-6">
                 <nav className="flex space-x-2">
-                    {/* Ordem das abas invertida */}
                     <TabButton tabName="cadastros" currentTab={activeTab} setTab={setActiveTab}>Cadastros Gerais</TabButton>
                     <TabButton tabName="permissoes" currentTab={activeTab} setTab={setActiveTab}>Permissões de Acesso</TabButton>
                 </nav>
@@ -1273,9 +1238,11 @@ const ConfiguracoesComponent = () => {
                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             <ListaAuxiliarManager nomeLista="Acesso ao Dashboard" nomeSingular="E-mail" collectionPathSegment="permissoes_dashboard" />
                             <ListaAuxiliarManager nomeLista="Acesso ao Mapa de Atividades" nomeSingular="E-mail" collectionPathSegment="permissoes_mapa" />
-                            <ListaAuxiliarManager nomeLista="Acesso à Programação Semanal" nomeSingular="E-mail" collectionPathSegment="permissoes_programacao" />
+                            <ListaAuxiliarManager nomeLista="Acesso à Programação (Grade)" nomeSingular="E-mail" collectionPathSegment="permissoes_programacao" />
+                            {/* [NOVO] Card de permissão para o Planejamento (Visão). */}
+                            <ListaAuxiliarManager nomeLista="Acesso ao Planejamento (Visão)" nomeSingular="E-mail" collectionPathSegment="permissoes_planejamento" />
                             <ListaAuxiliarManager nomeLista="Acesso ao Controle Fitossanitário" nomeSingular="E-mail" collectionPathSegment="permissoes_fito" />
-                            <ListaAuxiliarManager nomeLista="Acesso à Agenda Diária" nomeSingular="E-mail" collectionPathSegment="permissoes_agenda" />
+                            <ListaAuxiliarManager nomeLista="Acesso à Agenda Semanal" nomeSingular="E-mail" collectionPathSegment="permissoes_agenda" />
                             <ListaAuxiliarManager nomeLista="Acesso à Tarefa Pátio" nomeSingular="E-mail" collectionPathSegment="permissoes_anotacoes" />
                             <ListaAuxiliarManager nomeLista="Acesso às Tarefas Pendentes" nomeSingular="E-mail" collectionPathSegment="permissoes_pendentes" />
                             <ListaAuxiliarManager nomeLista="Acesso aos Relatórios" nomeSingular="E-mail" collectionPathSegment="permissoes_relatorios" />
@@ -1653,7 +1620,7 @@ const TarefaFormModal = ({ isOpen, onClose, tarefaExistente, onSave }) => {
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Responsável(eis)</label>
                     <select multiple value={responsaveis} onChange={handleResponsavelChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-32">
-                        {funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                        {funcionarios.filter(f => f.ativo).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
                     </select>
                     <p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p>
                 </div>
@@ -2003,7 +1970,6 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
 };
 
 
-
 // Versão: 24.0.0
 // [MELHORIA] Os filtros de data "Início do Período" e "Fim do Período" no Mapa de Atividades
 // agora são preenchidos automaticamente com o primeiro e o último dia do mês atual ao carregar a página.
@@ -2327,6 +2293,7 @@ const MapaAtividadesComponent = () => {
     );
 };
 
+
 // Versão: 19.5.0
 // [NOVO] Adicionado estado 'observacoes' para armazenar dinamicamente o texto para cada funcionário.
 // [NOVO] Adicionado um campo de 'textarea' para cada funcionário na lista para inserir observações.
@@ -2538,16 +2505,110 @@ const OrdemServicoModal = ({ isOpen, onClose, dadosProgramacao, funcionarios, lo
     );
 };
 
-// Versão: 21.3.0
-// [ALTERADO] O nome do funcionário foi movido para o topo do card de tarefa, alinhado à esquerda,
-// com um separador abaixo para melhor organização visual.
 
+// ===================================================================================
+// [NOVO COMPONENTE] Modal para Opções de Impressão do Planejamento
+// ===================================================================================
+const PrintOptionsModal = ({ isOpen, onClose, onPrintWeek, onPrintDay, semanaAtual }) => {
+    const [diaSelecionado, setDiaSelecionado] = useState('');
+
+    useEffect(() => {
+        if (isOpen && semanaAtual?.dataInicioSemana) {
+            const primeiroDia = semanaAtual.dataInicioSemana.toDate().toISOString().split('T')[0];
+            setDiaSelecionado(primeiroDia);
+        }
+    }, [isOpen, semanaAtual]);
+
+    if (!isOpen || !semanaAtual) return null;
+
+    const diasDaSemana = Array.from({ length: 6 }).map((_, i) => {
+        const data = new Date(semanaAtual.dataInicioSemana.toDate());
+        data.setUTCDate(data.getUTCDate() + i);
+        return {
+            iso: data.toISOString().split('T')[0],
+            label: data.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'UTC' })
+        };
+    });
+
+    const handlePrintDayClick = () => {
+        if (diaSelecionado) {
+            onPrintDay(diaSelecionado);
+            onClose();
+        } else {
+            toast.error("Por favor, selecione um dia.");
+        }
+    };
+
+    const handlePrintWeekClick = () => {
+        onPrintWeek();
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Opções de Impressão">
+            <div className="space-y-6">
+                <div className="text-center">
+                    <button
+                        onClick={handlePrintWeekClick}
+                        className="w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                        Imprimir Semana Completa
+                    </button>
+                </div>
+
+                <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-300" />
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                        <span className="px-2 bg-white text-gray-500">OU</span>
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    <div>
+                        <label htmlFor="select-dia" className="block text-sm font-medium text-gray-700">
+                            Selecione um dia específico:
+                        </label>
+                        <select
+                            id="select-dia"
+                            value={diaSelecionado}
+                            onChange={(e) => setDiaSelecionado(e.target.value)}
+                            className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"
+                        >
+                            {diasDaSemana.map(dia => (
+                                <option key={dia.iso} value={dia.iso}>
+                                    {dia.label} ({formatDate(new Date(dia.iso + 'T12:00:00Z'))})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <button
+                        onClick={handlePrintDayClick}
+                        className="w-full bg-gray-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-gray-700 transition-colors"
+                    >
+                        Imprimir Dia Selecionado
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+
+// Versão: 21.6.3 (PlanejamentoSemanalCardViewComponent)
+// [MELHORIA] O estilo de impressão foi alterado para um design minimalista e profissional.
+// As cores de fundo dos cards foram removidas na versão impressa para melhorar a legibilidade.
 const PlanejamentoSemanalCardViewComponent = () => {
     const { db, appId, funcionarios: contextFuncionarios } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
     const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
     const [dadosProgramacao, setDadosProgramacao] = useState(null);
     const [loading, setLoading] = useState(true);
+    
+    const [filtroFuncionario, setFiltroFuncionario] = useState('TODOS');
+    const [filtroTarefa, setFiltroTarefa] = useState('');
+    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
@@ -2587,6 +2648,201 @@ const PlanejamentoSemanalCardViewComponent = () => {
         return unsub;
     }, [semanaSelecionadaId, db, basePath]);
 
+    const handleDateSelect = (date) => {
+        const selectedTime = date.getTime();
+        
+        const semanaEncontrada = semanas.find(s => {
+            if (s.dataInicioSemana && s.dataFimSemana) {
+                const inicio = s.dataInicioSemana.toDate();
+                inicio.setUTCHours(0,0,0,0);
+
+                const fim = s.dataFimSemana.toDate();
+                fim.setUTCHours(23,59,59,999);
+
+                return selectedTime >= inicio.getTime() && selectedTime <= fim.getTime();
+            }
+            return false;
+        });
+
+        if (semanaEncontrada) {
+            setSemanaSelecionadaId(semanaEncontrada.id);
+        } else {
+            toast.error("Nenhuma semana de programação criada para a data selecionada.");
+        }
+    };
+
+    const CustomCalendarInput = React.forwardRef(({ value, onClick }, ref) => (
+        <button 
+            className="p-2 border rounded-md shadow-sm bg-white hover:bg-gray-50 flex items-center gap-2" 
+            onClick={onClick} 
+            ref={ref}
+        >
+            <LucideCalendarDays size={18} className="text-gray-600" />
+            <span className="font-semibold text-gray-800">{value}</span>
+        </button>
+    ));
+
+    const highlightedDates = useMemo(() => {
+        const dates = [];
+        semanas.forEach(s => {
+            if (s.dataInicioSemana && s.dataFimSemana) {
+                let current = new Date(s.dataInicioSemana.toDate());
+                const end = s.dataFimSemana.toDate();
+                while (current <= end) {
+                    dates.push(new Date(current));
+                    current.setDate(current.getDate() + 1);
+                }
+            }
+        });
+        return dates;
+    }, [semanas]);
+
+    const semanaAtual = semanas.find(s => s.id === semanaSelecionadaId);
+
+    const getPrintStyles = () => `
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+        body { font-family: 'Roboto', sans-serif; margin: 20px; font-size: 9pt; background-color: #fff; color: #000; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .header h1 { margin: 0; font-size: 16pt; color: #000; }
+        .header h2 { margin: 5px 0 0 0; font-size: 12pt; color: #333; font-weight: 400; }
+        .task-card { background-color: #fff !important; border: 1px solid #ccc !important; border-radius: 4px; padding: 6px; margin-bottom: 6px; color: #000; page-break-inside: avoid; }
+        .task-header { font-weight: 700; font-size: 8pt; padding-bottom: 3px; border-bottom: 1px solid #ddd; margin-bottom: 3px; }
+        .task-body { font-weight: 500; font-size: 8pt; }
+        .task-footer { font-style: italic; font-size: 7pt; color: #555; margin-top: 3px; }
+        .no-tasks { text-align: center; font-style: italic; color: #888; font-size: 8pt; padding-top: 20px; }
+    `;
+    
+    const getTasksForDay = (diaFormatado) => {
+        let tarefasDoDia = [];
+        if (dadosProgramacao?.dias?.[diaFormatado]) {
+            const funcionariosDoDia = Object.keys(dadosProgramacao.dias[diaFormatado]);
+            const funcionariosFiltrados = (filtroFuncionario === 'TODOS') ? funcionariosDoDia : funcionariosDoDia.filter(funcId => funcId === filtroFuncionario);
+            
+            funcionariosFiltrados.forEach(funcId => {
+                const funcionario = contextFuncionarios.find(f => f.id === funcId);
+                if (funcionario) {
+                    const tarefasDoFuncionario = dadosProgramacao.dias[diaFormatado][funcId];
+                    const tarefasFiltradasPorTexto = (filtroTarefa.trim() === '') ? tarefasDoFuncionario : tarefasDoFuncionario.filter(tarefa => tarefa.textoVisivel.toLowerCase().includes(filtroTarefa.toLowerCase()) || (tarefa.orientacao && tarefa.orientacao.toLowerCase().includes(filtroTarefa.toLowerCase())));
+                    
+                    tarefasFiltradasPorTexto.forEach((tarefa, index) => {
+                        tarefasDoDia.push({ 
+                            ...tarefa, 
+                            funcionarioNome: funcionario.nome,
+                            uniqueKey: `${funcId}-${tarefa.mapaTaskId || index}`
+                        });
+                    });
+                }
+            });
+        }
+        return tarefasDoDia.sort((a, b) => a.funcionarioNome.localeCompare(b.funcionarioNome));
+    };
+
+    const handlePrintWeek = () => {
+        if (!dadosProgramacao || !semanaAtual) {
+            toast.error("Não há dados carregados para imprimir.");
+            return;
+        }
+    
+        const headerHtml = `
+            <div class="header">
+                <h1>Planejamento Semanal (Visão por Colunas)</h1>
+                <h2>${semanaAtual.nomeAba} (${formatDate(semanaAtual.dataInicioSemana)} - ${formatDate(semanaAtual.dataFimSemana)})</h2>
+            </div>
+        `;
+    
+        const dataInicio = dadosProgramacao.dataInicioSemana.toDate();
+        let columnsHtml = '';
+    
+        for (let i = 0; i < 6; i++) {
+            const dataDia = new Date(dataInicio);
+            dataDia.setUTCDate(dataDia.getUTCDate() + i);
+            const diaFormatado = dataDia.toISOString().split('T')[0];
+            const diaDaSemanaNome = DIAS_DA_SEMANA[i];
+            const dataLabel = dataDia.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' });
+    
+            const todasAsTarefasDoDia = getTasksForDay(diaFormatado);
+    
+            let tasksHtml = '';
+            if (todasAsTarefasDoDia.length > 0) {
+                tasksHtml = todasAsTarefasDoDia.map(tarefa => `
+                    <div class="task-card">
+                        <div class="task-header">${tarefa.funcionarioNome}</div>
+                        <div class="task-body">${tarefa.textoVisivel}</div>
+                        ${tarefa.orientacao ? `<div class="task-footer">${tarefa.orientacao}</div>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                tasksHtml = '<p class="no-tasks">Sem planejamento</p>';
+            }
+    
+            columnsHtml += `
+                <div class="column">
+                    <h3>${diaDaSemanaNome} <span class="date-label">${dataLabel}</span></h3>
+                    <div class="tasks-container">${tasksHtml}</div>
+                </div>
+            `;
+        }
+    
+        const styles = `
+            ${getPrintStyles()}
+            @page { size: A4 landscape; margin: 15mm; }
+            .grid-container { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+            .column { border: 1px solid #ccc; border-radius: 8px; padding: 10px; page-break-inside: avoid; }
+            .column h3 { text-align: center; margin: 0 0 10px 0; font-size: 11pt; padding-bottom: 5px; border-bottom: 1px solid #ddd; }
+            .column h3 .date-label { font-size: 9pt; color: #666; font-weight: 400; }
+        `;
+        
+        const fullHtml = `<html><head><title>Planejamento Semanal - Impressão</title><style>${styles}</style></head><body>${headerHtml}<div class="grid-container">${columnsHtml}</div></body></html>`;
+        
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(fullHtml);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); }, 500);
+    };
+
+    const handlePrintDay = (isoDate) => {
+        if (!dadosProgramacao || !semanaAtual) {
+            toast.error("Não há dados carregados para imprimir.");
+            return;
+        }
+
+        const dataDia = new Date(isoDate + 'T12:00:00Z');
+        const diaDaSemanaNome = dataDia.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'UTC' });
+        const dataLabel = formatDate(dataDia);
+
+        const todasAsTarefasDoDia = getTasksForDay(isoDate);
+
+        const tasksHtml = todasAsTarefasDoDia.length > 0 ? todasAsTarefasDoDia.map(tarefa => `
+            <div class="task-card">
+                <div class="task-header">${tarefa.funcionarioNome}</div>
+                <div class="task-body">${tarefa.textoVisivel}</div>
+                ${tarefa.orientacao ? `<div class="task-footer">${tarefa.orientacao}</div>` : ''}
+            </div>
+        `).join('') : '<p class="no-tasks">Sem planejamento para este dia.</p>';
+        
+        const headerHtml = `
+            <div class="header">
+                <h1>Planejamento Diário - ${diaDaSemanaNome}</h1>
+                <h2>${semanaAtual.nomeAba} - ${dataLabel}</h2>
+            </div>
+        `;
+
+        const styles = `
+            ${getPrintStyles()}
+            @page { size: A4 portrait; margin: 20mm; }
+            .tasks-container { border: 1px solid #ccc; border-radius: 8px; padding: 10px; }
+        `;
+        
+        const fullHtml = `<html><head><title>Impressão - ${dataLabel}</title><style>${styles}</style></head><body>${headerHtml}<div class="tasks-container">${tasksHtml}</div></body></html>`;
+        
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(fullHtml);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); }, 500);
+    };
+
     const renderColunasDaSemana = () => {
         if (loading || !dadosProgramacao || !dadosProgramacao.dataInicioSemana) {
             return DIAS_DA_SEMANA.map(dia => (
@@ -2607,23 +2863,7 @@ const PlanejamentoSemanalCardViewComponent = () => {
             const diaDaSemanaNome = DIAS_DA_SEMANA[i];
             const dataLabel = dataDia.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' });
 
-            const todasAsTarefasDoDia = [];
-            if (dadosProgramacao.dias?.[diaFormatado]) {
-                Object.keys(dadosProgramacao.dias[diaFormatado]).forEach(funcId => {
-                    const funcionario = contextFuncionarios.find(f => f.id === funcId);
-                    if (funcionario) {
-                        const tarefasDoFuncionario = dadosProgramacao.dias[diaFormatado][funcId];
-                        tarefasDoFuncionario.forEach((tarefa, index) => {
-                            todasAsTarefasDoDia.push({
-                                ...tarefa,
-                                funcionarioNome: funcionario.nome,
-                                uniqueKey: `${funcId}-${tarefa.mapaTaskId || index}` 
-                            });
-                        });
-                    }
-                });
-            }
-            todasAsTarefasDoDia.sort((a, b) => a.funcionarioNome.localeCompare(b.funcionarioNome));
+            const todasAsTarefasDoDia = getTasksForDay(diaFormatado);
 
             colunas.push(
                 <div key={diaFormatado} className="bg-gray-200 rounded-lg p-3 flex flex-col h-full">
@@ -2632,20 +2872,15 @@ const PlanejamentoSemanalCardViewComponent = () => {
                     <div className="space-y-3 overflow-y-auto flex-1">
                         {todasAsTarefasDoDia.length > 0 ? (
                             todasAsTarefasDoDia.map(tarefa => (
-                                // [ALTERADO] A ordem dos elementos dentro do card foi ajustada.
                                 <div 
                                     key={tarefa.uniqueKey} 
                                     className="p-2 rounded-md shadow-sm text-black text-[11px] leading-tight flex flex-col" 
                                     style={{ backgroundColor: getAcaoColor(tarefa.acao) }}
                                 >
-                                    {/* Nome do funcionário agora está no topo, à esquerda */}
                                     <div className="mb-1 pb-1 border-b border-black border-opacity-20 text-left font-semibold">
                                         {tarefa.funcionarioNome}
                                     </div>
-                                    
-                                    {/* Detalhes da tarefa logo abaixo */}
                                     <div className="font-semibold">{tarefa.textoVisivel}</div>
-                                    
                                     {tarefa.orientacao && (
                                         <div className="font-normal italic opacity-90 mt-1">{tarefa.orientacao}</div>
                                     )}
@@ -2660,41 +2895,86 @@ const PlanejamentoSemanalCardViewComponent = () => {
         }
         return colunas;
     };
-    
-    const semanaAtual = semanas.find(s => s.id === semanaSelecionadaId);
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full flex flex-col">
-            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Planejamento Semanal (Visão por Colunas)</h2>
-                <div className="flex flex-wrap items-center gap-2">
-                    <select value={semanaSelecionadaId || ''} onChange={(e) => setSemanaSelecionadaId(e.target.value)} className="p-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" disabled={semanas.length === 0}>
-                        {semanas.length === 0 ? <option>Nenhuma semana criada</option> : semanas.map(s => (<option key={s.id} value={s.id}>{s.nomeAba}</option>))}
-                    </select>
-                    <span className='text-sm text-gray-600 font-medium'>
-                         {semanaAtual && `(${formatDate(semanaAtual.dataInicioSemana)} - ${formatDate(semanaAtual.dataFimSemana)})`}
-                    </span>
+                <div className="flex flex-wrap items-center gap-4">
+                    <div className="relative">
+                        <DatePicker
+                            selected={semanaAtual?.dataInicioSemana?.toDate()}
+                            onChange={handleDateSelect}
+                            locale="pt-BR"
+                            dateFormat="dd/MM/yyyy"
+                            showWeekNumbers
+                            highlightDates={highlightedDates}
+                            customInput={ <CustomCalendarInput value={semanaAtual ? `${semanaAtual.nomeAba}` : "Selecione"} /> }
+                            popperPlacement="bottom-start"
+                        />
+                    </div>
+                    <button 
+                        onClick={() => setIsPrintModalOpen(true)}
+                        className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
+                        disabled={!dadosProgramacao}
+                    >
+                        <LucidePrinter size={18} className="mr-2"/> Imprimir Visão
+                    </button>
                 </div>
             </div>
+
+            <div className="bg-white p-4 rounded-lg shadow-md mb-6 flex flex-wrap items-end gap-4">
+                <div className="flex-grow">
+                    <label htmlFor="filtroFuncionario" className="block text-sm font-medium text-gray-700">Filtrar por Funcionário</label>
+                    <select
+                        id="filtroFuncionario"
+                        value={filtroFuncionario}
+                        onChange={(e) => setFiltroFuncionario(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"
+                    >
+                        <option value="TODOS">Todos os Funcionários</option>
+                        {contextFuncionarios.map(f => (
+                            <option key={f.id} value={f.id}>{f.nome}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex-grow">
+                    <label htmlFor="filtroTarefa" className="block text-sm font-medium text-gray-700">Buscar por Tarefa / Orientação</label>
+                    <input
+                        id="filtroTarefa"
+                        type="text"
+                        value={filtroTarefa}
+                        onChange={(e) => setFiltroTarefa(e.target.value)}
+                        placeholder="Digite para buscar..."
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"
+                    />
+                </div>
+                <button
+                    onClick={() => { setFiltroFuncionario('TODOS'); setFiltroTarefa(''); }}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-semibold flex items-center p-2"
+                >
+                    <LucideXCircle size={16} className="mr-1"/> Limpar Filtros
+                </button>
+            </div>
+
             <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 h-full">
                 {renderColunasDaSemana()}
             </div>
+            
+            <PrintOptionsModal 
+                isOpen={isPrintModalOpen}
+                onClose={() => setIsPrintModalOpen(false)}
+                onPrintWeek={handlePrintWeek}
+                onPrintDay={handlePrintDay}
+                semanaAtual={semanaAtual}
+            />
         </div>
     );
 };
 
-// Versão: 25.2.0
-// [CORRIGIDO] Restaurado o corpo completo de TODAS as funções internas do componente (como handleAbrirRegistroDiario, 
-// handleCriarNovaSemana, etc.), que foram omitidas por engano na versão anterior. Este erro impedia o funcionamento
-// de botões como "Registro do Dia" e a renderização correta da tabela. O componente agora está completo e funcional.
-
-import DatePicker, { registerLocale } from 'react-datepicker';
-import ptBR from 'date-fns/locale/pt-BR';
-import "react-datepicker/dist/react-datepicker.css";
-
-// Registra o locale em português para o calendário
-registerLocale('pt-BR', ptBR);
-
+// Versão: 25.2.1 (ProgramacaoSemanalComponent)
+// [CORRIGIDO] Corrigido o bug que impedia a abertura do modal de gerenciamento de tarefas.
+// Havia um erro de referência de variável no evento 'onClick' da célula (usando 'responsavelId' em vez de 'funcionarioId').
 const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2819,7 +3099,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
         return dates;
     }, [semanas]);
 
-    // Funções auxiliares e handlers (CORPO COMPLETO RESTAURADO)
+    // Funções auxiliares e handlers
     const formatDateProg = (timestamp) => {
         if (timestamp && typeof timestamp.toDate === 'function') {
             return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
@@ -6046,7 +6326,7 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Responsável(eis) <span className="text-red-500">*</span></label>
                     <select multiple value={responsaveisAloc} onChange={handleResponsavelAlocChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-28">
-                        {funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                    {funcionarios.filter(f => f.ativo).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
                     </select>
                      <p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p>
                 </div>
@@ -7557,9 +7837,10 @@ function App() {
     return <MainApp />;
 }
 
-// Versão: 21.0.0
-// [ALTERADO] A permissão do menu 'Planejamento Semanal' agora está vinculada à permissão de 'programacao'.
-// [ALTERADO] A função 'setCurrentPage' é passada como prop para o 'ProgramacaoSemanalComponent' para permitir a navegação interna.
+// Versão: 27.0.0 (MainApp)
+// [ALTERADO] A verificação de permissão para o menu "Planejamento (Visão)" e sua página
+// foi atualizada de `checkPermission('programacao')` para `checkPermission('planejamento')`.
+// Isso conclui a separação das permissões, tornando o acesso a essa tela totalmente independente.
 const MainApp = () => {
     const [currentPage, setCurrentPage] = useState('welcome');
     const { currentUser, permissoes, auth: firebaseAuth } = useContext(GlobalContext);
@@ -7577,27 +7858,14 @@ const MainApp = () => {
     const checkPermission = (pageKey) => {
         const userEmail = currentUser?.email?.toLowerCase();
         if (!userEmail) return false;
-        
-        if (["sistemas@gramoterra.com.br", "operacional@gramoterra.com.br", "mpivottoramos@gmail.com"].includes(userEmail)) {
-            return true;
-        }
-
         const permissionList = permissoes[pageKey];
         return Array.isArray(permissionList) && permissionList.includes(userEmail);
     };
 
     const PageContent = () => {
         if (currentPage !== 'welcome' && !checkPermission(currentPage)) {
-            useEffect(() => {
-                // Se a página de planejamento for acessada sem permissão de programação, redireciona
-                if (currentPage === 'planejamento' && !checkPermission('programacao')) {
-                     toast.error("Você não tem permissão para acessar esta página.");
-                     setCurrentPage('dashboard');
-                } else if (currentPage !== 'planejamento') {
-                    toast.error("Você não tem permissão para acessar esta página.");
-                    setCurrentPage('dashboard');
-                }
-            }, [currentPage]);
+            toast.error("Você não tem permissão para acessar esta página.");
+            // Redireciona para o dashboard como uma página segura padrão.
             return <DashboardComponent />;
         }
 
@@ -7605,18 +7873,14 @@ const MainApp = () => {
             case 'welcome': return <WelcomeComponent />;
             case 'dashboard': return <DashboardComponent />;
             case 'mapa': return <MapaAtividadesComponent />;
-            
-            // [ALTERADO] Passa a função setCurrentPage como prop
             case 'programacao': return <ProgramacaoSemanalComponent setCurrentPage={setCurrentPage} />;
-            
+            // [ALTERADO] A verificação agora usa a permissão 'planejamento'.
             case 'planejamento': 
-                // Acesso à visão de planejamento está atrelado à permissão de programação
-                if (!checkPermission('programacao')) {
+                if (!checkPermission('planejamento')) { // Verificação redundante por segurança
                     toast.error("Você não tem permissão para acessar esta página.");
                     return <DashboardComponent />;
                 }
                 return <PlanejamentoSemanalCardViewComponent />;
-
             case 'fito': return <ControleFitossanitarioComponent />;
             case 'agenda': return <AgendaDiariaComponent />;
             case 'anotacoes': return <TarefaPatioComponent />;
@@ -7655,17 +7919,11 @@ const MainApp = () => {
                         <div>
                             <NavGroupTitle title="Gestão" />
                             {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
-                            
-                            {/* [ALTERADO] Renomeado para 'Programação (Grade)' para diferenciar */}
                             {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação (Grade)</NavLink>}
-                            
-                            {/* [ALTERADO] Permissão agora é 'programacao' */}
-                            {checkPermission('programacao') && <NavLink page="planejamento" icon={LucideKanbanSquare} currentPage={currentPage} setCurrentPage={setCurrentPage}>Planejamento (Visão)</NavLink>}
-
+                            {/* [ALTERADO] O link do menu agora verifica a permissão 'planejamento'. */}
+                            {checkPermission('planejamento') && <NavLink page="planejamento" icon={LucideKanbanSquare} currentPage={currentPage} setCurrentPage={setCurrentPage}>Planejamento (Visão)</NavLink>}
                             {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Semanal</NavLink>}
                         </div>
-
-                        {/* O resto do menu permanece igual */}
                         <div>
                             <NavGroupTitle title="Operação" />
                             {checkPermission('anotacoes') && <NavLink page="anotacoes" icon={LucideClipboardEdit} currentPage={currentPage} setCurrentPage={setCurrentPage}>Tarefa Pátio</NavLink>}
