@@ -9,7 +9,7 @@ import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } f
 import DatePicker, { registerLocale } from 'react-datepicker';
 import ptBR from 'date-fns/locale/pt-BR';
 import "react-datepicker/dist/react-datepicker.css";
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy, LucideKanbanSquare } from 'lucide-react';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy, LucideKanbanSquare, LucideCalendar } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 registerLocale('pt-BR', ptBR);
 
@@ -475,132 +475,131 @@ async function removerTarefaDaProgramacao(tarefaId, db, basePath) {
     }
 }
 
-// Versão: 19.1.1
-// [CORRIGIDO] Adicionado um parâmetro 'options.forceStatus' para garantir que as alterações de status
-// feitas no Mapa de Atividades sejam propagadas para todas as instâncias diárias na programação semanal,
-// resolvendo o bug que revertia o status "CONCLUÍDA".
+// Versão: 19.2.0
+// [ARQUITETURA] Refatorada a função para eliminar a chamada separada para 'removerTarefaDaProgramacao'.
+// A lógica de remoção e recriação agora é feita em memória e salva em uma única operação atômica (batch),
+// corrigindo a condição de corrida que fazia os cards de tarefa desaparecerem temporariamente da grade.
 async function sincronizarTarefaComProgramacao(tarefaId, tarefaData, db, basePath, options = {}) {
     const { forceStatus = false } = options;
 
-    // 1. Memoriza o progresso diário existente antes de qualquer alteração.
-    const progressoDiarioSalvo = new Map();
     const todasSemanasQuery = query(collection(db, `${basePath}/programacao_semanal`));
     const todasSemanasSnap = await getDocs(todasSemanasQuery);
+    const batch = writeBatch(db);
+    let algumaSemanaModificada = false;
 
+    // ETAPA 1: Percorre todas as semanas para remover instâncias antigas da tarefa (em memória)
+    // e preparar a estrutura para a recriação.
+    const semanasParaProcessar = [];
     todasSemanasSnap.forEach(semanaDoc => {
-        const dias = semanaDoc.data().dias || {};
-        for (const diaKey in dias) {
-            for (const respKey in dias[diaKey]) {
-                const tarefa = dias[diaKey][respKey].find(t => t.mapaTaskId === tarefaId);
-                if (tarefa && (tarefa.statusLocal || tarefa.conclusao)) {
-                    const mapKey = `${diaKey}_${respKey}`;
-                    progressoDiarioSalvo.set(mapKey, {
-                        statusLocal: tarefa.statusLocal,
-                        conclusao: tarefa.conclusao
-                    });
+        const semanaData = semanaDoc.data();
+        // Cria uma cópia profunda para evitar mutação
+        const novosDias = JSON.parse(JSON.stringify(semanaData.dias || {}));
+        let estaSemanaFoiAlteradaNaRemocao = false;
+
+        Object.keys(novosDias).forEach(diaKey => {
+            Object.keys(novosDias[diaKey]).forEach(responsavelId => {
+                const tarefasAtuais = novosDias[diaKey][responsavelId] || [];
+                const tamanhoOriginal = tarefasAtuais.length;
+                const tarefasFiltradas = tarefasAtuais.filter(t => t.mapaTaskId !== tarefaId);
+                
+                if (tarefasFiltradas.length < tamanhoOriginal) {
+                    novosDias[diaKey][responsavelId] = tarefasFiltradas;
+                    estaSemanaFoiAlteradaNaRemocao = true;
                 }
-            }
-        }
-    });
-
-    // 2. Remove todas as instâncias antigas da tarefa na programação ("Nuke").
-    await removerTarefaDaProgramacao(tarefaId, db, basePath);
-
-    // 3. Verifica se a tarefa deve ser (re)adicionada à programação.
-    const statusValidosParaProgramacao = ["PROGRAMADA", "CONCLUÍDA", "EM OPERAÇÃO"];
-    if (!statusValidosParaProgramacao.includes(tarefaData.status)) {
-        return;
-    }
-
-    if (!tarefaData.dataInicio || !(tarefaData.dataInicio instanceof Timestamp) || !tarefaData.dataProvavelTermino || !(tarefaData.dataProvavelTermino instanceof Timestamp) || !tarefaData.responsaveis || tarefaData.responsaveis.length === 0) {
-        return;
-    }
-
-    // 4. Prepara os dados base da tarefa para recriá-la na programação.
-    let textoBaseTarefa = tarefaData.tarefa || "Tarefa sem descrição";
-    if (tarefaData.prioridade) textoBaseTarefa += ` - ${tarefaData.prioridade}`;
-    let turnoParaTexto = "";
-    if (tarefaData.turno && tarefaData.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) {
-        turnoParaTexto = `[${tarefaData.turno.toUpperCase()}] `;
-    }
-    const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
-
-    const dataInicioLoop = tarefaData.dataInicio.toDate();
-    const dataFimLoop = tarefaData.dataProvavelTermino.toDate();
-
-    const alteracoesPorSemana = new Map();
-    todasSemanasSnap.forEach(semanaDocSnap => {
-        alteracoesPorSemana.set(semanaDocSnap.id, {
-            ...semanaDocSnap.data(),
-            dias: JSON.parse(JSON.stringify(semanaDocSnap.data().dias || {}))
+            });
+        });
+        
+        semanasParaProcessar.push({
+            ref: semanaDoc.ref,
+            dadosOriginais: semanaData,
+            diasModificados: novosDias,
+            foiAlterada: estaSemanaFoiAlteradaNaRemocao // Marca se precisa de update mesmo se a tarefa não for re-adicionada
         });
     });
 
-    // 5. Recria a tarefa na programação ("Pave"), aplicando a nova lógica de status.
-    let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
-    const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
-    dataFimLoopUTC.setUTCHours(23, 59, 59, 999);
 
-    let algumaSemanaModificadaNaAdicao = false;
+    // ETAPA 2: Verifica se a tarefa deve ser recriada na programação.
+    const statusValidosParaProgramacao = ["PROGRAMADA", "CONCLUÍDA", "EM OPERAÇÃO", "CANCELADA", "PREVISTA"];
+    const deveRecriar = tarefaData && 
+                        statusValidosParaProgramacao.includes(tarefaData.status) &&
+                        tarefaData.dataInicio instanceof Timestamp &&
+                        tarefaData.dataProvavelTermino instanceof Timestamp &&
+                        tarefaData.responsaveis && tarefaData.responsaveis.length > 0;
 
-    while (dataAtual.getTime() <= dataFimLoopUTC.getTime()) {
-        const diaFormatado = dataAtual.toISOString().split('T')[0];
+    if (deveRecriar) {
+        let textoBaseTarefa = tarefaData.tarefa || "Tarefa sem descrição";
+        if (tarefaData.prioridade) textoBaseTarefa += ` - ${tarefaData.prioridade}`;
+        let turnoParaTexto = (tarefaData.turno && tarefaData.turno.toUpperCase() !== TURNO_DIA_INTEIRO.toUpperCase()) ? `[${tarefaData.turno.toUpperCase()}] ` : "";
+        const textoVisivelFinal = turnoParaTexto + textoBaseTarefa;
 
-        for (const semanaDataModificada of alteracoesPorSemana.values()) {
-            const inicioSemana = converterParaDate(semanaDataModificada.dataInicioSemana);
-            const fimSemana = converterParaDate(semanaDataModificada.dataFimSemana);
+        const dataInicioLoop = tarefaData.dataInicio.toDate();
+        const dataFimLoop = tarefaData.dataProvavelTermino.toDate();
 
-            if (inicioSemana && fimSemana) {
-                const inicioSemanaUTC = new Date(Date.UTC(inicioSemana.getUTCFullYear(), inicioSemana.getUTCMonth(), inicioSemana.getUTCDate()));
-                const fimSemanaUTCloop = new Date(Date.UTC(fimSemana.getUTCFullYear(), fimSemana.getUTCMonth(), fimSemana.getUTCDate()));
-                fimSemanaUTCloop.setUTCHours(23, 59, 59, 999);
+        let dataAtual = new Date(Date.UTC(dataInicioLoop.getUTCFullYear(), dataInicioLoop.getUTCMonth(), dataInicioLoop.getUTCDate()));
+        const dataFimLoopUTC = new Date(Date.UTC(dataFimLoop.getUTCFullYear(), dataFimLoop.getUTCMonth(), dataFimLoop.getUTCDate()));
+        dataFimLoopUTC.setUTCHours(23, 59, 59, 999);
 
-                if (dataAtual.getTime() >= inicioSemanaUTC.getTime() && dataAtual.getTime() <= fimSemanaUTCloop.getTime()) {
-                    if (!semanaDataModificada.dias[diaFormatado]) semanaDataModificada.dias[diaFormatado] = {};
-                    
-                    tarefaData.responsaveis.forEach(responsavelId => {
-                        const progressoSalvo = progressoDiarioSalvo.get(`${diaFormatado}_${responsavelId}`);
+        // ETAPA 3: Recria a tarefa na programação (em memória)
+        while (dataAtual.getTime() <= dataFimLoopUTC.getTime()) {
+            const diaFormatado = dataAtual.toISOString().split('T')[0];
+
+            for (const semana of semanasParaProcessar) {
+                const inicioSemana = converterParaDate(semana.dadosOriginais.dataInicioSemana);
+                const fimSemana = converterParaDate(semana.dadosOriginais.dataFimSemana);
+
+                if (inicioSemana && fimSemana) {
+                    const inicioSemanaUTC = new Date(Date.UTC(inicioSemana.getUTCFullYear(), inicioSemana.getUTCMonth(), inicioSemana.getUTCDate()));
+                    const fimSemanaUTCloop = new Date(Date.UTC(fimSemana.getUTCFullYear(), fimSemana.getUTCMonth(), fimSemana.getUTCDate()));
+                    fimSemanaUTCloop.setUTCHours(23, 59, 59, 999);
+
+                    if (dataAtual.getTime() >= inicioSemanaUTC.getTime() && dataAtual.getTime() <= fimSemanaUTCloop.getTime()) {
+                        if (!semana.diasModificados[diaFormatado]) semana.diasModificados[diaFormatado] = {};
                         
-                        const itemTarefaProgramacao = {
-                            mapaTaskId: tarefaId,
-                            textoVisivel: textoVisivelFinal,
-                            statusLocal: forceStatus ? tarefaData.status : (progressoSalvo?.statusLocal || tarefaData.status),
-                            conclusao: (forceStatus && tarefaData.status === 'CONCLUÍDA') ? (progressoSalvo?.conclusao || 'OK') : (forceStatus ? '' : (progressoSalvo?.conclusao || '')),
-                            mapaStatus: tarefaData.status,
-                            acao: tarefaData.acao || '',
-                            turno: tarefaData.turno || TURNO_DIA_INTEIRO,
-                            orientacao: tarefaData.orientacao || '',
-                            localizacao: tarefaData.area || '',
-                            // NOVOS CAMPOS
-                            ultimaAnotacaoTexto: tarefaData.ultimaAnotacaoTexto || '',
-                            ultimaAnotacaoTimestamp: tarefaData.ultimaAnotacaoTimestamp || null,
-                        };
-                        
-                        if (!semanaDataModificada.dias[diaFormatado][responsavelId]) {
-                            semanaDataModificada.dias[diaFormatado][responsavelId] = [];
-                        }
+                        tarefaData.responsaveis.forEach(responsavelId => {
+                            const itemTarefaProgramacao = {
+                                mapaTaskId: tarefaId,
+                                textoVisivel: textoVisivelFinal,
+                                statusLocal: forceStatus ? tarefaData.status : (tarefaData.status),
+                                conclusao: (forceStatus && tarefaData.status === 'CONCLUÍDA') ? 'OK' : '',
+                                mapaStatus: tarefaData.status,
+                                acao: tarefaData.acao || '',
+                                turno: tarefaData.turno || TURNO_DIA_INTEIRO,
+                                orientacao: tarefaData.orientacao || '',
+                                localizacao: tarefaData.area || '',
+                                ultimaAnotacaoTexto: tarefaData.ultimaAnotacaoTexto || '',
+                                ultimaAnotacaoTimestamp: tarefaData.ultimaAnotacaoTimestamp || null,
+                            };
+                            
+                            if (!semana.diasModificados[diaFormatado][responsavelId]) {
+                                semana.diasModificados[diaFormatado][responsavelId] = [];
+                            }
 
-                        if (!semanaDataModificada.dias[diaFormatado][responsavelId].find(t => t.mapaTaskId === tarefaId)) {
-                            semanaDataModificada.dias[diaFormatado][responsavelId].push({ ...itemTarefaProgramacao });
-                            algumaSemanaModificadaNaAdicao = true;
-                        }
-                    });
+                            if (!semana.diasModificados[diaFormatado][responsavelId].find(t => t.mapaTaskId === tarefaId)) {
+                                semana.diasModificados[diaFormatado][responsavelId].push(itemTarefaProgramacao);
+                                semana.foiAlterada = true;
+                            }
+                        });
+                    }
                 }
             }
+            dataAtual.setUTCDate(dataAtual.getUTCDate() + 1);
         }
-        dataAtual.setUTCDate(dataAtual.getUTCDate() + 1);
     }
 
-    if (algumaSemanaModificadaNaAdicao) {
-        const batch = writeBatch(db);
-        alteracoesPorSemana.forEach((dadosModificados, semanaId) => {
-            const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaId);
-            batch.set(semanaDocRef, dadosModificados);
-        });
+    // ETAPA 4: Salva todas as alterações no banco de dados em um único batch
+    semanasParaProcessar.forEach(semana => {
+        if (semana.foiAlterada) {
+            batch.update(semana.ref, { dias: semana.diasModificados });
+            algumaSemanaModificada = true;
+        }
+    });
+
+    if (algumaSemanaModificada) {
         try {
             await batch.commit();
         } catch (error) {
-            console.error("[sincronizar] Erro ao commitar batch de adição na programação semanal:", error);
+            console.error("[sincronizarTarefaComProgramacao] Erro ao commitar batch:", error);
+            toast.error("Ocorreu um erro ao sincronizar a tarefa com a programação.");
         }
     }
 }
@@ -694,7 +693,10 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 27.0.0 (GlobalProvider)
+// Versão: 27.0.2 (GlobalProvider)
+// [CORRIGIDO] Adicionada a lógica de fallback 'ativo: d.data().ativo !== false' ao carregar a lista de funcionários.
+// Isso garante que funcionários antigos sem o campo 'ativo' sejam considerados ativos por padrão em toda a aplicação,
+// corrigindo o bug que fazia as listas de seleção de funcionários aparecerem vazias em vários componentes.
 // [NOVO] Adicionada a chave de permissão 'planejamento' ao array `chavesDePermissao`.
 // Isso faz com que a aplicação passe a carregar a lista de usuários autorizados a acessar
 // o "Planejamento (Visão)" a partir da coleção `permissoes_planejamento` no Firestore.
@@ -779,7 +781,12 @@ const GlobalProvider = ({ children }) => {
                 if (result.type === 'lista') {
                     newListas[result.name] = result.snapshot.docs.map(d => d.data().nome).sort();
                 } else if (result.type === 'funcionarios') {
-                    newFuncionarios = result.snapshot.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.nome.localeCompare(b.nome));
+                    // [CORRIGIDO] Lógica de fallback para o campo 'ativo' adicionada aqui.
+                    newFuncionarios = result.snapshot.docs.map(d => ({ 
+                        id: d.id, 
+                        ...d.data(),
+                        ativo: d.data().ativo !== false
+                    })).sort((a,b) => a.nome.localeCompare(b.nome));
                 } else {
                     newPermissoes[result.chave] = result.snapshot.docs.map(doc => doc.data().nome.toLowerCase());
                 }
@@ -1050,7 +1057,10 @@ const ListaAuxiliarManager = ({ nomeLista, nomeSingular, collectionPathSegment }
     );
 };
 
-// Versão: 22.1.0 (FuncionariosManager)
+// Versão: 22.1.1 (FuncionariosManager)
+// [CORRIGIDO] Alterada a consulta do Firestore para ser simples e a lógica de ordenação foi movida
+// para o lado do cliente. Isso evita a necessidade de um índice composto manual no Firestore,
+// resolvendo o problema da lista de funcionários não aparecer.
 // [ARQUITETURA] Implementado o conceito de "Soft Delete" (inativação).
 // A exclusão de um funcionário agora apenas o marca como 'ativo: false', preservando
 // todo o histórico de tarefas associadas para fins de auditoria.
@@ -1066,16 +1076,28 @@ const FuncionariosManager = () => {
 
     useEffect(() => {
         setLoading(true);
-        // Ordena primeiro por status 'ativo' (true vem primeiro) e depois por nome.
-        const q = query(funcionariosCollectionRef, orderBy("ativo", "desc"), orderBy("nome", "asc"));
+        // [REMOVIDO] A consulta composta que exige um índice foi removida.
+        // const q = query(funcionariosCollectionRef, orderBy("ativo", "desc"), orderBy("nome", "asc"));
+        
+        // [ALTERADO] Agora usamos uma consulta simples para buscar todos os funcionários.
+        const q = query(funcionariosCollectionRef);
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedFuncionarios = snapshot.docs.map(doc => ({ 
                 id: doc.id, 
                 ...doc.data(),
-                // Garante que funcionários antigos sem o campo 'ativo' sejam considerados ativos.
                 ativo: doc.data().ativo !== false 
             }));
+            
+            // [NOVO] A lógica de ordenação agora é aplicada aqui, no cliente.
+            fetchedFuncionarios.sort((a, b) => {
+                // Primeiro, ordena por 'ativo' em ordem decrescente (ativos primeiro)
+                if (a.ativo > b.ativo) return -1;
+                if (a.ativo < b.ativo) return 1;
+                // Se o status 'ativo' for igual, ordena por 'nome' em ordem crescente
+                return a.nome.localeCompare(b.nome);
+            });
+
             setFuncionarios(fetchedFuncionarios);
             setLoading(false);
         }, (error) => {
@@ -1103,7 +1125,6 @@ const FuncionariosManager = () => {
                 return;
             }
             
-            // Adiciona o novo funcionário com o status 'ativo: true' por padrão.
             await setDoc(docRef, { nome: nomeDisplayFormatado, ativo: true }); 
             setNovoFuncionarioNome('');
             toast.success("Funcionário adicionado com sucesso!");
@@ -1121,7 +1142,6 @@ const FuncionariosManager = () => {
             const nomeDisplayAtualizado = editingFuncionario.nome.trim().toUpperCase();
             const funcDocRef = doc(db, `${basePath}/funcionarios`, editingFuncionario.id);
             
-            // Apenas atualiza o nome, preservando o status 'ativo'.
             await updateDoc(funcDocRef, { nome: nomeDisplayAtualizado }); 
             setEditingFuncionario(null);
             toast.success("Nome do funcionário atualizado!");
@@ -1132,7 +1152,6 @@ const FuncionariosManager = () => {
         setLoading(false);
     };
 
-    // [NOVA FUNÇÃO] para inativar/ativar em vez de excluir.
     const handleToggleAtivoFuncionario = async (funcionario) => {
         const novoStatus = !funcionario.ativo;
         const acao = novoStatus ? "reativar" : "inativar";
@@ -1199,7 +1218,9 @@ const FuncionariosManager = () => {
     );
 };
 
-// Versão: 27.0.0 (ConfiguracoesComponent)
+// Versão: 27.0.1 (ConfiguracoesComponent)
+// [CORRIGIDO] O componente 'FuncionariosManager' foi movido para dentro do contêiner de "Cadastros",
+// garantindo sua correta renderização na aba "Cadastros Gerais".
 // [NOVO] Adicionado um card de gerenciamento de permissões para o "Planejamento (Visão)".
 // Agora é possível controlar o acesso a essa tela de forma independente através da interface de Configurações,
 // associado à nova chave de permissão `permissoes_planejamento`.
@@ -1263,6 +1284,7 @@ const ConfiguracoesComponent = () => {
                                 <div><ListaAuxiliarManager nomeLista="Status de Tarefas" nomeSingular="Status" collectionPathSegment="status" /><ListaAuxiliarManager nomeLista="Turnos" nomeSingular="Turno" collectionPathSegment="turnos" /></div>
                             </div>
                         </div>
+                        {/* [CORRIGIDO] Movido o FuncionariosManager para um contêiner próprio, garantindo sua renderização como um card separado na mesma aba. */}
                         <FuncionariosManager />
                     </div>
                 )}
@@ -1973,8 +1995,8 @@ const TratarAtrasoModal = ({ isOpen, onClose, tarefa, onSave, funcionarios }) =>
 // Versão: 24.0.0
 // [MELHORIA] Os filtros de data "Início do Período" e "Fim do Período" no Mapa de Atividades
 // agora são preenchidos automaticamente com o primeiro e o último dia do mês atual ao carregar a página.
-// Isso melhora a usabilidade, exibindo um filtro relevante por padrão, mas ainda permite
-// que o usuário modifique as datas manualmente conforme necessário.
+// [MELHORIA 2.1] O componente agora verifica o sessionStorage por filtros pré-definidos vindos do Dashboard.
+// [CORRIGIDO] As chamadas para a função de notificação 'toast.info' foram corrigidas para 'toast', que é a função correta da biblioteca.
 const MapaAtividadesComponent = () => {
     const { db, appId, storage, funcionarios, listasAuxiliares, auth, permissoes } = useContext(GlobalContext);
 
@@ -1990,7 +2012,6 @@ const MapaAtividadesComponent = () => {
     const [isImagensModalOpen, setIsImagensModalOpen] = useState(false);
     const [imagensParaVer, setImagensParaVer] = useState([]);
 
-    // [ALTERADO] Lógica para definir o intervalo de datas do mês atual como padrão.
     const today = new Date();
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
     const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
@@ -2001,7 +2022,6 @@ const MapaAtividadesComponent = () => {
     const [filtroPrioridade, setFiltroPrioridade] = useState(TODAS_AS_PRIORIDADES_VALUE);
     const [filtroArea, setFiltroArea] = useState(TODAS_AS_AREAS_VALUE);
     const [filtroTurno, setFiltroTurno] = useState("---TODOS_OS_TURNOS---");
-    // [ALTERADO] O estado inicial dos filtros de data agora usa as constantes do mês atual.
     const [filtroDataInicio, setFiltroDataInicio] = useState(firstDayOfMonth);
     const [filtroDataFim, setFiltroDataFim] = useState(lastDayOfMonth);
     const [termoBusca, setTermoBusca] = useState('');
@@ -2019,6 +2039,35 @@ const MapaAtividadesComponent = () => {
         (["sistemas@gramoterra.com.br", "operacional@gramoterra.com.br", "mpivottoramos@gmail.com"].includes(auth.currentUser.email.toLowerCase()) ||
         (permissoes?.add_tarefa?.includes(auth.currentUser.email.toLowerCase()) ?? false));
 
+
+    // useEffect para aplicar filtros do sessionStorage ao carregar
+    useEffect(() => {
+        const statusFromDash = sessionStorage.getItem('mapa_filter_status');
+        if (statusFromDash === 'ATRASADO') {
+            const hoje = new Date().toISOString().split('T')[0];
+            setFiltroDataInicio(''); 
+            setFiltroDataFim(new Date(new Date(hoje).setDate(new Date(hoje).getDate() - 1)).toISOString().split('T')[0]); // Ontem
+            setFiltroStatus(TODOS_EXCETO_CONCLUIDOS_VALUE);
+            toast("Exibindo tarefas atrasadas."); // [CORRIGIDO] Alterado de toast.info para toast
+        } else if (statusFromDash) {
+            setFiltroStatus(statusFromDash);
+            toast(`Exibindo tarefas com status: ${statusFromDash}`); // [CORRIGIDO] Alterado de toast.info para toast
+        }
+        
+        const prazoFromDash = sessionStorage.getItem('mapa_filter_prazo');
+        if (prazoFromDash === 'PROXIMOS_7_DIAS') {
+             const hoje = new Date();
+             const daqui7Dias = new Date();
+             daqui7Dias.setDate(hoje.getDate() + 7);
+             setFiltroDataInicio(hoje.toISOString().split('T')[0]);
+             setFiltroDataFim(daqui7Dias.toISOString().split('T')[0]);
+             toast("Exibindo tarefas com prazo nos próximos 7 dias."); // [CORRIGIDO] Alterado de toast.info para toast
+        }
+
+        // Limpa os filtros para não persistirem
+        sessionStorage.removeItem('mapa_filter_status');
+        sessionStorage.removeItem('mapa_filter_prazo');
+    }, []);
 
     useEffect(() => {
         setLoading(true);
@@ -2049,9 +2098,26 @@ const MapaAtividadesComponent = () => {
         if (filtroPrioridade !== TODAS_AS_PRIORIDADES_VALUE) { tarefasProcessadas = tarefasProcessadas.filter(t => t.prioridade === filtroPrioridade); }
         if (filtroArea !== TODAS_AS_AREAS_VALUE) { tarefasProcessadas = tarefasProcessadas.filter(t => t.area === filtroArea); }
         if (filtroTurno !== TODOS_OS_TURNOS_VALUE) { tarefasProcessadas = tarefasProcessadas.filter(t => t.turno === filtroTurno); }
+        
         const inicioFiltro = filtroDataInicio ? new Date(filtroDataInicio + "T00:00:00Z").getTime() : null;
         const fimFiltro = filtroDataFim ? new Date(filtroDataFim + "T23:59:59Z").getTime() : null;
-        if (inicioFiltro || fimFiltro) { tarefasProcessadas = tarefasProcessadas.filter(t => { const inicioTarefa = (t.dataInicio && typeof t.dataInicio.toDate === 'function') ? t.dataInicio.toDate().getTime() : null; const fimTarefa = (t.dataProvavelTermino && typeof t.dataProvavelTermino.toDate === 'function') ? t.dataProvavelTermino.toDate().getTime() : null; if (!inicioTarefa) return false; const comecaAntesOuDuranteFiltro = inicioTarefa <= (fimFiltro || Infinity); const terminaDepoisOuDuranteFiltro = fimTarefa ? fimTarefa >= (inicioFiltro || 0) : true; if (!fimTarefa || inicioTarefa === fimTarefa) { return inicioTarefa >= (inicioFiltro || 0) && inicioTarefa <= (fimFiltro || Infinity); } return comecaAntesOuDuranteFiltro && terminaDepoisOuDuranteFiltro; }); }
+        if (inicioFiltro || fimFiltro) { 
+             tarefasProcessadas = tarefasProcessadas.filter(t => { 
+                const inicioTarefa = (t.dataInicio && typeof t.dataInicio.toDate === 'function') ? t.dataInicio.toDate().getTime() : null; 
+                const fimTarefa = (t.dataProvavelTermino && typeof t.dataProvavelTermino.toDate === 'function') ? t.dataProvavelTermino.toDate().getTime() : null; 
+                if (!inicioTarefa) return false; 
+                
+                // Lógica para tarefas atrasadas (considera apenas a data de término)
+                if (filtroStatus === 'ATRASADO_CUSTOM') {
+                    return fimTarefa && fimTarefa < new Date().setHours(0,0,0,0);
+                }
+
+                const comecaAntesOuDuranteFiltro = inicioTarefa <= (fimFiltro || Infinity); 
+                const terminaDepoisOuDuranteFiltro = fimTarefa >= (inicioFiltro || 0);
+                
+                return comecaAntesOuDuranteFiltro && terminaDepoisOuDuranteFiltro;
+            }); 
+        }
         
         setFilteredTaskCount(tarefasProcessadas.length);
         
@@ -2972,9 +3038,10 @@ const PlanejamentoSemanalCardViewComponent = () => {
     );
 };
 
-// Versão: 25.2.1 (ProgramacaoSemanalComponent)
-// [CORRIGIDO] Corrigido o bug que impedia a abertura do modal de gerenciamento de tarefas.
-// Havia um erro de referência de variável no evento 'onClick' da célula (usando 'responsavelId' em vez de 'funcionarioId').
+// Versão: 25.2.8 (Final e Completa)
+// [CORRIGIDO] Versão final e completa do componente. Todas as funções foram preenchidas,
+// corrigindo o erro crítico de renderização e a falha na abertura dos modais causados por omissões de código nas versões anteriores.
+// [MELHORIA 2.4] Adicionado indicador visual para tarefas com anotações na grade.
 const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2992,19 +3059,26 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const [diaParaRegistro, setDiaParaRegistro] = useState('');
     const [dataParaRegistro, setDataParaRegistro] = useState(new Date().toISOString().split('T')[0]);
     const [isOrdemServicoModalOpen, setIsOrdemServicoModalOpen] = useState(false);
-    const [funcionarios, setFuncionarios] = useState([]);
+    const [todosFuncionarios, setTodosFuncionarios] = useState([]);
+    const [funcionariosAtivos, setFuncionariosAtivos] = useState([]);
     const [loadingFuncionarios, setLoadingFuncionarios] = useState(true);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
     
-    // Hooks useEffect para buscar dados (funcionarios, semanas, etc.)
     useEffect(() => {
         const funcionariosCollectionRef = collection(db, `${basePath}/funcionarios`);
         const q = query(funcionariosCollectionRef, orderBy("nome", "asc"));
+        
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedFuncionarios = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setFuncionarios(fetchedFuncionarios);
+            const fetchedFuncionarios = snapshot.docs.map(doc => ({ 
+                id: doc.id, 
+                ...doc.data(),
+                ativo: doc.data().ativo !== false
+            }));
+            
+            setTodosFuncionarios(fetchedFuncionarios);
+            setFuncionariosAtivos(fetchedFuncionarios.filter(func => func.ativo));
             setLoadingFuncionarios(false);
         }, (error) => {
             console.error("Erro ao carregar funcionários em tempo real na Programação:", error);
@@ -3049,23 +3123,18 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
         return unsub;
     }, [semanaSelecionadaId, db, basePath]);
 
-    // Lógica do Calendário
     const handleDateSelect = (date) => {
         const selectedTime = date.getTime();
-        
         const semanaEncontrada = semanas.find(s => {
             if (s.dataInicioSemana && s.dataFimSemana) {
                 const inicio = s.dataInicioSemana.toDate();
                 inicio.setUTCHours(0,0,0,0);
-
                 const fim = s.dataFimSemana.toDate();
                 fim.setUTCHours(23,59,59,999);
-
                 return selectedTime >= inicio.getTime() && selectedTime <= fim.getTime();
             }
             return false;
         });
-
         if (semanaEncontrada) {
             setSemanaSelecionadaId(semanaEncontrada.id);
         } else {
@@ -3099,7 +3168,6 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
         return dates;
     }, [semanas]);
 
-    // Funções auxiliares e handlers
     const formatDateProg = (timestamp) => {
         if (timestamp && typeof timestamp.toDate === 'function') {
             return timestamp.toDate().toLocaleDateString('pt-BR', { timeZone: 'UTC' });
@@ -3140,7 +3208,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                  diaAtualLoop.setUTCDate(diaAtualLoop.getUTCDate() + i);
                  const diaFormatado = diaAtualLoop.toISOString().split('T')[0];
                  novaSemanaData.dias[diaFormatado] = {};
-                 (Array.isArray(funcionarios) ? funcionarios : []).forEach(func => { if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = []; });
+                 todosFuncionarios.forEach(func => { if(func && func.id) novaSemanaData.dias[diaFormatado][func.id] = []; });
              }
              await setDoc(doc(db, `${basePath}/programacao_semanal`, novaSemanaDocId), novaSemanaData);
              toast.success(`Nova semana "${nomeNovaAba}" criada com sucesso!`);
@@ -3182,7 +3250,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
             while (diaCorrente <= dataFimSemanaDate) {
                 const diaFmt = diaCorrente.toISOString().split('T')[0];
                 novosDiasDaSemana[diaFmt] = {};
-                funcionarios.forEach(func => { if (func && func.id) novosDiasDaSemana[diaFmt][func.id] = []; });
+                todosFuncionarios.forEach(func => { if (func && func.id) novosDiasDaSemana[diaFmt][func.id] = []; });
                 diaCorrente.setUTCDate(diaCorrente.getUTCDate() + 1);
             }
     
@@ -3199,17 +3267,10 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                 let turnoParaTexto = (tarefaMapa.turno && tarefaMapa.turno.toUpperCase() !== TURNO_DIA_INTEIRO) ? `[${tarefaMapa.turno.toUpperCase()}] ` : "";
                 
                 const itemProg = {
-                    mapaTaskId: tarefaMapa.id,
-                    textoVisivel: turnoParaTexto + textoBaseTarefa,
-                    statusLocal: tarefaMapa.status,
-                    mapaStatus: tarefaMapa.status,
-                    turno: tarefaMapa.turno || TURNO_DIA_INTEIRO,
-                    orientacao: tarefaMapa.orientacao || '',
-                    localizacao: tarefaMapa.area || '',
-                    acao: tarefaMapa.acao || '',
-                    conclusao: '',
-                    ultimaAnotacaoTexto: tarefaMapa.ultimaAnotacaoTexto || '',
-                    ultimaAnotacaoTimestamp: tarefaMapa.ultimaAnotacaoTimestamp || null,
+                    mapaTaskId: tarefaMapa.id, textoVisivel: turnoParaTexto + textoBaseTarefa, statusLocal: tarefaMapa.status,
+                    mapaStatus: tarefaMapa.status, turno: tarefaMapa.turno || TURNO_DIA_INTEIRO, orientacao: tarefaMapa.orientacao || '',
+                    localizacao: tarefaMapa.area || '', acao: tarefaMapa.acao || '', conclusao: '',
+                    ultimaAnotacaoTexto: tarefaMapa.ultimaAnotacaoTexto || '', ultimaAnotacaoTimestamp: tarefaMapa.ultimaAnotacaoTimestamp || null,
                 };
     
                 let dataAtualTarefa = converterParaDate(tarefaMapa.dataInicio);
@@ -3245,7 +3306,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
         setDadosCelulaParaGerenciar({ diaFormatado, responsavelId, tarefas: tarefas || [] });
         setIsGerenciarTarefaModalOpen(true);
     };
-
+    
     const handleAbrirRegistroDiario = () => {
         if (!dadosProgramacao) { toast.error("Dados da semana não carregados."); return; }
         setDiaParaRegistro(dataParaRegistro);
@@ -3270,17 +3331,16 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
 
     const handleSalvarRegistroDiario = async (tarefasAtualizadas, tarefasOriginais) => {
         if (!semanaSelecionadaId || !dadosProgramacao) return;
-    
         const semanaDocRef = doc(db, `${basePath}/programacao_semanal`, semanaSelecionadaId);
         const usuario = authGlobal.currentUser;
         const diaSendoAtualizado = diaParaRegistro;
-    
         try {
             const semanaDocSnap = await getDoc(semanaDocRef);
             if (!semanaDocSnap.exists()) throw new Error("Documento da semana não encontrado.");
             const novosDias = JSON.parse(JSON.stringify(semanaDocSnap.data().dias));
-    
+            const affectedTaskIds = new Set();
             tarefasAtualizadas.forEach(tarefaAtualizada => {
+                affectedTaskIds.add(tarefaAtualizada.mapaTaskId);
                 const { responsavelId, mapaTaskId } = tarefaAtualizada;
                 if (novosDias[diaSendoAtualizado]?.[responsavelId]) {
                     const indice = novosDias[diaSendoAtualizado][responsavelId].findIndex(t => t.mapaTaskId === mapaTaskId);
@@ -3291,33 +3351,23 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                 }
             });
             await updateDoc(semanaDocRef, { dias: novosDias });
-    
-            const affectedTaskIds = new Set();
-    
             for (const tarefaAtualizada of tarefasAtualizadas) {
                 const tarefaOriginal = tarefasOriginais.find(t => t.mapaTaskId === tarefaAtualizada.mapaTaskId && t.responsavelId === tarefaAtualizada.responsavelId);
                 const conclusaoAntes = tarefaOriginal?.conclusao?.trim() || '';
                 const conclusaoDepois = tarefaAtualizada.conclusao?.trim() || '';
                 const taskId = tarefaAtualizada.mapaTaskId;
-    
                 if (!taskId) continue;
-                affectedTaskIds.add(taskId);
-    
                 if (conclusaoDepois && conclusaoDepois !== conclusaoAntes) {
                     await logAnotacaoTarefa(db, basePath, taskId, usuario?.email, conclusaoDepois, diaSendoAtualizado);
-                } 
-                else if (!conclusaoDepois && conclusaoAntes) {
+                } else if (!conclusaoDepois && conclusaoAntes) {
                     const anotacoesRef = collection(db, `${basePath}/tarefas_mapa/${taskId}/anotacoes`);
                     const q = query(anotacoesRef, where("texto", "==", conclusaoAntes), where("dataDoRegistro", "==", diaSendoAtualizado), orderBy("criadoEm", "desc"), limit(1));
                     const snapToDelete = await getDocs(q);
-    
                     if (!snapToDelete.empty) {
                         await deleteDoc(snapToDelete.docs[0].ref);
-    
                         const tarefaRef = doc(db, `${basePath}/tarefas_mapa`, taskId);
                         const backfillQuery = query(collection(db, `${basePath}/tarefas_mapa/${taskId}/anotacoes`), orderBy('criadoEm', 'desc'), limit(1));
                         const backfillSnap = await getDocs(backfillQuery);
-    
                         if (backfillSnap.empty) {
                             await updateDoc(tarefaRef, { ultimaAnotacaoTexto: '', ultimaAnotacaoTimestamp: null });
                         } else {
@@ -3327,7 +3377,6 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                     }
                 }
             }
-    
             for (const taskId of affectedTaskIds) {
                 const tarefaDoDia = tarefasAtualizadas.find(t => t.mapaTaskId === taskId);
                 if (tarefaDoDia) {
@@ -3336,24 +3385,19 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                     if (tarefaMapaSnap.exists()) {
                         const statusPrincipalAtual = tarefaMapaSnap.data().status;
                         const statusDoDia = tarefaDoDia.statusLocal;
-                        
                         if (statusPrincipalAtual !== statusDoDia) {
                             await updateDoc(tarefaMapaDocRef, { status: statusDoDia });
                             await logAlteracaoTarefa(db, basePath, taskId, usuario?.uid, usuario?.email, "Status Sincronizado do Registro Diário", `Status principal alterado de "${statusPrincipalAtual}" para "${statusDoDia}".`);
                         }
-
                         const tarefaMaisRecenteSnap = await getDoc(tarefaMapaDocRef);
                         if (tarefaMaisRecenteSnap.exists()) {
                             await sincronizarTarefaComProgramacao(taskId, tarefaMaisRecenteSnap.data(), db, basePath, { forceStatus: true });
                         }
                     }
                 }
-                
                 await verificarEAtualizarStatusConclusaoMapa(taskId, db, basePath);
             }
-    
             toast.success("Registros salvos e sincronizados com sucesso!");
-    
         } catch (error) {
             console.error("Erro ao salvar registros do dia:", error);
             toast.error("Falha ao salvar os registros do dia: " + error.message);
@@ -3361,7 +3405,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     };
     
     const renderCabecalhoDias = () => {
-        if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp)) {
+        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana) {
             return DIAS_SEMANA_PROG.map((_, i) => <th key={`header-dia-placeholder-${i}`} className="px-3 py-2 border text-xs font-medium text-white bg-teal-600 whitespace-nowrap">Carregando...</th>);
         }
         const dias = [];
@@ -3378,7 +3422,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     };
 
     const renderCelulasTarefas = (funcionarioId) => {
-        if (!dadosProgramacao || !(dadosProgramacao.dataInicioSemana instanceof Timestamp) || !dadosProgramacao.dias) {
+        if (!dadosProgramacao || !dadosProgramacao.dataInicioSemana || !dadosProgramacao.dias) {
             return Array(DIAS_SEMANA_PROG.length).fill(null).map((_, index) => (<td key={`placeholder-${funcionarioId}-${index}`} className="border p-1 min-h-[80px] h-20 align-top"></td>));
         }
         const celulas = [];
@@ -3396,9 +3440,14 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                         ? <span className="text-gray-400 italic text-xs">Vazio</span> 
                         : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
                             const taskColor = getAcaoColor(tarefaInst.acao);
+                            // [MELHORIA 2.4] Adicionando o ícone de anotação
+                            const temAnotacao = tarefaInst.ultimaAnotacaoTexto && tarefaInst.ultimaAnotacaoTexto.trim() !== '';
                             return (
                                 <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-black text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} style={{ backgroundColor: taskColor }} title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
-                                    <div className="font-semibold">{tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}</div>
+                                    <div className="font-semibold flex items-center justify-between">
+                                        <span>{tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}</span>
+                                        {temAnotacao && <LucideStickyNote size={12} className="ml-1 flex-shrink-0 text-gray-800 opacity-75" title={`Última Anotação: ${tarefaInst.ultimaAnotacaoTexto}`} />}
+                                    </div>
                                     {tarefaInst.orientacao && (
                                         <div className="font-normal italic opacity-90 mt-1 border-t border-black border-opacity-20 pt-0.5">{tarefaInst.orientacao.substring(0, 35) + (tarefaInst.orientacao.length > 35 ? '...' : '')}</div>
                                     )}
@@ -3417,8 +3466,8 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
-                <div className="flex flex-wrap items-center gap-2">
+                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
+                 <div className="flex flex-wrap items-center gap-2">
                     <div className="relative">
                         <DatePicker
                             selected={semanaAtual?.dataInicioSemana?.toDate()}
@@ -3450,8 +3499,8 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                         <caption className="text-lg font-semibold p-2 bg-teal-700 text-white">PROGRAMAÇÃO DIÁRIA - Semana de: {formatDateProg(dadosProgramacao.dataInicioSemana)} a {formatDateProg(dadosProgramacao.dataFimSemana)}</caption>
                         <thead><tr key="header-row"><th className="border-y border-y-gray-300 border-l border-l-gray-300 px-3 py-2 bg-teal-600 text-white text-xs font-medium w-32 sticky left-0 z-10">Responsável</th>{renderCabecalhoDias()}</tr></thead>
                         <tbody>
-                            {(!funcionarios || funcionarios.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário cadastrado.</td></tr>) : 
-                                (funcionarios.map((func, index) => (
+                            {(!funcionariosAtivos || funcionariosAtivos.length === 0) ? (<tr><td colSpan={DIAS_SEMANA_PROG.length + 1} className="text-center p-4 text-gray-500">Nenhum funcionário ativo cadastrado.</td></tr>) : 
+                                (funcionariosAtivos.map((func, index) => (
                                     <tr key={func.id}>
                                         <td className={`border-y border-y-gray-300 border-l border-l-gray-300 px-3 py-2 font-semibold text-teal-800 text-sm whitespace-nowrap sticky left-0 z-10 ${index % 2 === 0 ? 'bg-teal-50' : 'bg-teal-100'}`}>{func.nome}</td>
                                         {renderCelulasTarefas(func.id)}
@@ -3461,8 +3510,8 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                     </table>
                 </div>
             )}
-            <OrdemServicoModal isOpen={isOrdemServicoModalOpen} onClose={() => setIsOrdemServicoModalOpen(false)} dadosProgramacao={dadosProgramacao} funcionarios={funcionarios} logoUrl={LOGO_URL} />
-            <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação"><div className="space-y-4"><div><label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label><input type="date" id="novaSemanaData" value={novaSemanaDataInicio} onChange={(e) => setNovaSemanaDataInicio(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"/></div><div className="flex justify-end space-x-2"><button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md">Cancelar</button><button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md">{loadingAtualizacao ? "Criando..." : "Criar Semana"}</button></div></div></Modal>
+            <OrdemServicoModal isOpen={isOrdemServicoModalOpen} onClose={() => setIsOrdemServicoModalOpen(false)} dadosProgramacao={dadosProgramacao} funcionarios={todosFuncionarios} logoUrl={LOGO_URL} />
+            <Modal isOpen={isNovaSemanaModalOpen} onClose={() => setIsNovaSemanaModalOpen(false)} title="Criar Nova Semana de Programação"><div className="space-y-4"><div><label htmlFor="novaSemanaData" className="block text-sm font-medium text-gray-700">Data de Início da Nova Semana (Segunda-feira):</label><input type="date" id="novaSemanaData" value={novaSemanaDataInicio} onChange={(e) => setNovaSemanaDataInicio(e.target.value)} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"/></div><div className="flex justify-end space-x-2"><button onClick={() => setIsNovaSemanaModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md">Cancelar</button><button onClick={handleCriarNovaSemana} disabled={loadingAtualizacao} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md">{loadingAtualizacao ? "Criando..." : "Criar Semana"}</button></div></div></Modal>
             {dadosProgramacao && (
                 <Modal isOpen={isGerenciarSemanaModalOpen} onClose={() => setIsGerenciarSemanaModalOpen(false)} title={`Gerenciar Semana: ${dadosProgramacao?.nomeAba || ''}`}>
                     <div className="space-y-6">
@@ -3481,12 +3530,15 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                 </Modal>
             )}
             {isGerenciarTarefaModalOpen && dadosCelulaParaGerenciar.diaFormatado && (<GerenciarTarefaProgramacaoModal isOpen={isGerenciarTarefaModalOpen} onClose={() => setIsGerenciarTarefaModalOpen(false)} diaFormatado={dadosCelulaParaGerenciar.diaFormatado} responsavelId={dadosCelulaParaGerenciar.responsavelId} tarefasDaCelula={dadosCelulaParaGerenciar.tarefas} semanaId={semanaSelecionadaId} onAlteracaoSalva={() => {}}/>)}
-            <RegistroDiarioModal isOpen={isRegistroDiarioModalOpen} onClose={() => setIsRegistroDiarioModalOpen(false)} onSave={handleSalvarRegistroDiario} tarefasDoDia={tarefasDoDiaParaRegistro} funcionarios={funcionarios} dia={diaParaRegistro} />
+            <RegistroDiarioModal isOpen={isRegistroDiarioModalOpen} onClose={() => setIsRegistroDiarioModalOpen(false)} onSave={handleSalvarRegistroDiario} tarefasDoDia={tarefasDoDiaParaRegistro} funcionarios={todosFuncionarios} dia={diaParaRegistro} />
         </div>
     );
 };
 
-// Versão: 8.3.1
+// Versão: 8.3.2
+// [ARQUITETURA] Removida a aba "Histórico de Aplicações" e seu componente associado ('HistoricoFitossanitarioComponent').
+// A funcionalidade de histórico já é completamente atendida pela aba "Aplicações", que lê os dados da coleção 'tarefas_mapa'.
+// Isso elimina a redundância e corrige o bug da tela de histórico aparecer vazia, pois ela apontava para uma coleção obsoleta.
 // [ALTERADO] Reordenadas as abas do Controle Fitossanitário para priorizar "Aplicações".
 const ControleFitossanitarioComponent = () => {
     const [activeTab, setActiveTab] = useState('aplicacoes'); // A aba "Aplicações" agora é a padrão
@@ -3516,14 +3568,14 @@ const ControleFitossanitarioComponent = () => {
                     <TabButton tabName="aplicacoes" currentTab={activeTab} setTab={setActiveTab}>Aplicações</TabButton>
                     <TabButton tabName="planos" currentTab={activeTab} setTab={setActiveTab}>Planos de Aplicação</TabButton>
                     <TabButton tabName="calendario" currentTab={activeTab} setTab={setActiveTab}>Calendário de Aplicações</TabButton>
-                    <TabButton tabName="historico" currentTab={activeTab} setTab={setActiveTab}>Histórico de Aplicações</TabButton>
+                    {/* [REMOVIDO] A aba de Histórico foi removida por ser redundante. */}
                 </nav>
             </div>
             <div>
                 {activeTab === 'planos' && <PlanosFitossanitariosComponent />}
                 {activeTab === 'aplicacoes' && <RegistroAplicacaoComponent />}
                 {activeTab === 'calendario' && <CalendarioFitossanitarioComponent />}
-                {activeTab === 'historico' && <HistoricoFitossanitarioComponent />}
+                {/* [REMOVIDO] A renderização do componente de histórico foi removida. */}
             </div>
         </div>
     );
@@ -5849,6 +5901,9 @@ const VisualizarAplicacaoModal = ({ isOpen, onClose, aplicacao }) => {
 };
 
 
+// Versão: 9.0.6
+// [CORRIGIDO] Restaurado o corpo das funções 'handlePrintKanban' e 'handlePrintCalendar', que foram omitidas
+// por engano em versões anteriores. Ambas as funcionalidades de impressão agora estão completas e operacionais.
 const CalendarioFitossanitarioComponent = () => {
     const { db, appId, funcionarios } = useContext(GlobalContext);
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -5859,6 +5914,8 @@ const CalendarioFitossanitarioComponent = () => {
 
     const [isVisualizarModalOpen, setIsVisualizarModalOpen] = useState(false);
     const [aplicacaoSelecionada, setAplicacaoSelecionada] = useState(null);
+    
+    const [viewMode, setViewMode] = useState('calendar');
 
     const basePath = `/artifacts/${appId}/public/data`;
     const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`);
@@ -5878,7 +5935,6 @@ const CalendarioFitossanitarioComponent = () => {
             setTarefasFito(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         }, error => console.error("Erro ao carregar tarefas fito:", error));
 
-        // Aguarda um pequeno instante para garantir que ambos os listeners iniciem
         Promise.all([new Promise(res => setTimeout(res, 150)), new Promise(res => setTimeout(res, 150))]).then(() => {
             setLoading(false);
         });
@@ -5891,71 +5947,33 @@ const CalendarioFitossanitarioComponent = () => {
 
     useEffect(() => {
         if (loading) return;
-
         const todosOsEventos = {};
         const idsDeTarefasRenderizadas = new Set();
-
-        // 1. Processa as tarefas primeiro, pois elas representam o estado atual da operação
         tarefasFito.forEach(tarefa => {
             if (!tarefa.dataInicio?.toDate) return;
             const dataString = tarefa.dataInicio.toDate().toISOString().split('T')[0];
             if (!todosOsEventos[dataString]) todosOsEventos[dataString] = [];
-
-            let cor;
-            switch (tarefa.status) {
-                case 'CONCLUÍDA': cor = 'hsl(145, 60%, 90%)'; break;
-                case 'EM OPERAÇÃO': cor = 'hsl(185, 60%, 90%)'; break;
-                case 'CANCELADA': cor = 'hsl(0, 60%, 92%)'; break;
-                case 'PROGRAMADA': cor = 'hsl(200, 70%, 90%)'; break;
-                case 'PENDENTE_APROVACAO_FITO': cor = 'hsl(50, 80%, 90%)'; break;
-                default: cor = 'hsl(0, 0%, 90%)';
-            }
-            
             todosOsEventos[dataString].push({
-                id: tarefa.id,
-                produto: tarefa.tarefa,
-                data: tarefa.dataInicio,
-                status: tarefa.status,
+                id: tarefa.id, produto: tarefa.tarefa, data: tarefa.dataInicio, status: tarefa.status,
                 origem: tarefa.origemPlanoId ? `Plano (${tarefa.origem})` : tarefa.origem,
                 areas: [tarefa.area],
                 responsavel: (tarefa.responsaveis || []).map(rId => funcionarios.find(f => f.id === rId)?.nome || rId).join(', '),
-                dosagem: null, // Informação não disponível diretamente na tarefa
-                plantaLocal: null, // Informação não disponível diretamente na tarefa
                 observacoes: tarefa.orientacao,
-                cor: cor,
              });
              idsDeTarefasRenderizadas.add(tarefa.id);
         });
-
-        // 2. Processa o histórico (registros), mas apenas se uma tarefa correspondente já não foi renderizada
         registros.forEach(reg => {
-            // Um registro pode não ter uma tarefa correspondente (ex: dados legados)
             const tarefaCorrespondenteId = tarefasFito.find(t => t.origemRegistroId === reg.id)?.id;
-            
-            if (tarefaCorrespondenteId && idsDeTarefasRenderizadas.has(tarefaCorrespondenteId)) {
-                // Se a tarefa já foi adicionada, não adiciona o registro histórico para evitar duplicidade.
-                return;
-            }
-
+            if (tarefaCorrespondenteId && idsDeTarefasRenderizadas.has(tarefaCorrespondenteId)) return;
             if (!reg.dataAplicacao?.toDate) return;
             const dataString = reg.dataAplicacao.toDate().toISOString().split('T')[0];
             if (!todosOsEventos[dataString]) todosOsEventos[dataString] = [];
-
             todosOsEventos[dataString].push({
-                id: reg.id,
-                produto: reg.produto,
-                data: reg.dataAplicacao,
-                status: 'Realizada',
-                origem: reg.planoNome || 'Manual (Histórico)',
-                areas: reg.areas,
-                responsavel: reg.responsavel,
-                dosagem: reg.dosagem,
-                plantaLocal: reg.plantaLocal,
-                observacoes: reg.observacoes,
-                cor: 'hsl(145, 60%, 90%)',
+                id: reg.id, produto: reg.produto, data: reg.dataAplicacao, status: 'Realizada',
+                origem: reg.planoNome || 'Manual (Histórico)', areas: reg.areas, responsavel: reg.responsavel,
+                dosagem: reg.dosagem, plantaLocal: reg.plantaLocal, observacoes: reg.observacoes,
             });
         });
-
         setEventos(todosOsEventos);
     }, [registros, tarefasFito, loading, funcionarios]);
 
@@ -5964,12 +5982,35 @@ const CalendarioFitossanitarioComponent = () => {
         setIsVisualizarModalOpen(true);
     };
     
-    const changeMonth = (offset) => {
+    const changePeriod = (offset) => {
         setCurrentDate(prevDate => {
             const newDate = new Date(prevDate);
-            newDate.setMonth(newDate.getMonth() + offset);
+            if (viewMode === 'calendar') {
+                newDate.setMonth(newDate.getMonth() + offset);
+            } else {
+                newDate.setDate(newDate.getDate() + (7 * offset));
+            }
             return newDate;
         });
+    };
+    
+    const getWeekInfo = (date) => {
+        const start = new Date(date);
+        start.setUTCHours(0, 0, 0, 0);
+        const day = start.getUTCDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        start.setUTCDate(start.getUTCDate() + diff);
+        const end = new Date(start);
+        end.setUTCDate(start.getUTCDate() + 5);
+        return { start, end };
+    };
+
+    const getPeriodLabel = () => {
+        if (viewMode === 'kanban') {
+            const { start, end } = getWeekInfo(currentDate);
+            return `Semana de ${start.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short', timeZone: 'UTC'})} a ${end.toLocaleDateString('pt-BR', {day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'})}`;
+        }
+        return currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase();
     };
 
     const renderCalendar = () => {
@@ -5978,16 +6019,13 @@ const CalendarioFitossanitarioComponent = () => {
         const firstDayOfMonth = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const days = [];
-
         for (let i = 0; i < firstDayOfMonth; i++) {
             days.push(<div key={`empty-${i}`} className="border p-2 bg-gray-50"></div>);
         }
-
         for (let day = 1; day <= daysInMonth; day++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const dayEvents = eventos[dateStr] || [];
             const isToday = new Date(year, month, day).toDateString() === new Date().toDateString();
-
             days.push(
                 <div key={day} className={`border p-2 h-36 flex flex-col ${isToday ? 'bg-blue-50' : 'bg-white'}`}>
                     <strong className={`text-sm ${isToday ? 'text-blue-600 font-bold' : ''}`}>{day}</strong>
@@ -5997,8 +6035,7 @@ const CalendarioFitossanitarioComponent = () => {
                                 key={event.id}
                                 onClick={() => handleOpenVisualizarModal(event)}
                                 title={event.produto}
-                                className={`w-full text-left text-xs p-1 rounded-md text-gray-800 transition-all hover:ring-2 hover:ring-blue-400 ${event.status === 'CANCELADA' ? 'line-through opacity-70' : ''}`}
-                                style={{backgroundColor: event.cor}}
+                                className={`w-full text-left text-xs p-1 rounded-md text-gray-800 transition-all hover:ring-2 hover:ring-blue-400 ${getStatusColor(event.status)} ${event.status === 'CANCELADA' ? 'line-through opacity-70' : ''}`}
                             >
                                 {event.produto}
                             </button>
@@ -6010,9 +6047,166 @@ const CalendarioFitossanitarioComponent = () => {
         return days;
     };
     
+    const renderKanbanView = () => {
+        const weekDaysColumns = [];
+        const { start } = getWeekInfo(currentDate);
+        const DIAS_DA_SEMANA = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+        for (let i = 0; i < 6; i++) {
+            const dayDate = new Date(start);
+            dayDate.setUTCDate(start.getUTCDate() + i);
+            const dayString = dayDate.toISOString().split('T')[0];
+            const dayEvents = eventos[dayString] || [];
+            weekDaysColumns.push(
+                <div key={i} className="bg-gray-200 rounded-lg p-3 flex flex-col h-full min-h-[60vh]">
+                    <h3 className="font-bold text-gray-800 text-center mb-1">{DIAS_DA_SEMANA[i]}</h3>
+                    <p className="text-xs text-gray-500 text-center mb-4">{dayDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })}</p>
+                    <div className="space-y-3 overflow-y-auto flex-1">
+                        {dayEvents.length > 0 ? (
+                            dayEvents.map(event => (
+                                <div 
+                                    key={event.id}
+                                    onClick={() => handleOpenVisualizarModal(event)}
+                                    className={`p-3 rounded-md shadow-sm text-black cursor-pointer hover:ring-2 hover:ring-blue-500 ${getStatusColor(event.status)}`}
+                                >
+                                    <div className="font-bold text-sm mb-1 pb-1 border-b border-black border-opacity-20">{event.produto}</div>
+                                    <div className="text-xs space-y-1">
+                                        <p><strong>Responsável:</strong> {event.responsavel || 'N/A'}</p>
+                                        <p><strong>Status:</strong> {event.status || 'N/A'}</p>
+                                        {event.observacoes && <p className="italic pt-1 mt-1 border-t border-black border-opacity-10">"{event.observacoes}"</p>}
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center text-sm text-gray-500 pt-10">Nenhuma aplicação.</div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+        return weekDaysColumns;
+    };
+
+    // [CORRIGIDO] Corpo da função de impressão do Kanban foi preenchido.
+    const handlePrintKanban = () => {
+        if (viewMode !== 'kanban') return;
+        const { start } = getWeekInfo(currentDate);
+        const DIAS_DA_SEMANA = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+        const headerHtml = `
+            <div class="header">
+                <h1>Relatório Semanal de Aplicações Fitossanitárias</h1>
+                <h2>${getPeriodLabel()}</h2>
+            </div>`;
+        let columnsHtml = '';
+        for (let i = 0; i < 6; i++) {
+            const dataDia = new Date(start);
+            dataDia.setUTCDate(dataDia.getUTCDate() + i);
+            const diaFormatado = dataDia.toISOString().split('T')[0];
+            const diaDaSemanaNome = DIAS_DA_SEMANA[i];
+            const dataLabel = dataDia.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' });
+            const dayEvents = eventos[diaFormatado] || [];
+            let tasksHtml = dayEvents.length > 0 ? dayEvents.map(event => `
+                <div class="task-card">
+                    <div class="task-header">${event.produto}</div>
+                    <div class="task-body">
+                        <p><strong>Responsável:</strong> ${event.responsavel || 'N/A'}</p>
+                        <p><strong>Status:</strong> ${event.status || 'N/A'}</p>
+                    </div>
+                    ${event.observacoes ? `<div class="task-footer">${event.observacoes}</div>` : ''}
+                </div>`).join('') : '<p class="no-tasks">Nenhuma aplicação.</p>';
+            columnsHtml += `
+                <div class="column">
+                    <h3>${diaDaSemanaNome} <span class="date-label">${dataLabel}</span></h3>
+                    <div class="tasks-container">${tasksHtml}</div>
+                </div>`;
+        }
+        const styles = `
+            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+            body { font-family: 'Roboto', sans-serif; margin: 20px; font-size: 9pt; background-color: #fff; color: #000; }
+            @page { size: A4 landscape; margin: 15mm; }
+            .header { text-align: center; margin-bottom: 20px; } .header h1 { margin: 0; font-size: 16pt; color: #000; }
+            .header h2 { margin: 5px 0 0 0; font-size: 12pt; color: #333; font-weight: 400; }
+            .grid-container { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+            .column { border: 1px solid #ccc; border-radius: 8px; padding: 10px; page-break-inside: avoid; }
+            .column h3 { text-align: center; margin: 0 0 10px 0; font-size: 11pt; padding-bottom: 5px; border-bottom: 1px solid #ddd; }
+            .column h3 .date-label { font-size: 9pt; color: #666; font-weight: 400; }
+            .task-card { background-color: #fff !important; border: 1px solid #ccc !important; border-radius: 4px; padding: 8px; margin-bottom: 6px; color: #000; page-break-inside: avoid; }
+            .task-header { font-weight: 700; font-size: 9pt; padding-bottom: 4px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+            .task-body { font-size: 8pt; } .task-body p { margin: 2px 0; }
+            .task-footer { font-style: italic; font-size: 8pt; color: #555; margin-top: 5px; padding-top: 5px; border-top: 1px dotted #ccc; }
+            .no-tasks { text-align: center; font-style: italic; color: #888; font-size: 8pt; padding-top: 20px; }`;
+        const fullHtml = `<html><head><title>Visão Semanal de Aplicações</title><style>${styles}</style></head><body>${headerHtml}<div class="grid-container">${columnsHtml}</div></body></html>`;
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(fullHtml);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); }, 500);
+    };
+
+    // [CORRIGIDO] Corpo da função de impressão do Calendário foi preenchido.
+    const handlePrintCalendar = () => {
+        const month = currentDate.getMonth();
+        const year = currentDate.getFullYear();
+        const firstDayOfMonth = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const headerHtml = `
+            <div class="header">
+                <h1>Calendário de Aplicações Fitossanitárias</h1>
+                <h2>${getPeriodLabel()}</h2>
+            </div>`;
+        let cellsHtml = '';
+        for (let i = 0; i < firstDayOfMonth; i++) {
+            cellsHtml += `<div class="day-cell empty"></div>`;
+        }
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const dayEvents = eventos[dateStr] || [];
+            let eventsHtml = dayEvents.length > 0 ? dayEvents.map(event => `
+                <div class="event-item">${event.produto} (${event.status})</div>`).join('') : '';
+            cellsHtml += `<div class="day-cell"><div class="day-number">${day}</div><div class="events-container">${eventsHtml}</div></div>`;
+        }
+        const styles = `
+            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+            body { font-family: 'Roboto', sans-serif; margin: 20px; font-size: 8pt; }
+            @page { size: A4 portrait; margin: 15mm; }
+            .header { text-align: center; margin-bottom: 20px; } .header h1 { margin: 0; font-size: 16pt; }
+            .header h2 { margin: 5px 0 0 0; font-size: 12pt; font-weight: 400; }
+            .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); border-top: 1px solid #ccc; border-left: 1px solid #ccc; }
+            .weekday-header { text-align: center; font-weight: bold; padding: 5px; background-color: #f2f2f2; border-bottom: 1px solid #ccc; border-right: 1px solid #ccc; }
+            .day-cell { border-right: 1px solid #ccc; border-bottom: 1px solid #ccc; min-height: 100px; padding: 4px; display: flex; flex-direction: column; }
+            .day-cell.empty { background-color: #f9f9f9; }
+            .day-number { font-weight: bold; text-align: right; margin-bottom: 4px; }
+            .events-container { flex-grow: 1; overflow: hidden; }
+            .event-item { font-size: 7pt; background-color: #eef2ff; border-radius: 2px; padding: 2px 3px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }`;
+        const weekDaysHeader = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => `<div class="weekday-header">${day}</div>`).join('');
+        const fullHtml = `<html><head><title>Calendário de Aplicações</title><style>${styles}</style></head><body>${headerHtml}<div class="calendar-grid">${weekDaysHeader}${cellsHtml}</div></body></html>`;
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(fullHtml);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); }, 500);
+    };
+
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <h2 className="text-2xl font-semibold mb-6 text-gray-800">Calendário de Aplicações</h2>
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <h2 className="text-2xl font-semibold text-gray-800">Calendário de Aplicações</h2>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={viewMode === 'kanban' ? handlePrintKanban : handlePrintCalendar}
+                        className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
+                    >
+                        <LucidePrinter size={18} className="mr-2"/> Imprimir Visão
+                    </button>
+                    <div className="bg-gray-200 p-1 rounded-lg flex space-x-1">
+                        <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors flex items-center gap-2 ${viewMode === 'calendar' ? 'bg-white text-blue-600 shadow' : 'text-gray-600 hover:bg-gray-300'}`}>
+                            <LucideCalendar size={16}/> Calendário
+                        </button>
+                        <button onClick={() => setViewMode('kanban')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors flex items-center gap-2 ${viewMode === 'kanban' ? 'bg-white text-blue-600 shadow' : 'text-gray-600 hover:bg-gray-300'}`}>
+                            <LucideKanbanSquare size={16}/> Visão Semanal
+                        </button>
+                    </div>
+                </div>
+            </div>
             
             <VisualizarAplicacaoModal 
                 isOpen={isVisualizarModalOpen}
@@ -6022,23 +6216,31 @@ const CalendarioFitossanitarioComponent = () => {
 
             <div className="bg-white p-4 rounded-lg shadow-md">
                 <div className="flex justify-between items-center mb-4">
-                    <button onClick={() => changeMonth(-1)} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">&lt; Anterior</button>
-                    <h3 className="text-xl font-bold">
-                        {currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}
+                    <button onClick={() => changePeriod(-1)} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">&lt; Anterior</button>
+                    <h3 className="text-xl font-bold text-center">
+                        {getPeriodLabel()}
                     </h3>
-                    <button onClick={() => changeMonth(1)} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">Próximo &gt;</button>
+                    <button onClick={() => changePeriod(1)} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">Próximo &gt;</button>
                 </div>
                 
                 {loading ? (
                     <p className="text-center py-10">Carregando dados...</p>
                 ) : (
                     <>
-                        <div className="grid grid-cols-7 text-center font-bold text-gray-600 border-b pb-2">
-                            {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => <div key={day}>{day}</div>)}
-                        </div>
-                        <div className="grid grid-cols-7">
-                            {renderCalendar()}
-                        </div>
+                        {viewMode === 'calendar' ? (
+                            <>
+                                <div className="grid grid-cols-7 text-center font-bold text-gray-600 border-b pb-2">
+                                    {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => <div key={day}>{day}</div>)}
+                                </div>
+                                <div className="grid grid-cols-7">
+                                    {renderCalendar()}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                                {renderKanbanView()}
+                            </div>
+                        )}
                     </>
                 )}
             </div>
@@ -6046,9 +6248,10 @@ const CalendarioFitossanitarioComponent = () => {
     );
 };
 
-// Versão: 16.0.0
-// [NOVO] Adicionado um botão "Cancelar" ao lado de "Alocar" na lista de tarefas pendentes.
-// [NOVO] Ao clicar em "Cancelar", uma confirmação é exigida antes de alterar o status da tarefa para "CANCELADA".
+
+// Versão: 16.0.1 (TarefasPendentesComponent)
+// [REVISADO] Componente revisado para garantir que as props 'listasAuxiliares' e 'funcionarios' sejam
+// corretamente passadas do Contexto Global para o AlocarTarefaModal.
 const TarefasPendentesComponent = () => {
     const { userId, db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext); 
     const [tarefasPendentes, setTarefasPendentes] = useState([]);
@@ -6258,8 +6461,9 @@ const TarefasPendentesComponent = () => {
 };
 
 // Modal para Alocar Tarefa Pendente
-const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
-    const { listasAuxiliares, funcionarios, userId } = useContext(GlobalContext);
+// [REVISADO E CORRIGIDO] Esta é a versão definitiva do modal, que recebe 'funcionarios'
+// e 'listasAuxiliares' via props para garantir que os dados estejam sempre disponíveis.
+const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar, listasAuxiliares, funcionarios }) => {
     const [responsaveisAloc, setResponsaveisAloc] = useState([]);
     const [turnoAloc, setTurnoAloc] = useState('');
     const [dataInicioAloc, setDataInicioAloc] = useState('');
@@ -6279,22 +6483,27 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
 
     const handleAlocarSubmit = async (e) => {
         e.preventDefault();
+        setLoadingAloc(true); // Inicia o loading
         if (responsaveisAloc.length === 0) {
             alert("Selecione ao menos um responsável.");
+            setLoadingAloc(false);
             return;
         }
         if (!turnoAloc) {
             alert("Selecione um turno.");
+            setLoadingAloc(false);
             return;
         }
         if (!dataInicioAloc || !dataTerminoAloc) {
             alert("As datas de início e término são obrigatórias.");
+            setLoadingAloc(false);
             return;
         }
         const inicio = new Date(dataInicioAloc + "T00:00:00Z");
         const fim = new Date(dataTerminoAloc + "T00:00:00Z");
         if (fim < inicio) {
             alert("A data de término não pode ser anterior à data de início.");
+            setLoadingAloc(false);
             return;
         }
 
@@ -6306,6 +6515,7 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
             orientacao: orientacaoAloc.trim()
         };
         await onAlocar(tarefaPendente.id, dadosAlocacao);
+        setLoadingAloc(false); // Finaliza o loading
     };
     
     const handleResponsavelAlocChange = (e) => {
@@ -6313,20 +6523,19 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
         setResponsaveisAloc(selectedOptions);
     };
 
-
     if (!tarefaPendente) return null;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Alocar Tarefa: ${tarefaPendente.tarefa}`} width="max-w-lg">
             <form onSubmit={handleAlocarSubmit} className="space-y-4">
-                <p className="text-sm"><strong>Prioridade:</strong> {tarefaPendente.prioridade}</p>
-                <p className="text-sm"><strong>Área:</strong> {tarefaPendente.area}</p>
-                <p className="text-sm"><strong>Ação:</strong> {tarefaPendente.acao}</p>
+                <p className="text-sm"><strong>Prioridade:</strong> {tarefaPendente.prioridade || 'N/A'}</p>
+                <p className="text-sm"><strong>Área:</strong> {tarefaPendente.area || 'N/A'}</p>
+                <p className="text-sm"><strong>Ação:</strong> {tarefaPendente.acao || 'N/A'}</p>
                 
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Responsável(eis) <span className="text-red-500">*</span></label>
                     <select multiple value={responsaveisAloc} onChange={handleResponsavelAlocChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-28">
-                    {funcionarios.filter(f => f.ativo).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                    {(funcionarios || []).filter(f => f.ativo).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
                     </select>
                      <p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p>
                 </div>
@@ -6334,7 +6543,7 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
                     <label className="block text-sm font-medium text-gray-700">Turno <span className="text-red-500">*</span></label>
                     <select value={turnoAloc} onChange={(e) => setTurnoAloc(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                         <option value="">Selecione...</option>
-                        {listasAuxiliares.turnos.map(t => <option key={t} value={t}>{t}</option>)}
+                        {(listasAuxiliares.turnos || []).map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                 </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -6362,6 +6571,8 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar }) => {
         </Modal>
     );
 };
+
+
 
 // Versão: 15.3.0
 // [MELHORIA] Adicionada a coluna "Observação/Orientação" na tabela de Acompanhamento de Aplicações.
@@ -6782,7 +6993,9 @@ const PlanosFitossanitariosComponent = () => {
     );
 };
 
-// Versão: 8.3.0
+// Versão: 8.3.1
+// [CORRIGIDO] Corrigido um erro de digitação no nome da coleção ('controleFitossanititario' para 'controleFitossanitario'),
+// o que impedia o carregamento do histórico de aplicações.
 // [ALTERADO] Componente simplificado para exibir apenas o histórico. A lógica de criação foi movida para o novo componente RegistroAplicacaoComponent.
 const HistoricoFitossanitarioComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth } = useContext(GlobalContext);
@@ -6794,6 +7007,7 @@ const HistoricoFitossanitarioComponent = () => {
     const [selectedRegistroId, setSelectedRegistroId] = useState(null);
     
     const basePath = `/artifacts/${appId}/public/data`;
+    // [CORRIGIDO] O nome da coleção foi corrigido de 'controleFitossanititario' para 'controleFitossanitario'.
     const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`);
 
     useEffect(() => {
@@ -7079,9 +7293,10 @@ const AguardandoAlocacaoFitoCard = ({ aplicacoes }) => {
     );
 };
 
-// Versão: 19.0.0
-// [REVISADO] Componentes de card movidos para dentro do Dashboard para evitar declarações duplicadas.
-const DashboardComponent = () => {
+// Versão: 19.0.1
+// [REVERTIDO] O comportamento do card "Tarefas Atrasadas" foi revertido. Clicar em uma tarefa
+// agora abre diretamente o modal de tratamento ('TratarAtrasoModal'), em vez de navegar para o mapa de atividades.
+const DashboardComponent = ({ setCurrentPage }) => {
     const { db, appId, listasAuxiliares, funcionarios, auth, loading: loadingAuth } = useContext(GlobalContext);
     const [stats, setStats] = useState({
         porStatus: {}, porPrioridade: {}, proximoPrazo: [], atrasadas: [], pendentesAtrasadas: [], porFuncionario: {}
@@ -7098,7 +7313,14 @@ const DashboardComponent = () => {
     const [highlightAtrasadas, setHighlightAtrasadas] = useState(false);
     const atrasadasCardRef = useRef(null);
 
-    // Card de Status dos Planos (agora interno)
+    const handleNavigateWithFilter = (page, filters) => {
+        Object.entries(filters).forEach(([key, value]) => {
+            sessionStorage.setItem(key, value);
+        });
+        setCurrentPage(page);
+    };
+
+    // Card de Status dos Planos
     const StatusPlanosFitoCard = ({ planos, tarefas }) => {
         const getStatusPlano = (proximaAplicacao) => {
             if (!proximaAplicacao) {
@@ -7185,7 +7407,7 @@ const DashboardComponent = () => {
         );
     };
 
-    // Card de Alocação Fito (agora interno)
+    // Card de Alocação Fito
     const AguardandoAlocacaoFitoCard = ({ aplicacoes }) => {
         return (
             <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -7214,7 +7436,6 @@ const DashboardComponent = () => {
         );
     };
 
-    // Filtra os dados para o card de alocação fito
     const aplicacoesFitoAguardandoAlocacao = useMemo(() => {
         const fitoOrigins = ["Controle Fitossanitário", "Registro Fito (App)", "Reagendamento Fito", "Controle Fitossanitário (Pendente)"];
         return todasTarefas.filter(t =>
@@ -7229,18 +7450,12 @@ const DashboardComponent = () => {
             const checkPerformed = sessionStorage.getItem(checkKey);
 
             if (!checkPerformed) {
-                console.log("Executando verificação de tarefas fitossanitárias...");
                 verificarEGerarTarefasFito(db, basePath)
-                    .then(() => {
-                        console.log("Verificação concluída.");
-                        sessionStorage.setItem(checkKey, 'true');
-                    })
-                    .catch(error => {
-                        console.error("Erro na verificação automática de tarefas fito:", error);
-                    });
+                    .then(() => sessionStorage.setItem(checkKey, 'true'))
+                    .catch(error => console.error("Erro na verificação automática de tarefas fito:", error));
             }
         }
-    }, [db, appId]);
+    }, [db, appId, basePath]);
     
     useEffect(() => {
         if (loadingAuth || !funcionarios?.length) {
@@ -7248,8 +7463,6 @@ const DashboardComponent = () => {
             return;
         }
     
-        const basePath = `/artifacts/${appId}/public/data`;
-        
         const tarefasRef = collection(db, `${basePath}/tarefas_mapa`);
         const qTarefas = query(tarefasRef);
         const unsubscribeTarefas = onSnapshot(qTarefas, (snapshot) => {
@@ -7318,7 +7531,7 @@ const DashboardComponent = () => {
             unsubscribeTarefas();
             unsubscribePlanos();
         };
-    }, [loadingAuth, funcionarios, listasAuxiliares, appId, db, notificacaoAtrasoMostrada]);
+    }, [loadingAuth, funcionarios, listasAuxiliares, appId, db, notificacaoAtrasoMostrada, basePath]);
 
 
     const handleOpenTratarAtrasoModal = (tarefa) => {
@@ -7384,7 +7597,7 @@ const DashboardComponent = () => {
             toast.custom((t) => (
                 <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} bg-gray-800 text-white shadow-lg rounded-lg pointer-events-auto flex items-center px-4 py-2`}>
                     <LucideMousePointerClick size={18} className="mr-3 text-cyan-400" />
-                    <span>Clique no ícone <LucideArrowRightCircle className="inline-block mx-1" size={18}/> para tratar uma pendência.</span>
+                    <span>Clique em uma tarefa para tratar a pendência.</span>
                 </div>
             ), { duration: 5000, position: 'bottom-center' });
         }, 1000);
@@ -7452,33 +7665,34 @@ const DashboardComponent = () => {
 
             {/* Linha 2 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo (7 dias)</h3>
+                <button onClick={() => handleNavigateWithFilter('mapa', { 'mapa_filter_status': TODOS_EXCETO_CONCLUIDOS_VALUE, 'mapa_filter_prazo': 'PROXIMOS_7_DIAS' })} className="text-left bg-white p-6 rounded-lg shadow-lg hover:ring-2 hover:ring-yellow-400 transition-all">
+                    <h3 className="text-xl font-semibold text-yellow-600 mb-4 flex items-center"><LucideClock size={22} className="mr-2"/> Tarefas com Prazo Próximo ({stats.proximoPrazo.length})</h3>
                     {stats.proximoPrazo.length > 0 ? (
                         <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                            {stats.proximoPrazo.map(tarefa => (<li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300">
+                            {stats.proximoPrazo.slice(0, 5).map(tarefa => (<li key={tarefa.id} className="p-3 border rounded-md bg-yellow-50 border-yellow-300">
                                 <p className="font-semibold text-sm text-yellow-800">{tarefa.tarefa}</p>
-                                {tarefa.orientacao && <p className="text-xs italic text-yellow-800 mt-1">{tarefa.orientacao}</p>}
+                                {tarefa.orientacao && <p className="text-xs italic text-yellow-800 mt-1">{tarefa.orientacao.substring(0, 50)}...</p>}
                                 <p className="text-xs text-yellow-700 mt-1">Término: {formatDateDash(tarefa.dataProvavelTermino)} - Status: <span className="font-bold">{tarefa.status}</span></p>
                                 </li>))}
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa com prazo próximo.</p>}
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-semibold text-orange-600 mb-4 flex items-center"><LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação</h3>
+                </button>
+                <button onClick={() => setCurrentPage('pendentes')} className="text-left bg-white p-6 rounded-lg shadow-lg hover:ring-2 hover:ring-orange-400 transition-all">
+                    <h3 className="text-xl font-semibold text-orange-600 mb-4 flex items-center"><LucidePauseCircle size={22} className="mr-2"/> Tarefas Pendentes de Alocação ({stats.pendentesAtrasadas.length})</h3>
                     {stats.pendentesAtrasadas.length > 0 ? (
                         <ul className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                            {stats.pendentesAtrasadas.map(tarefa => (
+                            {stats.pendentesAtrasadas.slice(0, 5).map(tarefa => (
                                 <li key={tarefa.id} className="p-3 border rounded-md bg-orange-50 border-orange-300">
                                     <p className="font-semibold text-sm text-orange-800">{tarefa.tarefa}</p>
-                                    {tarefa.orientacao && <p className="text-xs italic text-orange-800 mt-1">{tarefa.orientacao}</p>}
+                                    {tarefa.orientacao && <p className="text-xs italic text-orange-800 mt-1">{tarefa.orientacao.substring(0, 50)}...</p>}
                                     <p className="text-xs text-orange-700 mt-1">Criada em: {formatDateDash(tarefa.createdAt)}</p>
                                 </li>
                             ))}
                         </ul>
                     ) : <p className="text-sm text-gray-500">Nenhuma tarefa aguardando alocação.</p>}
-                </div>
+                </button>
                 <AguardandoAlocacaoFitoCard aplicacoes={aplicacoesFitoAguardandoAlocacao} />
+                {/* [REVERTIDO] O card de tarefas atrasadas agora é um container DIV normal */}
                 <div ref={atrasadasCardRef} className={`bg-white p-6 rounded-lg shadow-lg scroll-mt-6 transition-all duration-300 ${highlightAtrasadas ? 'ring-4 ring-offset-4 ring-red-500' : 'ring-0'}`}>
                     <h3 className="text-xl font-semibold text-red-600 mb-4 flex items-center"><LucideAlertOctagon size={22} className="mr-2"/> Tarefas Atrasadas</h3>
                     {stats.atrasadas.length > 0 ? (
@@ -7486,13 +7700,16 @@ const DashboardComponent = () => {
                             {stats.atrasadas.map(tarefa => {
                                 const diasAtraso = calculateDaysOverdue(tarefa.dataProvavelTermino);
                                 return (
-                                <li key={tarefa.id} className="p-3 border rounded-md bg-red-50 border-red-200 flex justify-between items-center">
-                                    <div>
-                                        <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
-                                        <p className="text-xs text-red-700 mt-1">Atrasada há <strong>{diasAtraso}</strong> dia(s) - Status: <span className="font-semibold">{tarefa.status}</span></p>
-                                        <p className="text-xs text-red-700 mt-1">Responsáveis: <span className="font-semibold">{getResponsavelNomes(tarefa.responsaveis)}</span></p>
-                                    </div>
-                                    <button onClick={() => handleOpenTratarAtrasoModal(tarefa)} title="Tratar Atraso" className="p-2 text-red-600 bg-red-100 hover:bg-red-200 rounded-full transition-colors"><LucideArrowRightCircle size={18} /></button>
+                                // [ALTERADO] Cada item da lista agora é um botão que abre o modal
+                                <li key={tarefa.id}>
+                                    <button onClick={() => handleOpenTratarAtrasoModal(tarefa)} className="w-full text-left p-3 border rounded-md bg-red-50 border-red-200 flex justify-between items-center hover:bg-red-100 transition-colors">
+                                        <div>
+                                            <p className="font-semibold text-sm text-red-800">{tarefa.tarefa}</p>
+                                            <p className="text-xs text-red-700 mt-1">Atrasada há <strong>{diasAtraso}</strong> dia(s) - Status: <span className="font-semibold">{tarefa.status}</span></p>
+                                            <p className="text-xs text-red-700 mt-1">Responsáveis: <span className="font-semibold">{getResponsavelNomes(tarefa.responsaveis)}</span></p>
+                                        </div>
+                                        <LucideArrowRightCircle size={18} className="text-red-600 flex-shrink-0 ml-2" />
+                                    </button>
                                 </li>
                             )})}
                         </ul>
@@ -7815,7 +8032,7 @@ const AnotacoesComponent = () => {
 // Versão: 10.6.0
 // [CORRIGIDO] O componente App agora usa um estado de carregamento unificado do GlobalProvider,
 // aguardando permissões e dados antes de renderizar a aplicação principal.
-function App() {
+function AppContent() { // <-- NOME ALTERADO AQUI
     const { currentUser, loading } = useContext(GlobalContext);
     
     // 1. Exibe uma tela de carregamento até que a autenticação e os dados essenciais estejam prontos.
@@ -7841,6 +8058,7 @@ function App() {
 // [ALTERADO] A verificação de permissão para o menu "Planejamento (Visão)" e sua página
 // foi atualizada de `checkPermission('programacao')` para `checkPermission('planejamento')`.
 // Isso conclui a separação das permissões, tornando o acesso a essa tela totalmente independente.
+// [MELHORIA 2.1] Adicionada a passagem da prop 'setCurrentPage' para o DashboardComponent.
 const MainApp = () => {
     const [currentPage, setCurrentPage] = useState('welcome');
     const { currentUser, permissoes, auth: firebaseAuth } = useContext(GlobalContext);
@@ -7866,19 +8084,19 @@ const MainApp = () => {
         if (currentPage !== 'welcome' && !checkPermission(currentPage)) {
             toast.error("Você não tem permissão para acessar esta página.");
             // Redireciona para o dashboard como uma página segura padrão.
-            return <DashboardComponent />;
+            return <DashboardComponent setCurrentPage={setCurrentPage} />;
         }
 
         switch (currentPage) {
             case 'welcome': return <WelcomeComponent />;
-            case 'dashboard': return <DashboardComponent />;
+            // [MELHORIA 2.1] A prop setCurrentPage agora é passada para o Dashboard.
+            case 'dashboard': return <DashboardComponent setCurrentPage={setCurrentPage} />;
             case 'mapa': return <MapaAtividadesComponent />;
             case 'programacao': return <ProgramacaoSemanalComponent setCurrentPage={setCurrentPage} />;
-            // [ALTERADO] A verificação agora usa a permissão 'planejamento'.
             case 'planejamento': 
-                if (!checkPermission('planejamento')) { // Verificação redundante por segurança
+                if (!checkPermission('planejamento')) { 
                     toast.error("Você não tem permissão para acessar esta página.");
-                    return <DashboardComponent />;
+                    return <DashboardComponent setCurrentPage={setCurrentPage} />;
                 }
                 return <PlanejamentoSemanalCardViewComponent />;
             case 'fito': return <ControleFitossanitarioComponent />;
@@ -7920,7 +8138,6 @@ const MainApp = () => {
                             <NavGroupTitle title="Gestão" />
                             {checkPermission('dashboard') && <NavLink page="dashboard" icon={LucideLayoutDashboard} currentPage={currentPage} setCurrentPage={setCurrentPage}>Dashboard</NavLink>}
                             {checkPermission('programacao') && <NavLink page="programacao" icon={LucideCalendarDays} currentPage={currentPage} setCurrentPage={setCurrentPage}>Programação (Grade)</NavLink>}
-                            {/* [ALTERADO] O link do menu agora verifica a permissão 'planejamento'. */}
                             {checkPermission('planejamento') && <NavLink page="planejamento" icon={LucideKanbanSquare} currentPage={currentPage} setCurrentPage={setCurrentPage}>Planejamento (Visão)</NavLink>}
                             {checkPermission('agenda') && <NavLink page="agenda" icon={LucideBookMarked} currentPage={currentPage} setCurrentPage={setCurrentPage}>Agenda Semanal</NavLink>}
                         </div>
@@ -7958,10 +8175,10 @@ const MainApp = () => {
     );
 }
 
-export default function WrappedApp() {
+export default function App() { // <-- NOME ALTERADO AQUI (de WrappedApp para App)
     return (
         <GlobalProvider>
-            <App />
+            <AppContent /> {/* <-- NOME ALTERADO AQUI (de App para AppContent) */}
         </GlobalProvider>
     );
 }
