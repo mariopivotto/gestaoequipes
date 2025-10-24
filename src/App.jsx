@@ -3742,11 +3742,9 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
     );
 };
 
-// Versão: 23.5.0
-// [ALTERADO] O layout de impressão foi refinado para atender às últimas solicitações:
-// - O cabeçalho agora é impresso apenas uma vez, no topo da página.
-// - Cada tarefa é separada em um "quadro" (uma caixa com bordas) para melhor organização visual.
-// - O espaçamento entre as linhas dentro de cada quadro foi reduzido para um layout mais compacto e minimalista.
+// Versão: 23.5.1
+// [CORRIGIDO] Corrigido o bug crítico na função 'handleCriarTarefaPendente' que impedia o upload de anexos.
+// A função 'ref' do Firebase Storage estava recebendo o objeto 'File' em vez da string de caminho 'caminhoStorage'.
 const TarefaPatioComponent = () => {
     const { userId, db, appId, listasAuxiliares, auth, storage } = useContext(GlobalContext);
 
@@ -3776,7 +3774,6 @@ const TarefaPatioComponent = () => {
     const handleOpenModal = () => setIsModalOpen(true);
     const handleCloseModal = () => setIsModalOpen(false);
 
-    // [ALTERADO] Função de impressão com cabeçalho único e tarefas em quadros.
     const handlePrintTarefas = (tarefasParaImprimir) => {
         if (!tarefasParaImprimir || tarefasParaImprimir.length === 0) {
             toast.info("Não há tarefas pendentes para imprimir.");
@@ -3841,12 +3838,12 @@ const TarefaPatioComponent = () => {
                     .detalhes-grid {
                         display: grid;
                         grid-template-columns: 1fr 1fr;
-                        gap: 8px 20px; /* Espaçamento entre linhas diminuído */
+                        gap: 8px 20px;
                         margin-bottom: 15px;
                     }
                     .detalhes-grid p {
                         margin: 0;
-                        line-height: 1.4; /* Espaçamento entre linhas diminuído */
+                        line-height: 1.4;
                     }
                     .detalhes-grid p strong {
                         font-weight: 700;
@@ -3864,7 +3861,7 @@ const TarefaPatioComponent = () => {
                         border-top: 1px solid #eee;
                         padding-top: 8px;
                         margin-top: 8px;
-                        line-height: 1.4; /* Espaçamento entre linhas diminuído */
+                        line-height: 1.4;
                     }
                     @media print {
                         body {
@@ -3907,7 +3904,8 @@ const TarefaPatioComponent = () => {
                 toast.loading('Enviando anexos...', { id: 'upload-toast-patio' });
                 for (const anexo of novosAnexos) {
                     const caminhoStorage = `${basePath}/imagens_tarefas/${idDaNovaTarefa}/${Date.now()}_${anexo.name}`;
-                    const storageRef = ref(storage, anexo);
+                    // [CORRIGIDO] A função 'ref' agora usa a variável de string 'caminhoStorage' em vez do objeto 'anexo'.
+                    const storageRef = ref(storage, caminhoStorage);
                     const uploadTask = await uploadBytesResumable(storageRef, anexo);
                     const downloadURL = await getDownloadURL(uploadTask.ref);
                     urlsDosNovosAnexos.push(downloadURL);
