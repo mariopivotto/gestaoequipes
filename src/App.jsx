@@ -9,7 +9,7 @@ import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } f
 import DatePicker, { registerLocale } from 'react-datepicker';
 import ptBR from 'date-fns/locale/pt-BR';
 import "react-datepicker/dist/react-datepicker.css";
-import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy, LucideKanbanSquare, LucideCalendar } from 'lucide-react';
+import { LucidePlusCircle, LucideEdit, LucideTrash2, LucideCalendarDays, LucideClipboardList, LucideSettings, LucideStickyNote, LucideLogOut, LucideFilter, LucideUsers, LucideFileText, LucideCheckCircle, LucideXCircle, LucideRotateCcw, LucideRefreshCw, LucidePrinter, LucideCheckSquare, LucideSquare, LucideAlertCircle, LucideArrowRightCircle, LucideListTodo, LucideUserPlus, LucideSearch, LucideX, LucideLayoutDashboard, LucideAlertOctagon, LucideClock, LucideHistory, LucidePauseCircle, LucidePaperclip, LucideAlertTriangle, LucideMousePointerClick, LucideSprayCan, LucideClipboardEdit, LucideBookMarked, LucideActivity, LucideNotebookText, LucideClipboardPlus, LucideShare2, LucideClipboardCopy, LucideKanbanSquare, LucideCalendar, LucidePalette } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 registerLocale('pt-BR', ptBR);
 
@@ -2662,11 +2662,12 @@ const PrintOptionsModal = ({ isOpen, onClose, onPrintWeek, onPrintDay, semanaAtu
 };
 
 
-// Versão: 21.6.3 (PlanejamentoSemanalCardViewComponent)
-// [MELHORIA] O estilo de impressão foi alterado para um design minimalista e profissional.
-// As cores de fundo dos cards foram removidas na versão impressa para melhorar a legibilidade.
+// Versão: 21.6.4 (PlanejamentoSemanalCardViewComponent)
+// [UI/UX] Adicionado um botão de legenda de cores com popover na barra de ferramentas, reutilizando o componente LegendaCoresPopover para consistência visual.
+// [ARQUITETURA] Adicionado o uso do GlobalContext para obter a lista de 'acoes' necessária para a legenda.
+
 const PlanejamentoSemanalCardViewComponent = () => {
-    const { db, appId, funcionarios: contextFuncionarios } = useContext(GlobalContext);
+    const { db, appId, funcionarios: contextFuncionarios, listasAuxiliares } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
     const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
     const [dadosProgramacao, setDadosProgramacao] = useState(null);
@@ -2675,6 +2676,10 @@ const PlanejamentoSemanalCardViewComponent = () => {
     const [filtroFuncionario, setFiltroFuncionario] = useState('TODOS');
     const [filtroTarefa, setFiltroTarefa] = useState('');
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
+    // [NOVO] Estado e ref para o popover da legenda
+    const [isLegendOpen, setIsLegendOpen] = useState(false);
+    const legendButtonRef = useRef(null);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
@@ -2940,8 +2945,8 @@ const PlanejamentoSemanalCardViewComponent = () => {
                             todasAsTarefasDoDia.map(tarefa => (
                                 <div 
                                     key={tarefa.uniqueKey} 
-                                    className="p-2 rounded-md shadow-sm text-black text-[11px] leading-tight flex flex-col" 
-                                    style={{ backgroundColor: getAcaoColor(tarefa.acao) }}
+                                    className={`p-2 rounded-md shadow-sm text-black text-[11px] leading-tight flex flex-col ${tarefa.statusLocal === 'CANCELADA' ? 'line-through' : ''}`} 
+                                    style={{ backgroundColor: tarefa.statusLocal === 'CANCELADA' ? '#fca5a5' : getAcaoColor(tarefa.acao) }}
                                 >
                                     <div className="mb-1 pb-1 border-b border-black border-opacity-20 text-left font-semibold">
                                         {tarefa.funcionarioNome}
@@ -2986,6 +2991,23 @@ const PlanejamentoSemanalCardViewComponent = () => {
                     >
                         <LucidePrinter size={18} className="mr-2"/> Imprimir Visão
                     </button>
+                    {/* [NOVO] Botão e Popover da Legenda */}
+                    <div className="relative">
+                        <button
+                            ref={legendButtonRef}
+                            onClick={() => setIsLegendOpen(prev => !prev)}
+                            title="Legenda de Cores"
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-md flex items-center shadow-sm"
+                        >
+                            <LucidePalette size={18} className="mr-2"/> Legenda
+                        </button>
+                        <LegendaCoresPopover
+                            isOpen={isLegendOpen}
+                            onClose={() => setIsLegendOpen(false)}
+                            acoes={listasAuxiliares.acoes || []}
+                            triggerRef={legendButtonRef}
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -3038,9 +3060,68 @@ const PlanejamentoSemanalCardViewComponent = () => {
     );
 };
 
-// Versão: 25.5.0 (ProgramacaoSemanalComponent)
-// [UI/UX] O cabeçalho foi redesenhado para um layout de barra única, mais minimalista e alinhado à direita,
-// melhorando a organização visual e a clareza dos controles.
+// Versão: 25.5.2
+// [UI/UX] A legenda de cores foi refatorada para um popover compacto, acionado por um botão na barra de ferramentas superior, otimizando o espaço da tela.
+// [NOVO] Adicionada a importação do ícone 'LucidePalette' para o novo botão da legenda.
+
+// ===================================================================================
+// [NOVO SUBCOMPONENTE] Popover da Legenda de Cores
+// ===================================================================================
+const LegendaCoresPopover = memo(({ isOpen, onClose, acoes, triggerRef }) => {
+    if (!isOpen) return null;
+
+    const getAcaoColor = (acao) => {
+        switch (acao) {
+            case 'MANUTENÇÃO | MUDAS': return '#81deab';
+            case 'MANUTENÇÃO | PATIO': return '#83c1e6';
+            case 'MELHORIAS | ESTRUTURAIS': return '#d9d680';
+            case 'MANUTENÇÃO | PREVENTIVA': case 'MANUTENÇÃO | TRATAMENTO': return '#a289d6';
+            default: return '#b3b2b1';
+        }
+    };
+
+    const todasAcoesComCor = [
+        ...acoes.map(acao => ({ nome: acao, cor: getAcaoColor(acao) })),
+        { nome: 'Tarefa Cancelada', cor: '#fca5a5' }
+    ];
+
+    const popoverRef = useRef(null);
+
+    // Efeito para fechar o popover ao clicar fora dele
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (
+                popoverRef.current && !popoverRef.current.contains(event.target) &&
+                triggerRef.current && !triggerRef.current.contains(event.target)
+            ) {
+                onClose();
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [onClose, triggerRef]);
+
+    return (
+        <div ref={popoverRef} className="absolute top-full right-0 mt-2 w-64 bg-white p-4 rounded-lg shadow-xl border z-30">
+            <h4 className="text-sm font-semibold text-gray-800 mb-3">Legenda de Cores</h4>
+            <div className="flex flex-col gap-2">
+                {todasAcoesComCor.map(({ nome, cor }) => (
+                    <div key={nome} className="flex items-center">
+                        <span className="w-4 h-4 rounded-sm mr-2 flex-shrink-0" style={{ backgroundColor: cor }}></span>
+                        <span className="text-xs text-gray-700">{nome}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+});
+
+
+// ===================================================================================
+// [COMPONENTE ATUALIZADO] ProgramacaoSemanalComponent
+// ===================================================================================
 const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -3061,6 +3142,11 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const [todosFuncionarios, setTodosFuncionarios] = useState([]);
     const [funcionariosAtivos, setFuncionariosAtivos] = useState([]);
     const [loadingFuncionarios, setLoadingFuncionarios] = useState(true);
+    
+    // [NOVO] Estado e ref para o popover da legenda
+    const [isLegendOpen, setIsLegendOpen] = useState(false);
+    const legendButtonRef = useRef(null);
+
 
     const basePath = `/artifacts/${appId}/public/data`;
     const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
@@ -3258,7 +3344,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     
             tarefasMapaSnap.forEach(docTarefaMapa => {
                 const tarefaMapa = { id: docTarefaMapa.id, ...docTarefaMapa.data() };
-                const statusValidos = ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA"];
+                const statusValidos = ["PROGRAMADA", "EM OPERAÇÃO", "CONCLUÍDA", "CANCELADA"];
                 if (!statusValidos.includes(tarefaMapa.status) || !tarefaMapa.dataInicio || !tarefaMapa.dataProvavelTermino || !tarefaMapa.responsaveis?.length) return;
     
                 let textoBaseTarefa = tarefaMapa.tarefa || "Tarefa s/ descrição";
@@ -3442,8 +3528,9 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                         ? <span className="text-gray-400 italic text-xs">Vazio</span> 
                         : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
                             let taskColor = getAcaoColor(tarefaInst.acao);
+                            
                             if (tarefaInst.statusLocal === 'CANCELADA') {
-                                taskColor = '#fca5a5'; 
+                                taskColor = '#fca5a5';
                             }
                             
                             const temAnotacao = tarefaInst.ultimaAnotacaoTexto && tarefaInst.ultimaAnotacaoTexto.trim() !== '';
@@ -3519,6 +3606,23 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                         <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} title="Gerenciar Semana" className="bg-sky-500 hover:bg-sky-600 text-white font-bold p-2 rounded-md flex items-center shadow-sm disabled:bg-gray-400">
                             <LucideSettings size={18}/>
                         </button>
+                        {/* [NOVO] Botão da Legenda com container relativo */}
+                        <div className="relative">
+                            <button
+                                ref={legendButtonRef}
+                                onClick={() => setIsLegendOpen(prev => !prev)}
+                                title="Legenda de Cores"
+                                className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold p-2 rounded-md flex items-center shadow-sm"
+                            >
+                                <LucidePalette size={18}/>
+                            </button>
+                            <LegendaCoresPopover
+                                isOpen={isLegendOpen}
+                                onClose={() => setIsLegendOpen(false)}
+                                acoes={listasAuxiliares.acoes || []}
+                                triggerRef={legendButtonRef}
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
