@@ -3038,11 +3038,9 @@ const PlanejamentoSemanalCardViewComponent = () => {
     );
 };
 
-// Versão: 25.3.0 (ProgramacaoSemanalComponent)
-// [CORRIGIDO] A função 'handleSalvarRegistroDiario' agora atualiza o estado local 'dadosProgramacao'
-// após salvar as alterações no Firestore. Isso garante que a grade da programação seja
-// re-renderizada imediatamente com o novo status da tarefa (ex: CANCELADA), sem a necessidade
-// de um recarregamento manual da página.
+// Versão: 25.5.0 (ProgramacaoSemanalComponent)
+// [UI/UX] O cabeçalho foi redesenhado para um layout de barra única, mais minimalista e alinhado à direita,
+// melhorando a organização visual e a clareza dos controles.
 const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -3353,7 +3351,6 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
             });
             await updateDoc(semanaDocRef, { dias: novosDias });
 
-            // [NOVO] Atualiza o estado local para forçar a re-renderização imediata da grade.
             setDadosProgramacao(prev => ({ ...prev, dias: novosDias }));
 
             for (const tarefaAtualizada of tarefasAtualizadas) {
@@ -3445,9 +3442,8 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                         ? <span className="text-gray-400 italic text-xs">Vazio</span> 
                         : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
                             let taskColor = getAcaoColor(tarefaInst.acao);
-                            // Se o status for cancelado, sobrescreve a cor
                             if (tarefaInst.statusLocal === 'CANCELADA') {
-                                taskColor = '#fca5a5'; // Tailwind's red-300 (aproximado)
+                                taskColor = '#fca5a5'; 
                             }
                             
                             const temAnotacao = tarefaInst.ultimaAnotacaoTexto && tarefaInst.ultimaAnotacaoTexto.trim() !== '';
@@ -3474,10 +3470,14 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
-            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
-                 <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
+                
+                <div className="flex items-center gap-4 bg-white p-2 rounded-lg shadow-md border border-gray-200">
+                    
+                    {/* Grupo 1: Navegação */}
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-semibold text-gray-600 whitespace-nowrap">Ver Semana:</label>
                         <DatePicker
                             selected={semanaAtual?.dataInicioSemana?.toDate()}
                             onChange={handleDateSelect}
@@ -3487,21 +3487,42 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                             highlightDates={highlightedDates}
                             customInput={
                                 <CustomCalendarInput 
-                                    value={semanaAtual ? `${semanaAtual.nomeAba} (${formatDateProg(semanaAtual.dataInicioSemana)} - ${formatDateProg(semanaAtual.dataFimSemana)})` : "Selecione a Semana"}
+                                    value={semanaAtual ? `${semanaAtual.nomeAba}` : "Selecione"}
                                 />
                             }
-                            popperPlacement="bottom-start"
+                            popperPlacement="bottom-end"
                         />
                     </div>
-                    <button onClick={() => setCurrentPage('planejamento')} className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm"><LucideKanbanSquare size={18} className="mr-2"/> Visão Semanal</button>
-                    <div className="flex items-center gap-1 bg-white p-1 rounded-md shadow-sm border border-gray-200">
-                         <input type="date" value={dataParaRegistro} onChange={(e) => setDataParaRegistro(e.target.value)} className="p-1 border-none rounded-md focus:ring-blue-500 focus:border-transparent"/>
-                        <button onClick={handleAbrirRegistroDiario} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md flex items-center disabled:bg-gray-400"><LucideClipboardEdit size={18} className="mr-2"/> Registro do Dia</button>
+
+                    <div className="border-l border-gray-300 h-8"></div>
+
+                    {/* Grupo 2: Ações do Dia */}
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-semibold text-gray-600">Registro:</label>
+                        <input type="date" value={dataParaRegistro} onChange={(e) => setDataParaRegistro(e.target.value)} className="p-2 border border-gray-300 rounded-md shadow-sm"/>
+                        <button onClick={handleAbrirRegistroDiario} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded-md flex items-center disabled:bg-gray-400 flex-shrink-0">
+                            <LucideClipboardEdit size={18} className="mr-2"/> Registrar
+                        </button>
                     </div>
-                    <button onClick={() => setIsOrdemServicoModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucidePrinter size={18} className="mr-2"/> Ordem de Serviço</button>
-                    <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"><LucideSettings size={18} className="mr-2"/> Gerenciar Semana</button>
-                </div>
-            </div>
+
+                    <div className="border-l border-gray-300 h-8"></div>
+
+                    {/* Grupo 3: Ferramentas */}
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-semibold text-gray-600">Ferramentas:</label>
+                        <button onClick={() => setCurrentPage('planejamento')} title="Visão Semanal" className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold p-2 rounded-md flex items-center shadow-sm">
+                            <LucideKanbanSquare size={18}/>
+                        </button>
+                        <button onClick={() => setIsOrdemServicoModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} title="Ordem de Serviço" className="bg-gray-700 hover:bg-gray-800 text-white font-bold p-2 rounded-md flex items-center shadow-sm disabled:bg-gray-400">
+                            <LucidePrinter size={18}/>
+                        </button>
+                        <button onClick={() => setIsGerenciarSemanaModalOpen(true)} disabled={!semanaSelecionadaId || loadingAtualizacao} title="Gerenciar Semana" className="bg-sky-500 hover:bg-sky-600 text-white font-bold p-2 rounded-md flex items-center shadow-sm disabled:bg-gray-400">
+                            <LucideSettings size={18}/>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             {(loading || loadingFuncionarios) ? <p className="text-center py-4">Carregando...</p> : !semanaSelecionadaId || !dadosProgramacao ? <p className="text-center py-4 text-gray-500">Nenhuma semana de programação foi criada ainda ou não foi possível carregar os dados.</p> : (
                  <div className="bg-white shadow-md rounded-lg overflow-x-auto">
                     <table className="min-w-full border-separate border-spacing-0.5">
