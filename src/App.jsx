@@ -3038,22 +3038,23 @@ const PlanejamentoSemanalCardViewComponent = () => {
     );
 };
 
-// Versão: 25.2.8 (Final e Completa)
-// [CORRIGIDO] Versão final e completa do componente. Todas as funções foram preenchidas,
-// corrigindo o erro crítico de renderização e a falha na abertura dos modais causados por omissões de código nas versões anteriores.
-// [MELHORIA 2.4] Adicionado indicador visual para tarefas com anotações na grade.
+// Versão: 25.3.0 (ProgramacaoSemanalComponent)
+// [CORRIGIDO] A função 'handleSalvarRegistroDiario' agora atualiza o estado local 'dadosProgramacao'
+// após salvar as alterações no Firestore. Isso garante que a grade da programação seja
+// re-renderizada imediatamente com o novo status da tarefa (ex: CANCELADA), sem a necessidade
+// de um recarregamento manual da página.
 const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
-    const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
-    const [semanas, setSemanas] = useState([]);
-    const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
-    const [dadosProgramacao, setDadosProgramacao] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false);
-    const [isNovaSemanaModalOpen, setIsNovaSemanaModalOpen] = useState(false);
-    const [novaSemanaDataInicio, setNovaSemanaDataInicio] = useState('');
-    const [isGerenciarTarefaModalOpen, setIsGerenciarTarefaModalOpen] = useState(false);
-    const [dadosCelulaParaGerenciar, setDadosCelulaParaGerenciar] = useState({ diaFormatado: null, responsavelId: null, tarefas: [] });
-    const [isGerenciarSemanaModalOpen, setIsGerenciarSemanaModalOpen] = useState(false);
+    const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
+    const [semanas, setSemanas] = useState([]);
+    const [semanaSelecionadaId, setSemanaSelecionadaId] = useState(null);
+    const [dadosProgramacao, setDadosProgramacao] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [loadingAtualizacao, setLoadingAtualizacao] = useState(false);
+    const [isNovaSemanaModalOpen, setIsNovaSemanaModalOpen] = useState(false);
+    const [novaSemanaDataInicio, setNovaSemanaDataInicio] = useState('');
+    const [isGerenciarTarefaModalOpen, setIsGerenciarTarefaModalOpen] = useState(false);
+    const [dadosCelulaParaGerenciar, setDadosCelulaParaGerenciar] = useState({ diaFormatado: null, responsavelId: null, tarefas: [] });
+    const [isGerenciarSemanaModalOpen, setIsGerenciarSemanaModalOpen] = useState(false);
     const [isRegistroDiarioModalOpen, setIsRegistroDiarioModalOpen] = useState(false);
     const [tarefasDoDiaParaRegistro, setTarefasDoDiaParaRegistro] = useState([]);
     const [diaParaRegistro, setDiaParaRegistro] = useState('');
@@ -3064,7 +3065,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const [loadingFuncionarios, setLoadingFuncionarios] = useState(true);
 
     const basePath = `/artifacts/${appId}/public/data`;
-    const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
+    const programacaoCollectionRef = collection(db, `${basePath}/programacao_semanal`);
     
     useEffect(() => {
         const funcionariosCollectionRef = collection(db, `${basePath}/funcionarios`);
@@ -3351,6 +3352,10 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                 }
             });
             await updateDoc(semanaDocRef, { dias: novosDias });
+
+            // [NOVO] Atualiza o estado local para forçar a re-renderização imediata da grade.
+            setDadosProgramacao(prev => ({ ...prev, dias: novosDias }));
+
             for (const tarefaAtualizada of tarefasAtualizadas) {
                 const tarefaOriginal = tarefasOriginais.find(t => t.mapaTaskId === tarefaAtualizada.mapaTaskId && t.responsavelId === tarefaAtualizada.responsavelId);
                 const conclusaoAntes = tarefaOriginal?.conclusao?.trim() || '';
@@ -3439,11 +3444,15 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                     {tarefasDoDiaParaFuncionario.length === 0 
                         ? <span className="text-gray-400 italic text-xs">Vazio</span> 
                         : <div className="space-y-1">{tarefasDoDiaParaFuncionario.map((tarefaInst, idx) => {
-                            const taskColor = getAcaoColor(tarefaInst.acao);
-                            // [MELHORIA 2.4] Adicionando o ícone de anotação
+                            let taskColor = getAcaoColor(tarefaInst.acao);
+                            // Se o status for cancelado, sobrescreve a cor
+                            if (tarefaInst.statusLocal === 'CANCELADA') {
+                                taskColor = '#fca5a5'; // Tailwind's red-300 (aproximado)
+                            }
+                            
                             const temAnotacao = tarefaInst.ultimaAnotacaoTexto && tarefaInst.ultimaAnotacaoTexto.trim() !== '';
                             return (
-                                <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-black text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' ? 'line-through opacity-60' : ''}`} style={{ backgroundColor: taskColor }} title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
+                                <div key={tarefaInst.mapaTaskId || `task-${idx}`} className={`p-1 rounded text-black text-[10px] leading-tight ${tarefaInst.statusLocal === 'CONCLUÍDA' || tarefaInst.statusLocal === 'CANCELADA' ? 'line-through opacity-70' : ''}`} style={{ backgroundColor: taskColor }} title={`${tarefaInst.textoVisivel}${tarefaInst.orientacao ? `\n\nOrientação: ${tarefaInst.orientacao}` : ''}`}>
                                     <div className="font-semibold flex items-center justify-between">
                                         <span>{tarefaInst.textoVisivel?.substring(0,32) + (tarefaInst.textoVisivel?.length > 35 ? "..." : "")}</span>
                                         {temAnotacao && <LucideStickyNote size={12} className="ml-1 flex-shrink-0 text-gray-800 opacity-75" title={`Última Anotação: ${tarefaInst.ultimaAnotacaoTexto}`} />}
