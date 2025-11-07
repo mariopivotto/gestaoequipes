@@ -927,6 +927,8 @@ const Modal = ({ isOpen, onClose, title, children, width = "max-w-2xl" }) => {
     );
 };
 
+
+
 // [NOVO v2.7.0] Componente para exibir imagens anexadas a uma tarefa
 const ImagensTarefaModal = ({ isOpen, onClose, imageUrls }) => {
     if (!isOpen) return null;
@@ -954,6 +956,60 @@ const ImagensTarefaModal = ({ isOpen, onClose, imageUrls }) => {
         </Modal>
     );
 };
+
+// [NOVO v25.5.2] Componente Popover da Legenda de Cores
+// Movido para o escopo global para ser reutilizável por múltiplos componentes
+// e corrigir o erro de 'Identifier has already been declared'.
+const LegendaCoresPopover = memo(({ isOpen, onClose, acoes, triggerRef }) => {
+    if (!isOpen) return null;
+
+    const getAcaoColor = (acao) => {
+        switch (acao) {
+            case 'MANUTENÇÃO | MUDAS': return '#81deab';
+            case 'MANUTENÇÃO | PATIO': return '#83c1e6';
+            case 'MELHORIAS | ESTRUTURAIS': return '#d9d680';
+            case 'MANUTENÇÃO | PREVENTIVA': case 'MANUTENÇÃO | TRATAMENTO': return '#a289d6';
+            default: return '#b3b2b1';
+        }
+    };
+
+    const todasAcoesComCor = [
+        ...acoes.map(acao => ({ nome: acao, cor: getAcaoColor(acao) })),
+        { nome: 'TAREFA CANCELADA', cor: '#fca5a5' }
+    ];
+
+    const popoverRef = useRef(null);
+
+    // Efeito para fechar o popover ao clicar fora dele
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (
+                popoverRef.current && !popoverRef.current.contains(event.target) &&
+                triggerRef.current && !triggerRef.current.contains(event.target)
+            ) {
+                onClose();
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [onClose, triggerRef]);
+
+    return (
+        <div ref={popoverRef} className="absolute top-full right-0 mt-2 w-64 bg-white p-4 rounded-lg shadow-xl border z-30">
+            <h4 className="text-sm font-semibold text-gray-800 mb-3">Legenda de Cores</h4>
+            <div className="flex flex-col gap-2">
+                {todasAcoesComCor.map(({ nome, cor }) => (
+                    <div key={nome} className="flex items-center">
+                        <span className="w-4 h-4 rounded-sm mr-2 flex-shrink-0" style={{ backgroundColor: cor }}></span>
+                        <span className="text-xs text-gray-700">{nome}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+});
 
 // Componente para Gerenciar Itens de Listas Auxiliares (genérico)
 const ListaAuxiliarManager = ({ nomeLista, nomeSingular, collectionPathSegment }) => {
@@ -2681,10 +2737,10 @@ const PrintOptionsModal = ({ isOpen, onClose, onPrintWeek, onPrintDay, semanaAtu
 };
 
 
-// Versão: 21.6.4 (PlanejamentoSemanalCardViewComponent)
-// [UI/UX] Adicionado um botão de legenda de cores com popover na barra de ferramentas, reutilizando o componente LegendaCoresPopover para consistência visual.
-// [ARQUITETURA] Adicionado o uso do GlobalContext para obter a lista de 'acoes' necessária para a legenda.
-
+// Versão: 21.6.7
+// [ARQUITETURA] Removida a definição local duplicada do 'LegendaCoresPopover'.
+// [UI/UX] Mantida a correção para ocultar o Domingo no DatePicker via CSS.
+// [UI/UX] Mantido 'calendarStartDay={1}' no DatePicker.
 const PlanejamentoSemanalCardViewComponent = () => {
     const { db, appId, funcionarios: contextFuncionarios, listasAuxiliares } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -2988,6 +3044,19 @@ const PlanejamentoSemanalCardViewComponent = () => {
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full flex flex-col">
+            {/* [NOVO] Estilo global para o DatePicker */}
+            <style>{`
+                /* Oculta o cabeçalho "dom" (Domingo), que é o 7º item quando a semana começa na Segunda */
+                .react-datepicker__day-name:nth-child(7) {
+                    display: none;
+                }
+
+                /* Oculta o último dia (Domingo) de cada semana */
+                .react-datepicker__week .react-datepicker__day:nth-child(7) {
+                    display: none;
+                }
+            `}</style>
+
             <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Planejamento Semanal (Visão por Colunas)</h2>
                 <div className="flex flex-wrap items-center gap-4">
@@ -2999,6 +3068,7 @@ const PlanejamentoSemanalCardViewComponent = () => {
                             dateFormat="dd/MM/yyyy"
                             showWeekNumbers
                             highlightDates={highlightedDates}
+                            calendarStartDay={1} // <-- [CORRIGIDO]
                             customInput={ <CustomCalendarInput value={semanaAtual ? `${semanaAtual.nomeAba}` : "Selecione"} /> }
                             popperPlacement="bottom-start"
                         />
@@ -3079,68 +3149,12 @@ const PlanejamentoSemanalCardViewComponent = () => {
     );
 };
 
-// Versão: 25.5.2
-// [UI/UX] A legenda de cores foi refatorada para um popover compacto, acionado por um botão na barra de ferramentas superior, otimizando o espaço da tela.
-// [NOVO] Adicionada a importação do ícone 'LucidePalette' para o novo botão da legenda.
 
-// ===================================================================================
-// [NOVO SUBCOMPONENTE] Popover da Legenda de Cores
-// ===================================================================================
-const LegendaCoresPopover = memo(({ isOpen, onClose, acoes, triggerRef }) => {
-    if (!isOpen) return null;
-
-    const getAcaoColor = (acao) => {
-        switch (acao) {
-            case 'MANUTENÇÃO | MUDAS': return '#81deab';
-            case 'MANUTENÇÃO | PATIO': return '#83c1e6';
-            case 'MELHORIAS | ESTRUTURAIS': return '#d9d680';
-            case 'MANUTENÇÃO | PREVENTIVA': case 'MANUTENÇÃO | TRATAMENTO': return '#a289d6';
-            default: return '#b3b2b1';
-        }
-    };
-
-    const todasAcoesComCor = [
-        ...acoes.map(acao => ({ nome: acao, cor: getAcaoColor(acao) })),
-        { nome: 'Tarefa Cancelada', cor: '#fca5a5' }
-    ];
-
-    const popoverRef = useRef(null);
-
-    // Efeito para fechar o popover ao clicar fora dele
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (
-                popoverRef.current && !popoverRef.current.contains(event.target) &&
-                triggerRef.current && !triggerRef.current.contains(event.target)
-            ) {
-                onClose();
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, [onClose, triggerRef]);
-
-    return (
-        <div ref={popoverRef} className="absolute top-full right-0 mt-2 w-64 bg-white p-4 rounded-lg shadow-xl border z-30">
-            <h4 className="text-sm font-semibold text-gray-800 mb-3">Legenda de Cores</h4>
-            <div className="flex flex-col gap-2">
-                {todasAcoesComCor.map(({ nome, cor }) => (
-                    <div key={nome} className="flex items-center">
-                        <span className="w-4 h-4 rounded-sm mr-2 flex-shrink-0" style={{ backgroundColor: cor }}></span>
-                        <span className="text-xs text-gray-700">{nome}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-});
-
-
-// ===================================================================================
-// [COMPONENTE ATUALIZADO] ProgramacaoSemanalComponent
-// ===================================================================================
+// Versão: 25.5.6
+// [ARQUITETURA] Removida a definição local duplicada do 'LegendaCoresPopover' que foi
+// reintroduzida por engano e estava causando o erro 'Identifier has already been declared'.
+// [UI/UX] Mantida a correção para ocultar o Domingo no DatePicker via CSS.
+// [UI/UX] Mantido 'calendarStartDay={1}' no DatePicker.
 const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const { userId, db, appId, listasAuxiliares, auth: authGlobal } = useContext(GlobalContext);
     const [semanas, setSemanas] = useState([]);
@@ -3162,7 +3176,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
     const [funcionariosAtivos, setFuncionariosAtivos] = useState([]);
     const [loadingFuncionarios, setLoadingFuncionarios] = useState(true);
     
-    // [NOVO] Estado e ref para o popover da legenda
+    // Estado e ref para o popover da legenda
     const [isLegendOpen, setIsLegendOpen] = useState(false);
     const legendButtonRef = useRef(null);
 
@@ -3576,6 +3590,18 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
 
     return (
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
+            {/* [NOVO] Estilo global para o DatePicker */}
+            <style>{`
+                /* Oculta o cabeçalho "dom" (Domingo), que é o 7º item quando a semana começa na Segunda */
+                .react-datepicker__day-name:nth-child(7) {
+                    display: none;
+                }
+
+                /* Oculta o último dia (Domingo) de cada semana */
+                .react-datepicker__week .react-datepicker__day:nth-child(7) {
+                    display: none;
+                }
+            `}</style>
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-semibold text-gray-800">Programação Semanal</h2>
                 
@@ -3591,6 +3617,7 @@ const ProgramacaoSemanalComponent = ({ setCurrentPage }) => {
                             dateFormat="dd/MM/yyyy"
                             showWeekNumbers
                             highlightDates={highlightedDates}
+                            calendarStartDay={1} // <-- [CORRIGIDO]
                             customInput={
                                 <CustomCalendarInput 
                                     value={semanaAtual ? `${semanaAtual.nomeAba}` : "Selecione"}
@@ -5320,7 +5347,8 @@ const RelatoriosComponent = () => {
 };
 
 
-// Versão: 10.1.1
+// Versão: 10.1.2
+// [ALTERADO] A lista de seleção de responsáveis agora filtra e exibe apenas funcionários com status "ativo".
 // [CORRIGIDO] O formulário de edição de um registro de aplicação agora é corretamente preenchido com os dados existentes.
 // [MELHORIA] Ocultadas as opções de reagendamento e criação de tarefa no mapa ao editar um registro.
 const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, funcionarios, planoParaRegistrar, registroExistente }) => {
@@ -5408,7 +5436,14 @@ const RegistroAplicacaoModal = ({ isOpen, onClose, onSave, listasAuxiliares, fun
                 </div>
                 <div><label className="block text-sm font-medium text-gray-700">Planta / Local Específico</label><input type="text" value={plantaLocal} onChange={e => setPlantaLocal(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3" /></div>
                 <div><label className="block text-sm font-medium text-gray-700">Área(s) Tratada(s) *</label><select multiple value={areas} onChange={e => setAreas(Array.from(e.target.selectedOptions, option => option.value))} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm h-32">{(listasAuxiliares.areas || []).map(a => <option key={a} value={a}>{a}</option>)}</select><p className="text-xs text-gray-500 mt-1">Segure Ctrl (ou Cmd) para selecionar múltiplos.</p></div>
-                <div><label className="block text-sm font-medium text-gray-700">Responsável *</label><select value={responsavel} onChange={e => setResponsavel(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"><option value="">Selecione um funcionário...</option>{funcionarios.map(f => <option key={f.id} value={f.nome}>{f.nome}</option>)}</select></div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Responsável *</label>
+                    <select value={responsavel} onChange={e => setResponsavel(e.target.value)} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                        <option value="">Selecione um funcionário...</option>
+                        {/* [ALTERADO] Filtra a lista para exibir apenas funcionários com f.ativo === true */}
+                        {funcionarios.filter(f => f.ativo).map(f => <option key={f.id} value={f.nome}>{f.nome}</option>)}
+                    </select>
+                </div>
                 <div><label className="block text-sm font-medium text-gray-700">Observações</label><textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} rows="3" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm"></textarea></div>
 
                 {/* Seção de Reagendamento e Criação de Tarefa (Oculta em modo de edição) */}
