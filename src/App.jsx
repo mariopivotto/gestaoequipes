@@ -226,10 +226,11 @@ const getAcaoColor = (acao) => {
     }
 };
 
-// Versão: 8.9.0
-// [NOVO] Função "gatilho" para verificar planos fitossanitários vencidos e gerar tarefas automaticamente no Mapa de Atividades.
+// Versão: 8.9.1
+// [ALTERADO] A lógica de verificação foi ajustada para criar a tarefa com 1 dia de antecedência (ou se já estiver atrasada).
+// A função agora verifica se a 'proximaAplicacao' é menor ou igual a 'amanhaUTC', em vez de 'hojeUTC'.
 async function verificarEGerarTarefasFito(db, basePath) {
-    console.log("Verificando planos fitossanitários para gerar tarefas...");
+    console.log("Verificando planos fitossanitários para gerar tarefas (com 1 dia de antecedência)...");
     const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
 
@@ -244,12 +245,18 @@ async function verificarEGerarTarefasFito(db, basePath) {
 
         const hojeUTC = new Date();
         hojeUTC.setUTCHours(0, 0, 0, 0);
+        
+        // [NOVO] Calcula a data de amanhã para criar a tarefa com antecedência
+        const amanhaUTC = new Date(hojeUTC);
+        amanhaUTC.setUTCDate(amanhaUTC.getUTCDate() + 1);
 
         for (const planoDoc of planosSnap.docs) {
             const plano = { id: planoDoc.id, ...planoDoc.data() };
             const proximaAplicacao = calcularProximaAplicacao(plano);
 
-            if (proximaAplicacao && proximaAplicacao.getTime() <= hojeUTC.getTime()) {
+            // [ALTERADO] A condição agora dispara se a data de aplicação for amanhã (ou hoje/atrasada).
+            // A verificação de duplicidade (qTarefaExistente) garante que tarefas atrasadas não sejam recriadas.
+            if (proximaAplicacao && proximaAplicacao.getTime() <= amanhaUTC.getTime()) {
                 const dataFormatada = proximaAplicacao.toISOString().split('T')[0];
                 
                 // Verifica se já existe uma tarefa para este plano nesta data
@@ -263,14 +270,14 @@ async function verificarEGerarTarefasFito(db, basePath) {
 
                 if (tarefaExistenteSnap.empty) {
                     // Nenhuma tarefa encontrada, então vamos criar uma.
-                    console.log(`Gerando tarefa para o plano "${plano.nome}" com data de ${dataFormatada}`);
+                    console.log(`Gerando tarefa (1 dia de antecedência) para o plano "${plano.nome}" com data de ${dataFormatada}`);
 
                     const proximaAplicacaoTimestamp = Timestamp.fromDate(proximaAplicacao);
 
                     const novaTarefaData = {
                         tarefa: `APLICAÇÃO FITO: ${plano.produto || plano.nome}`,
                         orientacao: `Tarefa gerada automaticamente a partir do plano de aplicação: "${plano.nome}".`,
-                        status: "PROGRAMADA",
+                        status: "PROGRAMADA", // Já entra como "PROGRAMADA"
                         prioridade: "P2 - MEDIO PRAZO",
                         acao: plano.acao || "MANUTENÇÃO | PREVENTIVA", // Usa a ação do plano ou um padrão
                         turno: "DIA INTEIRO",
@@ -693,13 +700,10 @@ async function verificarEAtualizarStatusConclusaoMapa(mapaTaskId, db, basePath) 
 }
 
 
-// Versão: 27.0.2 (GlobalProvider)
-// [CORRIGIDO] Adicionada a lógica de fallback 'ativo: d.data().ativo !== false' ao carregar a lista de funcionários.
-// Isso garante que funcionários antigos sem o campo 'ativo' sejam considerados ativos por padrão em toda a aplicação,
-// corrigindo o bug que fazia as listas de seleção de funcionários aparecerem vazias em vários componentes.
-// [NOVO] Adicionada a chave de permissão 'planejamento' ao array `chavesDePermissao`.
-// Isso faz com que a aplicação passe a carregar a lista de usuários autorizados a acessar
-// o "Planejamento (Visão)" a partir da coleção `permissoes_planejamento` no Firestore.
+// Versão: 27.1.0 (GlobalProvider)
+// [ARQUITETURA] Movida a chamada da função 'verificarEGerarTarefasFito' do Dashboard para o GlobalProvider.
+// Isso garante que a verificação de tarefas fitossanitárias pendentes seja executada uma vez por dia
+// no carregamento inicial do aplicativo, independentemente da página que o usuário visita primeiro.
 const GlobalProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(undefined);
     const [userId, setUserId] = useState(null);
@@ -795,14 +799,29 @@ const GlobalProvider = ({ children }) => {
             setPermissoes(newPermissoes);
             setListasAuxiliares(prev => ({ ...prev, ...newListas }));
             setFuncionarios(newFuncionarios);
+            
+            // [NOVO] Gatilho de verificação fito movido para cá (do Dashboard)
+            const checkKey = `fitoCheckPerformed_${new Date().toISOString().split('T')[0]}`;
+            const checkPerformed = sessionStorage.getItem(checkKey);
+
+            if (!checkPerformed) {
+                console.log("GlobalProvider: Disparando verificação de tarefas fitossanitárias...");
+                verificarEGerarTarefasFito(db, basePath)
+                    .then(() => sessionStorage.setItem(checkKey, 'true'))
+                    .catch(error => console.error("Erro na verificação automática de tarefas fito (GlobalProvider):", error));
+            } else {
+                 console.log("GlobalProvider: Verificação fito já realizada hoje.");
+            }
+            
             setLoading(false);
+            
         }).catch(error => {
             console.error("Erro no carregamento inicial de dados:", error);
             toast.error("Falha ao carregar dados essenciais.");
             setLoading(false);
         });
 
-    }, [userId, appId, db]);
+    }, [userId, appId, db]); // 'basePath' e 'db' removidos da dependência pois são derivados de 'appId' e 'db'
 
     return (
         <GlobalContext.Provider value={{ currentUser, userId, db, storage, auth: authGlobal, listasAuxiliares, funcionarios, appId, permissoes, loading }}>
@@ -5956,15 +5975,16 @@ const AgendaDiariaComponent = () => {
     );
 };
 
-// Versão: 9.0.1
-// [ALTERADO] O calendário agora exibe tarefas de aplicação com qualquer status (Programada, Em Operação, Concluída, etc.), sem removê-las da visão.
-// [MELHORIA] A cor do evento no calendário agora reflete dinamicamente o status atual da tarefa.
-
+// Versão: 9.0.2
+// [MELHORIA] Adicionado o tratamento para o novo status 'PREVISAO',
+// para exibir corretamente as previsões futuras geradas pelo calendário.
 const VisualizarAplicacaoModal = ({ isOpen, onClose, aplicacao }) => {
     if (!isOpen || !aplicacao) return null;
 
     const getStatusInfo = () => {
         switch (aplicacao.status) {
+            case 'PREVISAO': // [NOVO]
+                return { text: 'Previsão (Ainda não criada)', color: 'bg-yellow-100 text-yellow-800' };
             case 'Realizada':
                 return { text: 'Realizada (Registro Histórico)', color: 'bg-green-100 text-green-800' };
             case 'PROGRAMADA':
@@ -6033,14 +6053,16 @@ const VisualizarAplicacaoModal = ({ isOpen, onClose, aplicacao }) => {
 };
 
 
-// Versão: 9.0.6
-// [CORRIGIDO] Restaurado o corpo das funções 'handlePrintKanban' e 'handlePrintCalendar', que foram omitidas
-// por engano em versões anteriores. Ambas as funcionalidades de impressão agora estão completas e operacionais.
+// Versão: 9.1.0
+// [NOVO] O componente agora busca os planos de aplicação ativos.
+// [NOVO] Utiliza a função 'gerarProximasOcorrencias' para calcular e exibir previsões futuras (status 'PREVISAO') no calendário.
+// [MELHORIA] Adicionado um helper de cor local ('getEventColor') para exibir visualmente o status 'PREVISAO'.
 const CalendarioFitossanitarioComponent = () => {
     const { db, appId, funcionarios } = useContext(GlobalContext);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [registros, setRegistros] = useState([]);
     const [tarefasFito, setTarefasFito] = useState([]);
+    const [planos, setPlanos] = useState([]); // [NOVO] Estado para os planos
     const [eventos, setEventos] = useState({});
     const [loading, setLoading] = useState(true);
 
@@ -6052,6 +6074,7 @@ const CalendarioFitossanitarioComponent = () => {
     const basePath = `/artifacts/${appId}/public/data`;
     const registrosCollectionRef = collection(db, `${basePath}/controleFitossanitario`);
     const tarefasCollectionRef = collection(db, `${basePath}/tarefas_mapa`);
+    const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`); // [NOVO]
 
     useEffect(() => {
         setLoading(true);
@@ -6067,20 +6090,31 @@ const CalendarioFitossanitarioComponent = () => {
             setTarefasFito(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         }, error => console.error("Erro ao carregar tarefas fito:", error));
 
-        Promise.all([new Promise(res => setTimeout(res, 150)), new Promise(res => setTimeout(res, 150))]).then(() => {
+        // [NOVO] Busca os planos ativos
+        const qPlanos = query(planosCollectionRef, where("ativo", "==", true));
+        const unsubPlanos = onSnapshot(qPlanos, (snapshot) => {
+            setPlanos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, error => console.error("Erro ao carregar planos fito:", error));
+
+        Promise.all([new Promise(res => setTimeout(res, 150)), new Promise(res => setTimeout(res, 150)), new Promise(res => setTimeout(res, 150))]).then(() => {
             setLoading(false);
         });
 
         return () => {
             unsubRegistros();
             unsubTarefas();
+            unsubPlanos(); // [NOVO]
         };
     }, [db, appId]);
 
     useEffect(() => {
         if (loading) return;
+        
         const todosOsEventos = {};
         const idsDeTarefasRenderizadas = new Set();
+        const horizontePrevisaoEmDias = 90; // Horizonte de 90 dias para previsões
+
+        // 1. Processa tarefas JÁ CRIADAS
         tarefasFito.forEach(tarefa => {
             if (!tarefa.dataInicio?.toDate) return;
             const dataString = tarefa.dataInicio.toDate().toISOString().split('T')[0];
@@ -6088,12 +6122,15 @@ const CalendarioFitossanitarioComponent = () => {
             todosOsEventos[dataString].push({
                 id: tarefa.id, produto: tarefa.tarefa, data: tarefa.dataInicio, status: tarefa.status,
                 origem: tarefa.origemPlanoId ? `Plano (${tarefa.origem})` : tarefa.origem,
+                origemPlanoId: tarefa.origemPlanoId || null, // Guarda o ID do plano
                 areas: [tarefa.area],
                 responsavel: (tarefa.responsaveis || []).map(rId => funcionarios.find(f => f.id === rId)?.nome || rId).join(', '),
                 observacoes: tarefa.orientacao,
              });
              idsDeTarefasRenderizadas.add(tarefa.id);
         });
+
+        // 2. Processa registros históricos (que não viraram tarefas)
         registros.forEach(reg => {
             const tarefaCorrespondenteId = tarefasFito.find(t => t.origemRegistroId === reg.id)?.id;
             if (tarefaCorrespondenteId && idsDeTarefasRenderizadas.has(tarefaCorrespondenteId)) return;
@@ -6102,12 +6139,44 @@ const CalendarioFitossanitarioComponent = () => {
             if (!todosOsEventos[dataString]) todosOsEventos[dataString] = [];
             todosOsEventos[dataString].push({
                 id: reg.id, produto: reg.produto, data: reg.dataAplicacao, status: 'Realizada',
-                origem: reg.planoNome || 'Manual (Histórico)', areas: reg.areas, responsavel: reg.responsavel,
+                origem: reg.planoNome || 'Manual (Histórico)', origemPlanoId: reg.planoId || null,
+                areas: reg.areas, responsavel: reg.responsavel,
                 dosagem: reg.dosagem, plantaLocal: reg.plantaLocal, observacoes: reg.observacoes,
             });
         });
+
+        // 3. [NOVO] Processa PREVISÕES FUTURAS
+        planos.forEach(plano => {
+            const ocorrencias = gerarProximasOcorrencias(plano, horizontePrevisaoEmDias, calcularProximaAplicacao);
+            
+            ocorrencias.forEach(ocorrencia => {
+                const dataString = ocorrencia.dataPrevista.toISOString().split('T')[0];
+                
+                // Verifica se já não existe uma tarefa REAL para esta previsão
+                const tarefaJaExiste = (todosOsEventos[dataString] || []).some(
+                    evento => evento.origemPlanoId === ocorrencia.planoId && evento.status !== 'PREVISAO'
+                );
+
+                if (!tarefaJaExiste) {
+                    if (!todosOsEventos[dataString]) todosOsEventos[dataString] = [];
+                    
+                    todosOsEventos[dataString].push({
+                        id: `previsao-${ocorrencia.planoId}-${dataString}`,
+                        produto: `PREVISÃO: ${ocorrencia.planoNome}`,
+                        data: Timestamp.fromDate(ocorrencia.dataPrevista),
+                        status: 'PREVISAO', // Status especial para diferenciar
+                        origem: `Plano (${ocorrencia.planoNome})`,
+                        origemPlanoId: ocorrencia.planoId,
+                        areas: [],
+                        responsavel: 'A definir',
+                        observacoes: `Previsão gerada automaticamente do plano: ${ocorrencia.planoNome}.`,
+                    });
+                }
+            });
+        });
+
         setEventos(todosOsEventos);
-    }, [registros, tarefasFito, loading, funcionarios]);
+    }, [registros, tarefasFito, planos, loading, funcionarios]); // Dependência 'planos' adicionada
 
     const handleOpenVisualizarModal = (aplicacao) => {
         setAplicacaoSelecionada(aplicacao);
@@ -6145,6 +6214,16 @@ const CalendarioFitossanitarioComponent = () => {
         return currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase();
     };
 
+    // [NOVO] Helper de cor local para incluir o status PREVISAO
+    const getEventColor = (status) => {
+        if (status === 'PREVISAO') return 'bg-yellow-200 text-yellow-900 border-yellow-400';
+        if (status === 'Realizada' || status === 'CONCLUÍDA') return 'bg-green-200 text-green-900 border-green-400';
+        if (status === 'CANCELADA') return 'bg-red-200 text-red-900 border-red-400';
+        if (status === 'PROGRAMADA') return 'bg-blue-200 text-blue-900 border-blue-400';
+        if (status === 'EM OPERAÇÃO') return 'bg-cyan-200 text-cyan-900 border-cyan-400';
+        return 'bg-gray-200 text-gray-800 border-gray-400';
+    };
+
     const renderCalendar = () => {
         const month = currentDate.getMonth();
         const year = currentDate.getFullYear();
@@ -6167,7 +6246,8 @@ const CalendarioFitossanitarioComponent = () => {
                                 key={event.id}
                                 onClick={() => handleOpenVisualizarModal(event)}
                                 title={event.produto}
-                                className={`w-full text-left text-xs p-1 rounded-md text-gray-800 transition-all hover:ring-2 hover:ring-blue-400 ${getStatusColor(event.status)} ${event.status === 'CANCELADA' ? 'line-through opacity-70' : ''}`}
+                                // [ALTERADO] Usa o helper de cor local
+                                className={`w-full text-left text-xs p-1 rounded-md transition-all hover:ring-2 hover:ring-blue-400 border ${getEventColor(event.status)} ${event.status === 'CANCELADA' ? 'line-through opacity-70' : ''}`}
                             >
                                 {event.produto}
                             </button>
@@ -6198,7 +6278,8 @@ const CalendarioFitossanitarioComponent = () => {
                                 <div 
                                     key={event.id}
                                     onClick={() => handleOpenVisualizarModal(event)}
-                                    className={`p-3 rounded-md shadow-sm text-black cursor-pointer hover:ring-2 hover:ring-blue-500 ${getStatusColor(event.status)}`}
+                                    // [ALTERADO] Usa o helper de cor local
+                                    className={`p-3 rounded-md shadow-sm text-black cursor-pointer hover:ring-2 hover:ring-blue-500 border ${getEventColor(event.status)} ${event.status === 'CANCELADA' ? 'line-through opacity-70' : ''}`}
                                 >
                                     <div className="font-bold text-sm mb-1 pb-1 border-b border-black border-opacity-20">{event.produto}</div>
                                     <div className="text-xs space-y-1">
@@ -6218,7 +6299,6 @@ const CalendarioFitossanitarioComponent = () => {
         return weekDaysColumns;
     };
 
-    // [CORRIGIDO] Corpo da função de impressão do Kanban foi preenchido.
     const handlePrintKanban = () => {
         if (viewMode !== 'kanban') return;
         const { start } = getWeekInfo(currentDate);
@@ -6274,7 +6354,6 @@ const CalendarioFitossanitarioComponent = () => {
         setTimeout(() => { printWindow.print(); }, 500);
     };
 
-    // [CORRIGIDO] Corpo da função de impressão do Calendário foi preenchido.
     const handlePrintCalendar = () => {
         const month = currentDate.getMonth();
         const year = currentDate.getFullYear();
@@ -6706,8 +6785,9 @@ const AlocarTarefaModal = ({ isOpen, onClose, tarefaPendente, onAlocar, listasAu
 
 
 
-// Versão: 15.3.0
-// [MELHORIA] Adicionada a coluna "Observação/Orientação" na tabela de Acompanhamento de Aplicações.
+// Versão: 15.3.1 (Ajuste solicitado)
+// [REMOVIDO] Removido o card "Aplicações Pendentes de Aprovação" e sua lógica associada (estado 'aplicacoesPendentes' e função 'handleAprovarTarefa'),
+// conforme solicitado, pois a funcionalidade não está em uso.
 const RegistroAplicacaoComponent = () => {
     const { db, appId, listasAuxiliares, funcionarios, auth, storage } = useContext(GlobalContext);
     
@@ -6717,7 +6797,7 @@ const RegistroAplicacaoComponent = () => {
     const [todosPlanosAtivos, setTodosPlanosAtivos] = useState([]);
     const [loading, setLoading] = useState(true);
     
-    const [aplicacoesPendentes, setAplicacoesPendentes] = useState([]);
+    // const [aplicacoesPendentes, setAplicacoesPendentes] = useState([]); // REMOVIDO
     const [todasAsAplicacoes, setTodasAsAplicacoes] = useState([]);
     const [filtroPlanoId, setFiltroPlanoId] = useState('TODOS');
 
@@ -6740,7 +6820,7 @@ const RegistroAplicacaoComponent = () => {
         );
         const unsubTarefas = onSnapshot(qTarefas, (snapshot) => {
             const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAplicacoesPendentes(tasks.filter(t => t.status === 'PENDENTE_APROVACAO_FITO'));
+            // setAplicacoesPendentes(tasks.filter(t => t.status === 'PENDENTE_APROVACAO_FITO')); // REMOVIDO
             setTodasAsAplicacoes(tasks.filter(t => t.status !== 'PENDENTE_APROVACAO_FITO'));
             setLoading(false);
         }, error => {
@@ -6818,6 +6898,8 @@ const RegistroAplicacaoComponent = () => {
         }
     };
     
+    /*
+    // REMOVIDO
     const handleAprovarTarefa = async (tarefaPendente) => {
         if (!window.confirm(`Deseja aprovar e programar a tarefa "${tarefaPendente.tarefa}"?`)) return;
         try {
@@ -6829,6 +6911,7 @@ const RegistroAplicacaoComponent = () => {
             toast.error("Falha ao aprovar a tarefa.");
         }
     };
+    */
 
     const handleSaveTarefaPendente = async (formData, novosAnexos) => {
         const usuario = auth.currentUser;
@@ -6924,29 +7007,11 @@ const RegistroAplicacaoComponent = () => {
                 acoesPermitidas={['MANUTENÇÃO | PREVENTIVA', 'MANUTENÇÃO | TRATAMENTO']}
             />
 
+            {/* [BLOCO REMOVIDO]
             <div className="my-8 bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-semibold text-gray-700 mb-4">Aplicações Pendentes de Aprovação</h3>
-                {loading ? (<p>Carregando...</p>) : aplicacoesPendentes.length === 0 ? (
-                    <p className="text-gray-500">Nenhuma aplicação futura aguardando aprovação.</p>
-                ) : (
-                    <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
-                        {aplicacoesPendentes.map((tarefa) => (
-                            <div key={tarefa.id} className="p-3 border rounded-lg flex items-center justify-between bg-gray-50">
-                                <div>
-                                    <p className="font-bold text-gray-800">{tarefa.tarefa}</p>
-                                    <p className="text-sm text-gray-600">Responsável: {funcionarios.find(f=>f.id === tarefa.responsaveis[0])?.nome || 'N/A'}</p>
-                                </div>
-                                <div className="text-right">
-                                     <p className="font-semibold text-blue-600">{formatDate(tarefa.dataInicio)}</p>
-                                     <button onClick={() => handleAprovarTarefa(tarefa)} className="mt-1 text-sm bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-3 rounded-md text-xs">
-                                         Aprovar e Programar
-                                     </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                ... Bloco de Aplicações Pendentes de Aprovação removido ...
             </div>
+            */}
 
             <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
                 <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
@@ -6994,9 +7059,10 @@ const RegistroAplicacaoComponent = () => {
     );
 };
 
-// Versão: 8.5.1
-// [CORRIGIDO] Ajustada a lógica de cálculo de datas para corrigir o erro de "off-by-one day"
-// que marcava planos do dia como atrasados, devido a inconsistências de fuso horário.
+// Versão: 8.5.2
+// [NOVO] Adicionado um botão "Verificar/Gerar Tarefas" para permitir ao usuário
+// disparar manualmente a função 'verificarEGerarTarefasFito'.
+// [NOVO] Adicionado um estado 'loadingGerarTarefas' para dar feedback visual durante a verificação.
 const PlanosFitossanitariosComponent = () => {
     const { db, appId, auth } = useContext(GlobalContext);
     const [planos, setPlanos] = useState([]);
@@ -7006,6 +7072,9 @@ const PlanosFitossanitariosComponent = () => {
     const [historicoCompleto, setHistoricoCompleto] = useState([]);
     const [isHistoricoModalOpen, setIsHistoricoModalOpen] = useState(false);
     const [planoParaVerHistorico, setPlanoParaVerHistorico] = useState(null);
+
+    // [NOVO] Estado de loading para o novo botão
+    const [loadingGerarTarefas, setLoadingGerarTarefas] = useState(false);
 
     const basePath = `/artifacts/${appId}/public/data`;
     const planosCollectionRef = collection(db, `${basePath}/planos_fitossanitarios`);
@@ -7029,6 +7098,23 @@ const PlanosFitossanitariosComponent = () => {
         return () => unsubscribe();
     }, []);
     
+    // [NOVO] Handler para o botão de verificação manual
+    const handleVerificarTarefas = async () => {
+        setLoadingGerarTarefas(true);
+        toast.loading("Verificando e gerando tarefas pendentes...", { id: 'gerar-tarefas-toast' });
+        try {
+            // Chama a função de gatilho manualmente
+            await verificarEGerarTarefasFito(db, basePath);
+            toast.dismiss('gerar-tarefas-toast');
+            toast.success("Verificação concluída. Tarefas (se houver) foram geradas.");
+        } catch (error) {
+            toast.dismiss('gerar-tarefas-toast');
+            toast.error("Erro ao verificar/gerar tarefas.");
+            console.error("Erro no handleVerificarTarefas:", error);
+        }
+        setLoadingGerarTarefas(false);
+    };
+
     const getContagemRegressivaInfo = (proximaAplicacao) => {
         if (!proximaAplicacao) {
             return { status: 'CONCLUIDO', texto: 'Plano Concluído', cor: 'bg-green-100 text-green-800' };
@@ -7067,9 +7153,21 @@ const PlanosFitossanitariosComponent = () => {
         <div className="p-4 md:p-6 bg-gray-50 min-h-full">
             <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-semibold text-gray-800">Planos de Aplicação</h2>
-                <button onClick={() => handleOpenModal()} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
-                    <LucidePlusCircle size={20} className="mr-2"/> Criar Novo Plano
-                </button>
+                
+                {/* [ALTERADO] Grupo de botões adicionado */}
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={handleVerificarTarefas} 
+                        disabled={loadingGerarTarefas}
+                        className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm disabled:bg-gray-400"
+                    >
+                        <LucideRefreshCw size={20} className={`mr-2 ${loadingGerarTarefas ? 'animate-spin' : ''}`}/> 
+                        {loadingGerarTarefas ? 'Verificando...' : 'Verificar/Gerar Tarefas'}
+                    </button>
+                    <button onClick={() => handleOpenModal()} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md flex items-center shadow-sm">
+                        <LucidePlusCircle size={20} className="mr-2"/> Criar Novo Plano
+                    </button>
+                </div>
             </div>
 
             <PlanoAplicacaoModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSavePlano} onRemove={handleRemovePlano} planoExistente={editingPlano} />
@@ -7425,7 +7523,9 @@ const AguardandoAlocacaoFitoCard = ({ aplicacoes }) => {
     );
 };
 
-// Versão: 19.0.1
+// Versão: 19.0.2
+// [ARQUITETURA] Removido o 'useEffect' que chamava 'verificarEGerarTarefasFito'.
+// Essa lógica foi movida para o 'GlobalProvider' para garantir a execução no carregamento inicial do app.
 // [REVERTIDO] O comportamento do card "Tarefas Atrasadas" foi revertido. Clicar em uma tarefa
 // agora abre diretamente o modal de tratamento ('TratarAtrasoModal'), em vez de navegar para o mapa de atividades.
 const DashboardComponent = ({ setCurrentPage }) => {
@@ -7576,18 +7676,7 @@ const DashboardComponent = ({ setCurrentPage }) => {
         ).sort((a,b) => (a.dataInicio?.toMillis() || 0) - (b.dataInicio?.toMillis() || 0));
     }, [todasTarefas]);
 
-    useEffect(() => {
-        if (db && appId) {
-            const checkKey = `fitoCheckPerformed_${new Date().toISOString().split('T')[0]}`;
-            const checkPerformed = sessionStorage.getItem(checkKey);
-
-            if (!checkPerformed) {
-                verificarEGerarTarefasFito(db, basePath)
-                    .then(() => sessionStorage.setItem(checkKey, 'true'))
-                    .catch(error => console.error("Erro na verificação automática de tarefas fito:", error));
-            }
-        }
-    }, [db, appId, basePath]);
+    // [REMOVIDO] O useEffect que chamava 'verificarEGerarTarefasFito' foi removido daqui.
     
     useEffect(() => {
         if (loadingAuth || !funcionarios?.length) {
