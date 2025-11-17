@@ -33,7 +33,7 @@ const TODAS_AS_AREAS_VALUE = "---TODAS_AS_AREAS---";
 const COR_STATUS_CONCLUIDA_FUNDO_MAPA = "bg-green-200";
 const TODOS_EXCETO_CONCLUIDOS_VALUE = "---TODOS_EXCETO_CONCLUIDOS---"; 
 
-const LOGO_URL = "https://gramoterra.com.br/assets/images/misc/Logo%20Gramoterra-02.png";
+const LOGO_URL = "https://i.imgur.com/4hYwSxM.gif";
 
 // Funções Auxiliares
 const formatDate = (timestamp) => {
