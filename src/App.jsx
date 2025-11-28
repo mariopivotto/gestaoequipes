@@ -3761,10 +3761,8 @@ const ControleFitossanitarioComponent = () => {
     );
 };
 
-// Versão: 15.1.0
-// [MELHORIA] Modal agora aceita as props 'tarefaFixa' e 'acoesPermitidas' para se adaptar ao contexto
-// em que é chamado (Fitossanitário vs. Pátio), restringindo os campos conforme necessário.
-const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, titulo, tarefaFixa = null, acoesPermitidas = null }) => {
+// Versão Atualizada: Suporte a Edição (tarefaExistente)
+const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, titulo, tarefaFixa = null, acoesPermitidas = null, tarefaExistente = null }) => {
     const [loading, setLoading] = useState(false);
     // State do formulário
     const [tarefa, setTarefa] = useState('');
@@ -3777,17 +3775,34 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
 
     useEffect(() => {
         if (isOpen) {
-            // Reseta o formulário ao abrir
-            setTarefa(tarefaFixa || ''); // Seta a tarefa fixa se for provida
-            setPrioridade('');
-            setArea('');
-            setOrientacao('');
-            setAcao('');
-            const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }).split('/').reverse().join('-');
-            setDataInicio(hoje);
+            if (tarefaExistente) {
+                // Modo Edição: Preenche com os dados existentes
+                setTarefa(tarefaExistente.tarefa || '');
+                setPrioridade(tarefaExistente.prioridade || '');
+                setArea(tarefaExistente.area || '');
+                setOrientacao(tarefaExistente.orientacao || '');
+                setAcao(tarefaExistente.acao || '');
+                
+                // Formata data do Firestore (Timestamp) para YYYY-MM-DD
+                if (tarefaExistente.dataInicio && tarefaExistente.dataInicio.seconds) {
+                    const date = new Date(tarefaExistente.dataInicio.seconds * 1000);
+                    setDataInicio(date.toISOString().split('T')[0]);
+                } else {
+                    setDataInicio('');
+                }
+            } else {
+                // Modo Criação: Reseta o formulário
+                setTarefa(tarefaFixa || ''); 
+                setPrioridade('');
+                setArea('');
+                setOrientacao('');
+                setAcao('');
+                const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }).split('/').reverse().join('-');
+                setDataInicio(hoje);
+            }
             setNovosAnexos([]);
         }
-    }, [isOpen, tarefaFixa]);
+    }, [isOpen, tarefaFixa, tarefaExistente]);
 
     const handleFileChange = (e) => {
         if (e.target.files) {
@@ -3801,9 +3816,11 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const tarefaFinal = (tarefaFixa || tarefa).trim().toUpperCase();
+        // Se estiver editando, usa o nome que está no input, senão usa a tarefaFixa ou o input
+        const tarefaFinal = (tarefaExistente ? tarefa : (tarefaFixa || tarefa)).trim().toUpperCase();
+        
         if (!tarefaFinal || !acao || !dataInicio) {
-            toast.error("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios.");
+            alert("Os campos Tarefa (Descrição), Ação e Data da inclusão são obrigatórios."); // Alterado para alert simples ou use toast se preferir
             return;
         }
         setLoading(true);
@@ -3817,7 +3834,8 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
             orientacao: orientacao.trim()
         };
         
-        await onSave(formData, novosAnexos);
+        // Passa o ID se for edição
+        await onSave(formData, novosAnexos, tarefaExistente ? tarefaExistente.id : null);
         
         setLoading(false);
         onClose();
@@ -3828,11 +3846,12 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
         : (listasAuxiliares.acoes || []);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={titulo || "Criar Nova Tarefa Pendente"} width="max-w-3xl">
+        <Modal isOpen={isOpen} onClose={onClose} title={titulo || (tarefaExistente ? "Editar Tarefa Pendente" : "Criar Nova Tarefa Pendente")} width="max-w-3xl">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                     <label htmlFor="tarefaDescricaoPendente" className="block text-sm font-medium text-gray-700">Tarefa (Descrição) <span className="text-red-500">*</span></label>
-                    {tarefaFixa ? (
+                    {/* Se tiver tarefaFixa E NÃO for edição, trava o campo. Se for edição, libera para corrigir se necessário */}
+                    {tarefaFixa && !tarefaExistente ? (
                         <input
                             type="text"
                             value={tarefaFixa}
@@ -3868,7 +3887,14 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
                     </div>
                     <div>
                         <label htmlFor="tarefaDataInicioPendente" className="block text-sm font-medium text-gray-700">Data da inclusão da tarefa <span className="text-red-500">*</span></label>
-                        <input id="tarefaDataInicioPendente" type="date" value={dataInicio} required disabled className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100 cursor-not-allowed"/>
+                        <input 
+                            id="tarefaDataInicioPendente" 
+                            type="date" 
+                            value={dataInicio} 
+                            onChange={(e) => setDataInicio(e.target.value)} // Agora permite edição da data
+                            required 
+                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
+                        />
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3914,7 +3940,7 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
                 <div className="pt-4 flex justify-end space-x-2">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancelar</button>
                     <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-400">
-                        {loading ? 'Criando Tarefa...' : 'Criar Tarefa Pendente'}
+                        {loading ? 'Salvando...' : (tarefaExistente ? 'Atualizar Tarefa' : 'Criar Tarefa Pendente')}
                     </button>
                 </div>
             </form>
@@ -3922,13 +3948,12 @@ const TarefaPendenteFormModal = ({ isOpen, onClose, onSave, listasAuxiliares, ti
     );
 };
 
-// Versão: 23.5.1
-// [CORRIGIDO] Corrigido o bug crítico na função 'handleCriarTarefaPendente' que impedia o upload de anexos.
-// A função 'ref' do Firebase Storage estava recebendo o objeto 'File' em vez da string de caminho 'caminhoStorage'.
+// Versão Atualizada: Com Edição e Exclusão
 const TarefaPatioComponent = () => {
     const { userId, db, appId, listasAuxiliares, auth, storage } = useContext(GlobalContext);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingTarefa, setEditingTarefa] = useState(null); // Estado para controlar edição
     
     const [tarefasPendentes, setTarefasPendentes] = useState([]);
     const [loadingList, setLoadingList] = useState(true);
@@ -3938,6 +3963,7 @@ const TarefaPatioComponent = () => {
 
     useEffect(() => {
         setLoadingList(true);
+        // Busca tarefas que estão aguardando alocação
         const q = query(tarefasMapaCollectionRef, where("status", "==", "AGUARDANDO ALOCAÇÃO"), orderBy("createdAt", "asc"));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -3951,8 +3977,22 @@ const TarefaPatioComponent = () => {
         return () => unsubscribe();
     }, [userId, appId, db, basePath]);
 
-    const handleOpenModal = () => setIsModalOpen(true);
-    const handleCloseModal = () => setIsModalOpen(false);
+    // Abre modal para criação (limpa estado de edição)
+    const handleOpenModal = () => {
+        setEditingTarefa(null);
+        setIsModalOpen(true);
+    };
+
+    // Abre modal para edição
+    const handleEditTarefa = (tarefa) => {
+        setEditingTarefa(tarefa);
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setEditingTarefa(null);
+    };
 
     const handlePrintTarefas = (tarefasParaImprimir) => {
         if (!tarefasParaImprimir || tarefasParaImprimir.length === 0) {
@@ -4067,24 +4107,24 @@ const TarefaPatioComponent = () => {
         setTimeout(() => { printWindow.print(); }, 250);
     };
 
-
-    const handleCriarTarefaPendente = async (formData, novosAnexos) => {
+    // Função Unificada: Criar ou Editar
+    const handleSaveTarefaPendente = async (formData, novosAnexos, tarefaId = null) => {
         const usuario = auth.currentUser;
         if (!usuario) {
             toast.error("Usuário não autenticado.");
             return;
         }
 
-        const novoDocRef = doc(tarefasMapaCollectionRef);
-        const idDaNovaTarefa = novoDocRef.id;
+        // Determina ID: Se veio como argumento, usa ele. Se não, gera novo.
+        const idParaSalvar = tarefaId || doc(tarefasMapaCollectionRef).id;
+        const docRef = doc(db, `${basePath}/tarefas_mapa`, idParaSalvar);
 
         try {
             const urlsDosNovosAnexos = [];
-            if (novosAnexos.length > 0) {
+            if (novosAnexos && novosAnexos.length > 0) {
                 toast.loading('Enviando anexos...', { id: 'upload-toast-patio' });
                 for (const anexo of novosAnexos) {
-                    const caminhoStorage = `${basePath}/imagens_tarefas/${idDaNovaTarefa}/${Date.now()}_${anexo.name}`;
-                    // [CORRIGIDO] A função 'ref' agora usa a variável de string 'caminhoStorage' em vez do objeto 'anexo'.
+                    const caminhoStorage = `${basePath}/imagens_tarefas/${idParaSalvar}/${Date.now()}_${anexo.name}`;
                     const storageRef = ref(storage, caminhoStorage);
                     const uploadTask = await uploadBytesResumable(storageRef, anexo);
                     const downloadURL = await getDownloadURL(uploadTask.ref);
@@ -4095,7 +4135,8 @@ const TarefaPatioComponent = () => {
             
             const dataInicioTimestamp = Timestamp.fromDate(new Date(formData.dataInicio + "T00:00:00Z"));
 
-            const novaTarefaData = {
+            // Prepara dados comuns
+            const dadosBase = {
                 tarefa: formData.tarefa,
                 prioridade: formData.prioridade || "",
                 area: formData.area || "",
@@ -4103,36 +4144,105 @@ const TarefaPatioComponent = () => {
                 dataInicio: dataInicioTimestamp,
                 dataProvavelTermino: dataInicioTimestamp,
                 orientacao: formData.orientacao,
-                status: "AGUARDANDO ALOCAÇÃO",
-                responsaveis: [],
-                turno: "",
-                criadoPor: usuario.uid,
-                criadoPorEmail: usuario.email,
-                createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now(),
-                origem: "Tarefa Pátio",
-                imagens: urlsDosNovosAnexos,
             };
 
-            await setDoc(novoDocRef, novaTarefaData);
+            if (tarefaId) {
+                // UPDATE: Mantém dados originais que não mudam e adiciona novos anexos aos existentes
+                const tarefaOriginal = tarefasPendentes.find(t => t.id === tarefaId);
+                const imagensExistentes = tarefaOriginal?.imagens || [];
+                
+                await updateDoc(docRef, {
+                    ...dadosBase,
+                    imagens: [...imagensExistentes, ...urlsDosNovosAnexos]
+                });
 
-            await logAlteracaoTarefa(
-                db,
-                basePath,
-                idDaNovaTarefa,
-                usuario.uid,
-                usuario.email,
-                "Tarefa Criada (Pátio)",
-                `Tarefa "${novaTarefaData.tarefa}" criada via Tarefa Pátio.`
-            );
+                await logAlteracaoTarefa(
+                    db,
+                    basePath,
+                    tarefaId,
+                    usuario.uid,
+                    usuario.email,
+                    "Tarefa Editada (Pátio)",
+                    `Tarefa "${formData.tarefa}" atualizada via Tarefa Pátio.`
+                );
+                toast.success("Tarefa atualizada com sucesso!");
 
-            toast.success("Nova tarefa criada com sucesso!");
+            } else {
+                // CREATE: Dados completos de criação
+                const novaTarefaData = {
+                    ...dadosBase,
+                    status: "AGUARDANDO ALOCAÇÃO",
+                    responsaveis: [],
+                    turno: "",
+                    criadoPor: usuario.uid,
+                    criadoPorEmail: usuario.email,
+                    createdAt: Timestamp.now(),
+                    origem: "Tarefa Pátio",
+                    imagens: urlsDosNovosAnexos,
+                };
+                
+                await setDoc(docRef, novaTarefaData);
+
+                await logAlteracaoTarefa(
+                    db,
+                    basePath,
+                    idParaSalvar,
+                    usuario.uid,
+                    usuario.email,
+                    "Tarefa Criada (Pátio)",
+                    `Tarefa "${formData.tarefa}" criada via Tarefa Pátio.`
+                );
+                toast.success("Nova tarefa criada com sucesso!");
+            }
+
             handleCloseModal();
 
         } catch (error) {
-            console.error("Erro ao criar tarefa do pátio: ", error);
-            toast.error("Erro ao criar tarefa do pátio: " + error.message);
+            console.error("Erro ao salvar tarefa do pátio: ", error);
+            toast.error("Erro ao salvar tarefa do pátio: " + error.message);
             toast.dismiss('upload-toast-patio');
+        }
+    };
+
+    const handleDeleteTarefa = async (tarefaId) => {
+        if (!window.confirm("Tem certeza que deseja EXCLUIR esta tarefa? Esta ação não pode ser desfeita.")) {
+            return;
+        }
+
+        const usuario = auth.currentUser;
+        try {
+            // Tenta excluir imagens do Storage se houver (opcional, mas boa prática)
+            const tarefaParaExcluir = tarefasPendentes.find(t => t.id === tarefaId);
+            if (tarefaParaExcluir?.imagens?.length > 0) {
+                 for (const url of tarefaParaExcluir.imagens) {
+                    try {
+                        const imageRef = ref(storage, url);
+                        await deleteObject(imageRef);
+                    } catch (e) {
+                        console.warn("Imagem já não existia ou erro ao excluir:", e);
+                    }
+                }
+            }
+
+            // Exclui do Firestore
+            await deleteDoc(doc(db, `${basePath}/tarefas_mapa`, tarefaId));
+
+             await logAlteracaoTarefa(
+                db,
+                basePath,
+                tarefaId, // ID será apenas referência no log histórico global se existir, mas o doc da tarefa some
+                usuario?.uid,
+                usuario?.email,
+                "Tarefa Excluída (Pátio)",
+                `Tarefa Pátio excluída.`
+            );
+
+            toast.success("Tarefa excluída com sucesso!");
+
+        } catch (error) {
+            console.error("Erro ao excluir tarefa:", error);
+            toast.error("Erro ao excluir a tarefa.");
         }
     };
 
@@ -4174,7 +4284,8 @@ const TarefaPatioComponent = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-100">
                             <tr>
-                                {["Tarefa", "Prioridade", "Área", "Ação", "Data Criação", "Orientação", "Imprimir"].map(header => (
+                                {/* Adicionada coluna "Ações" e removida coluna exclusiva "Imprimir" que foi unificada */}
+                                {["Tarefa", "Prioridade", "Área", "Ação", "Data Criação", "Orientação", "Ações"].map(header => (
                                     <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap">{header}</th>
                                 ))}
                             </tr>
@@ -4193,14 +4304,30 @@ const TarefaPatioComponent = () => {
                                         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.acao || '-'}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{tp.createdAt ? formatDate(tp.createdAt) : '-'}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700 max-w-xs whitespace-normal break-words">{tp.orientacao || '-'}</td>
-                                        <td className="px-4 py-3 text-sm">
-                                            <button 
-                                                onClick={() => handlePrintTarefas([tp])}
-                                                className="text-gray-500 hover:text-blue-600 p-1 rounded-full hover:bg-blue-100"
-                                                title="Imprimir esta tarefa"
-                                            >
-                                                <LucidePrinter size={18} />
-                                            </button>
+                                        <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
+                                            <div className="flex items-center space-x-2">
+                                                <button 
+                                                    onClick={() => handlePrintTarefas([tp])}
+                                                    className="text-gray-500 hover:text-blue-600 p-1 rounded-full hover:bg-blue-100"
+                                                    title="Imprimir"
+                                                >
+                                                    <LucidePrinter size={18} />
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleEditTarefa(tp)}
+                                                    className="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-100"
+                                                    title="Editar"
+                                                >
+                                                    <LucideEdit size={18} />
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleDeleteTarefa(tp.id)}
+                                                    className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100"
+                                                    title="Excluir"
+                                                >
+                                                    <LucideTrash2 size={18} />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))
@@ -4213,9 +4340,10 @@ const TarefaPatioComponent = () => {
             <TarefaPendenteFormModal
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
-                onSave={handleCriarTarefaPendente}
+                onSave={handleSaveTarefaPendente}
                 listasAuxiliares={listasAuxiliares}
-                titulo="Criar Nova Tarefa do Pátio"
+                titulo={editingTarefa ? "Editar Tarefa Pátio" : "Criar Nova Tarefa do Pátio"}
+                tarefaExistente={editingTarefa} // Passa o objeto se estiver editando
             />
         </div>
     );
