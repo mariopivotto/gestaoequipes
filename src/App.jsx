@@ -4680,8 +4680,9 @@ const GerenciarTarefaProgramacaoModal = ({ isOpen, onClose, diaFormatado, respon
 };
 
 
-// Versão: 8.0.1
-// [CORRIGIDO] Corrigido o erro "forEach is not a function" que ocorria ao gerar o relatório por período.
+// Versão: 8.0.2
+// [CORRIGIDO] Implementada a função 'handlePrint' que estava ausente, permitindo a impressão e exportação para PDF.
+// [MELHORIA] Adicionados estilos CSS específicos para impressão para garantir que a tabela mantenha a formatação do sistema.
 const RelatorioSemanal = () => {
     const { db, appId, funcionarios: contextFuncionarios } = useContext(GlobalContext);
     const [dadosRelatorio, setDadosRelatorio] = useState(null);
@@ -4743,7 +4744,6 @@ const RelatorioSemanal = () => {
                 const isoDate = dataCorrente.toISOString().split('T')[0];
                 if(todosOsDias[isoDate]) {
                     diasFiltrados[isoDate] = todosOsDias[isoDate];
-                    // [CORRIGIDO] Lógica de iteração para coletar os IDs das tarefas.
                     Object.values(todosOsDias[isoDate]).forEach(tarefasDoResponsavel => {
                         tarefasDoResponsavel.forEach(tarefa => {
                             if (tarefa.mapaTaskId) {
@@ -4767,6 +4767,7 @@ const RelatorioSemanal = () => {
             setAnotacoesDasTarefas(anotacoesMap);
             setDadosRelatorio(diasFiltrados);
             setShowReport(true);
+            
             if(Object.keys(diasFiltrados).length === 0){
                 toast.error("Nenhuma atividade programada encontrada para o período selecionado.");
             }
@@ -4778,7 +4779,63 @@ const RelatorioSemanal = () => {
         setLoadingReport(false);
     };
 
-    const handlePrint = () => { /* ... (função de impressão permanece a mesma) ... */ };
+    // [CORREÇÃO] Implementação da função de impressão
+    const handlePrint = () => {
+        const reportContentElement = document.getElementById("printable-report-semanal");
+        if (!reportContentElement) {
+            toast.error("Conteúdo do relatório não encontrado.");
+            return;
+        }
+
+        const printContents = reportContentElement.innerHTML;
+        const printFrame = document.createElement('iframe');
+        printFrame.style.position = 'fixed';
+        printFrame.style.right = '0';
+        printFrame.style.bottom = '0';
+        printFrame.style.width = '0';
+        printFrame.style.height = '0';
+        printFrame.style.border = '0';
+        document.body.appendChild(printFrame);
+
+        printFrame.onload = function() {
+            const priWin = printFrame.contentWindow;
+            priWin.document.open();
+            priWin.document.write(`
+                <html>
+                    <head>
+                        <title>Relatório de Programação por Período</title>
+                        <style>
+                            body { font-family: sans-serif; padding: 20px; color: #333; }
+                            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; table-layout: fixed; }
+                            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 10px; word-wrap: break-word; }
+                            th { background-color: #f9fafb; font-weight: bold; text-transform: uppercase; }
+                            h1 { font-size: 18px; margin-bottom: 5px; }
+                            h4 { background-color: #e5e7eb; padding: 8px; margin-bottom: 0; border-radius: 4px 4px 0 0; font-size: 12px; }
+                            .print-header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+                            .task-block strong { color: #111; display: block; margin-bottom: 2px; }
+                            .notes-block { margin-top: 5px; border-top: 1px solid #eee; padding-top: 3px; font-size: 9px; color: #666; }
+                            .conclusion-block strong { display: block; }
+                            @media print {
+                                .no-print { display: none; }
+                                table { page-break-inside: auto; }
+                                tr { page-break-inside: avoid; page-break-after: auto; }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        ${printContents}
+                    </body>
+                </html>
+            `);
+            priWin.document.close();
+            priWin.focus();
+            setTimeout(() => {
+                priWin.print();
+                document.body.removeChild(printFrame);
+            }, 500);
+        };
+        printFrame.src = "about:blank";
+    };
     
     const getStatusClass = (status) => {
         if (status === "CONCLUÍDA") return 'font-bold text-green-700';
@@ -4878,7 +4935,7 @@ const RelatorioSemanal = () => {
                                                                         {`[${t.statusLocal || 'PENDENTE'}]`}
                                                                     </strong>
                                                                     <p className="text-sm text-gray-800 pt-1">
-                                                                        {t.conclusao || <span className="italic-placeholder">Aguardando registro...</span>}
+                                                                        {t.conclusao || "Aguardando registro..."}
                                                                     </p>
                                                                 </div>
                                                             </td>
